@@ -43,6 +43,7 @@ const _latestRepoCacheKey = "latestVersionRepoCache";
 const _repoToken = "$_repoOwner/$_repoName";
 final _repoTokenLower =
     "${_repoOwner.toLowerCase()}/${_repoName.toLowerCase()}";
+const _useBackendAppConfig = false;
 late int _period = -1;
 
 Future initVersion() async {
@@ -131,10 +132,12 @@ Future _versionCheck() async {
   if (_versionExp.hasMatch(_version)) {
     _downloadUrl = _defaultDownloadUrl;
     var loadedByAppConfig = false;
-    try {
-      loadedByAppConfig = await _applyRemoteAppConfig();
-    } catch (_) {
-      // fall through to github release API
+    if (_useBackendAppConfig) {
+      try {
+        loadedByAppConfig = await _applyRemoteAppConfig();
+      } catch (_) {
+        // fall through to github release API
+      }
     }
     if (!loadedByAppConfig) {
       try {
