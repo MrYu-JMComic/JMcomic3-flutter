@@ -25,6 +25,7 @@ const _releaseLatestPageMirrorUrls = [
   "https://r.jina.ai/http://github.com/$_repoOwner/$_repoName/releases/latest",
 ];
 const releasePageUrl = "https://github.com/$_repoOwner/$_repoName/releases/";
+const _defaultDownloadUrl = releasePageUrl;
 
 const _versionAssets = 'lib/assets/version.txt';
 final RegExp _versionExp = RegExp(r"^v\d+\.\d+\.\d+(\+\d+)?$");
@@ -33,12 +34,15 @@ late String _version;
 String? _latestVersion;
 String? _latestVersionName;
 String? _latestVersionInfo;
+String _downloadUrl = _defaultDownloadUrl;
 
 const _propertyName = "checkVersionPeriod";
 const _latestNameCacheKey = "latestVersionNameCache";
 const _latestInfoCacheKey = "latestVersionInfoCache";
 const _latestRepoCacheKey = "latestVersionRepoCache";
 const _repoToken = "$_repoOwner/$_repoName";
+final _repoTokenLower =
+    "${_repoOwner.toLowerCase()}/${_repoName.toLowerCase()}";
 late int _period = -1;
 
 Future initVersion() async {
@@ -94,6 +98,10 @@ String? latestVersionInfo() {
   return _latestVersionInfo;
 }
 
+String latestDownloadUrl() {
+  return _sanitizeDownloadUrl(_downloadUrl);
+}
+
 Future autoCheckNewVersion() {
   if (_period != 0) {
     return Future.value();
@@ -121,36 +129,102 @@ bool dirtyVersion() {
 
 Future _versionCheck() async {
   if (_versionExp.hasMatch(_version)) {
+    _downloadUrl = _defaultDownloadUrl;
+    var loadedByAppConfig = false;
     try {
-      final json = await _fetchLatestReleaseJson();
-      final latestTag = json["tag_name"]?.toString().trim() ?? "";
-      final latestName = json["name"]?.toString().trim() ?? "";
-      final latestVersion = _pickLatestVersion(latestTag, latestName);
-      if (latestVersion.isNotEmpty) {
-        final body = json["body"]?.toString() ?? "";
-        _latestVersionName = latestVersion;
-        _latestVersionInfo = body;
-        _latestVersion = latestVersion != _version ? latestVersion : null;
-        await methods.saveProperty(_latestNameCacheKey, latestVersion);
-        await methods.saveProperty(_latestInfoCacheKey, body);
-      } else {
-        _latestVersion = null;
-        _latestVersionName = null;
-        _latestVersionInfo = null;
-      }
-    } catch (e) {
-      // keep cached values when network fetch fails
+      loadedByAppConfig = await _applyRemoteAppConfig();
+    } catch (_) {
+      // fall through to github release API
     }
-    if ((_latestVersionInfo ?? "").trim().isEmpty) {
-      final pageInfo = await _fetchLatestReleaseInfoFromPage();
-      if (pageInfo != null && pageInfo.trim().isNotEmpty) {
-        _latestVersionInfo = pageInfo;
-        await methods.saveProperty(_latestInfoCacheKey, pageInfo);
+    if (!loadedByAppConfig) {
+      try {
+        final json = await _fetchLatestReleaseJson();
+        final latestTag = json["tag_name"]?.toString().trim() ?? "";
+        final latestName = json["name"]?.toString().trim() ?? "";
+        final latestVersion = _pickLatestVersion(latestTag, latestName);
+        if (latestVersion.isNotEmpty) {
+          final body = json["body"]?.toString() ?? "";
+          _latestVersionName = latestVersion;
+          _latestVersionInfo = body;
+          _latestVersion = latestVersion != _version ? latestVersion : null;
+          await methods.saveProperty(_latestNameCacheKey, latestVersion);
+          await methods.saveProperty(_latestInfoCacheKey, body);
+        } else {
+          _latestVersion = null;
+          _latestVersionName = null;
+          _latestVersionInfo = null;
+        }
+      } catch (e) {
+        // keep cached values when network fetch fails
+      }
+      if ((_latestVersionInfo ?? "").trim().isEmpty) {
+        final pageInfo = await _fetchLatestReleaseInfoFromPage();
+        if (pageInfo != null && pageInfo.trim().isNotEmpty) {
+          _latestVersionInfo = pageInfo;
+          await methods.saveProperty(_latestInfoCacheKey, pageInfo);
+        }
       }
     }
   }
   versionEvent.broadcast();
   debugPrient("$_latestVersion");
+}
+
+Future<bool> _applyRemoteAppConfig() async {
+  final config = await methods.appConfig();
+  if (config.isEmpty) {
+    return false;
+  }
+  final remoteDownloadUrl = config["downloadUrl"]?.toString();
+  final remoteDownloadUrlTrimmed = remoteDownloadUrl?.trim() ?? "";
+  final safeDownloadUrl = _sanitizeDownloadUrl(remoteDownloadUrlTrimmed);
+  if (remoteDownloadUrlTrimmed.isNotEmpty &&
+      safeDownloadUrl == _defaultDownloadUrl &&
+      remoteDownloadUrlTrimmed != _defaultDownloadUrl) {
+    // Ignore remote config if it points to a non-owned repository.
+    _downloadUrl = _defaultDownloadUrl;
+    debugPrient(
+        "ignore untrusted remote downloadUrl: $remoteDownloadUrlTrimmed");
+    return false;
+  }
+  _downloadUrl = safeDownloadUrl;
+
+  final latestTag = config["latestVersion"]?.toString().trim() ?? "";
+  final latestName = config["latestVersionName"]?.toString().trim() ?? "";
+  final latestVersion = _pickLatestVersion(latestTag, latestName);
+  if (latestVersion.isEmpty) {
+    return false;
+  }
+
+  final body = config["changeLog"]?.toString() ?? "";
+  _latestVersionName = latestVersion;
+  _latestVersionInfo = body;
+  _latestVersion = latestVersion != _version ? latestVersion : null;
+  await methods.saveProperty(_latestNameCacheKey, latestVersion);
+  await methods.saveProperty(_latestInfoCacheKey, body);
+  return true;
+}
+
+String _sanitizeDownloadUrl(String? candidate) {
+  final text = (candidate ?? "").trim();
+  if (text.isEmpty) {
+    return _defaultDownloadUrl;
+  }
+  Uri uri;
+  try {
+    uri = Uri.parse(text);
+  } catch (_) {
+    return _defaultDownloadUrl;
+  }
+  final scheme = uri.scheme.toLowerCase();
+  if (scheme != "http" && scheme != "https") {
+    return _defaultDownloadUrl;
+  }
+  final lower = text.toLowerCase();
+  if (!lower.contains(_repoTokenLower)) {
+    return _defaultDownloadUrl;
+  }
+  return text;
 }
 
 String _pickLatestVersion(String tagName, String releaseName) {
