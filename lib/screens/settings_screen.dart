@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/configs/app_font_size.dart';
@@ -35,6 +33,7 @@ import '../configs/web_dav_password.dart';
 import '../configs/web_dav_sync_switch.dart';
 import '../configs/web_dav_url.dart';
 import '../configs/web_dav_username.dart';
+import 'init_screen.dart';
 import 'components/right_click_pop.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -79,7 +78,13 @@ class _SettingsState extends State<SettingsScreen> {
                     if (await confirmDialog(
                         context, l10n.clearAccount, l10n.clearAccountConfirm)) {
                       await methods.logout();
-                      exit(0);
+                      if (!mounted) return;
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(
+                          builder: (BuildContext context) => const InitScreen(),
+                        ),
+                        (route) => false,
+                      );
                     }
                   },
                   title: Text(l10n.clearAccount),

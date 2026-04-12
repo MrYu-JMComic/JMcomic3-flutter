@@ -156,8 +156,18 @@ class _BrowserScreenState extends State<BrowserScreen>
           AsyncSnapshot<CategoriesResponse> snapshot,
         ) {
           final categories = snapshot.requireData.categories;
-          if (_slug.isEmpty && categories.isNotEmpty) {
-            _slug = categories[0].slug;
+          if (categories.isEmpty) {
+            _slug = "";
+            return Center(
+              child: Text(
+                l10n.tr("No categories available",
+                    en: "No categories available"),
+              ),
+            );
+          }
+          final slugExists = categories.any((element) => element.slug == _slug);
+          if (_slug.isEmpty || !slugExists) {
+            _slug = categories.first.slug;
           }
           return Column(children: [
             SizedBox(
@@ -217,8 +227,33 @@ class _MTabBar extends StatefulWidget {
 
 class _MTabBarState extends State<_MTabBar>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabController =
-      TabController(length: widget.categories.length, vsync: this);
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = _createController();
+  }
+
+  TabController _createController({int initialIndex = 0}) {
+    final maxIndex = widget.categories.length - 1;
+    final safeIndex = initialIndex > maxIndex ? maxIndex : initialIndex;
+    return TabController(
+      length: widget.categories.length,
+      vsync: this,
+      initialIndex: safeIndex,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _MTabBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.categories.length != widget.categories.length) {
+      final index = _tabController.index;
+      _tabController.dispose();
+      _tabController = _createController(initialIndex: index);
+    }
+  }
 
   @override
   void dispose() {

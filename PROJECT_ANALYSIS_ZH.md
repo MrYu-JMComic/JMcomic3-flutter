@@ -49,7 +49,7 @@
 - 外观体验：主题、字号、屏幕方向、右键菜单、动画开关
 - 阅读偏好：翻页方向、双页方向、滑块位置、显示 JM 代码、音量键控制
 - 版本能力：自动/手动检查更新、更新公告读取、升级提醒
-- 其他：图片预览与保存、隐藏计算器入口（含触发逻辑）
+- 其他：图片预览与保存
 
 ## 5. 页面清单（`lib/screens/*.dart`）
 | 页面类 | 文件 | 主要作用 | 关键方法 |
@@ -81,7 +81,6 @@
 | `AccessKeyReplaceScreen` | `lib/screens/access_key_replace_screen.dart` | PAT 密钥验证与绑定 | `_load`、`_bind`、`_save` |
 | `NetworkSettingScreen` | `lib/screens/network_setting_screen.dart` | 网络配置与恢复入口 | `buildScreen` |
 | `FilePhotoViewScreen` | `lib/screens/file_photo_view_screen.dart` | 图片预览与保存 | `buildScreen` |
-| `CalculatorScreen` | `lib/screens/calculator_screen.dart` | 计算器隐藏页（含入口逻辑） | `btnclick`、`sumClac` |
 
 ## 6. 关键方法（核心网关）
 核心业务接口集中在 `lib/basic/methods.dart` 的 `Methods`：
@@ -795,19 +794,6 @@
 - L78 createState
 - L91 _categories
 - L99 initState
-
-## lib/screens/calculator_screen.dart
-类: CalculatorScreen, ContentBody, ContentBodyState
-方法:
-- L10 CalculatorScreen
-- L13 build
-- L23 ContentBody
-- L26 createState
-- L43 build
-- L463 numClick
-- L500 btnclick
-- L589 sumClac
-- L668 clacVlaue
 
 ## lib/screens/comic_download_screen.dart
 类: ComicDownloadScreen, _ComicDownloadScreenState

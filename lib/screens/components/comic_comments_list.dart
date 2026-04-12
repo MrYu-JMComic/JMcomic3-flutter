@@ -39,7 +39,7 @@ class _ComicCommentsListState extends State<ComicCommentsList> {
     final response =
         await methods.forum(widget.mode, widget.aid, widget.uid, _page);
     if (_page == 1) {
-      if (response.total == 0) {
+      if (response.total == 0 || response.list.isEmpty) {
         _maxPage = 1;
       } else {
         _maxPage = (response.total / response.list.length).ceil();

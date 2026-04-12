@@ -22,7 +22,6 @@ class _AccessKeyReplaceScreenState extends State<AccessKeyReplaceScreen> {
   String _patId = "";
   String _bindUid = "";
   bool _isPro = false;
-  int _requestDelete = 0;
   int _reBind = 0;
 
   @override
@@ -43,7 +42,6 @@ class _AccessKeyReplaceScreenState extends State<AccessKeyReplaceScreen> {
         _patId = check["email"] ?? "";
         _bindUid = check["bind_user"] ?? "";
         _isPro = check["fd"] ?? false;
-        _requestDelete = check["request_delete"] ?? 0;
         _reBind = check["re_bind"] ?? 0;
         _loading = false;
       });

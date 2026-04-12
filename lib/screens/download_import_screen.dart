@@ -94,6 +94,7 @@ class _DownloadImportScreenState extends State<DownloadImportScreen> {
             context,
             context.l10n.tr("申请权限被拒绝", en: "Permission denied"),
           );
+          return;
         }
         String? path;
         if (Platform.isAndroid) {
@@ -117,40 +118,42 @@ class _DownloadImportScreenState extends State<DownloadImportScreen> {
           );
           path = ls != null && ls.count > 0 ? ls.paths[0] : null;
         }
-        if (path != null) {
-          if (path.endsWith(".jm.zip") || path.endsWith(".jmi")) {
-            try {
-              setState(() {
-                _importing = true;
-              });
-              if (path.endsWith(".zip")) {
-                await methods.import_jm_zip(path);
-              } else if (path.endsWith(".jmi")) {
-                await methods.import_jm_jmi(path);
-              }
-              setState(() {
-                _importMessage =
-                    context.l10n.tr("导入成功", en: "Import succeeded");
-              });
-            } catch (e) {
-              setState(() {
-                _importMessage =
-                    context.l10n.tr("导入失败", en: "Import failed") + " $e";
-              });
-            } finally {
-              setState(() {
-                _importing = false;
-              });
-            }
-          } else if (path.endsWith(".jm.zip")) {
-            defaultToast(
-              context,
-              context.l10n.tr(
-                "只能导入 .jm.zip 压缩包",
-                en: "Only .jm.zip archives are supported",
-              ),
-            );
+        if (path == null) {
+          return;
+        }
+        final lowerPath = path.toLowerCase();
+        final isJmZip = lowerPath.endsWith(".jm.zip");
+        final isJmi = lowerPath.endsWith(".jmi");
+        if (!isJmZip && !isJmi) {
+          defaultToast(
+            context,
+            context.l10n.tr(
+              "Only .jm.zip and .jmi files are supported",
+              en: "Only .jm.zip and .jmi files are supported",
+            ),
+          );
+          return;
+        }
+        try {
+          setState(() {
+            _importing = true;
+          });
+          if (isJmZip) {
+            await methods.import_jm_zip(path);
+          } else {
+            await methods.import_jm_jmi(path);
           }
+          setState(() {
+            _importMessage = context.l10n.tr("导入成功", en: "Import succeeded");
+          });
+        } catch (e) {
+          setState(() {
+            _importMessage = context.l10n.tr("导入失败", en: "Import failed") + " $e";
+          });
+        } finally {
+          setState(() {
+            _importing = false;
+          });
         }
       },
       child: Text(

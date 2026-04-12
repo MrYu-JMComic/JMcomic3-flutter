@@ -36,8 +36,8 @@ String readerTypeName(ReaderType type, BuildContext context) {
       return context.l10n.tr("相册", en: "Gallery");
     case ReaderType.webToonFreeZoom:
       return context.l10n.tr(
-        "自由放大滚动 无法翻页",
-        en: "Free zoom scroll (no page turn)",
+        "自由缩放翻页",
+        en: "Free zoom paging",
       );
     case ReaderType.twoPageGallery:
       return context.l10n.tr("双页相册", en: "Two-page gallery");

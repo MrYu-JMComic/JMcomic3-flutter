@@ -60,7 +60,6 @@ app.*.map.json
 /_flutter/
 
 cmake-build-*/
-windows/rust.h
 windows/rust.lib
 windows/rust1.h
 /data/

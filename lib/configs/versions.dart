@@ -262,9 +262,9 @@ String? _extractReleaseBodyFromPage(String text) {
     if (md != null) {
       body = md.group(1) ?? "";
       body = body
-          .replaceAll(RegExp(r'(?i)<br\\s*/?>'), "\n")
-          .replaceAll(RegExp(r'(?i)</p>'), "\n")
-          .replaceAll(RegExp(r'(?i)</li>'), "\n");
+          .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), "\n")
+          .replaceAll(RegExp(r'</p>', caseSensitive: false), "\n")
+          .replaceAll(RegExp(r'</li>', caseSensitive: false), "\n");
       body = body.replaceAll(RegExp(r'<[^>]+>'), "");
       body = _decodeHtmlEntities(body).trim();
     }
