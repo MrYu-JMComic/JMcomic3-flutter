@@ -87,3 +87,11 @@ tests_data/
 .fvm/
 
 *.db
+*.bak
+/_upstream_ref/
+/.tmp_appdata/
+/_tmp_gradle_probe_*/
+/tmp_method_inventory.txt
+/null
+/android/null
+/android/build/
