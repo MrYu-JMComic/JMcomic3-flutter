@@ -8,7 +8,6 @@ on:
 
 env:
   GH_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
-  RUST_TOOLCHAIN: nightly-2025-02-26
   NDK_VERSION: 27.2.12479018
   FLUTTER_CHANNEL: stable
   FLUTTER_VERSION: '3.7.3'
@@ -99,41 +98,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Detect local native core
-        id: detect-native
-        shell: bash
-        run: |
-          if [ -d native/jmbackend ]; then
-            echo "use_local=true" >> "$GITHUB_OUTPUT"
-            echo "Using local native core from repository."
-          else
-            echo "use_local=false" >> "$GITHUB_OUTPUT"
-            echo "No local native core found, will checkout external core repository."
-          fi
-
-      - name: Cargo cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: ${{ runner.os }}-cargo-
-
-      - name: Install rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - name: Checkout core repository
-        if: steps.detect-native.outputs.use_local != 'true'
-        uses: actions/checkout@v3
-        with:
-          token: ${{ env.GH_TOKEN }}
-          repository: ${{ vars.CORE_REPOSITORY != '' && vars.CORE_REPOSITORY || format('{0}/jasmine-rs-core', github.repository_owner) }}
-          path: native
-
       - name: Cache Flutter dependencies
         uses: actions/cache@v3
         with:
@@ -146,9 +110,6 @@ jobs:
           channel: ${{ env.FLUTTER_CHANNEL }}
           flutter-version: ${{ env.FLUTTER_VERSION }}
           architecture: x64
-
-      - name: Install cargo tools
-        run: cargo install --force cargo-ndk
 
       - name: Setup java
         uses: actions/setup-java@v3
@@ -167,37 +128,29 @@ jobs:
           cd ci
           cp version.code.txt ../lib/assets/version.txt
 
+      - name: Verify bundled JNI libs
+        shell: bash
+        run: |
+          if [ "${{ matrix.config.target }}" = "android-arm64" ]; then
+            test -f android/app/src/main/jniLibs/arm64-v8a/librust.so
+          elif [ "${{ matrix.config.target }}" = "android-arm32" ]; then
+            test -f android/app/src/main/jniLibs/armeabi-v7a/librust.so
+          else
+            test -f android/app/src/main/jniLibs/arm64-v8a/librust.so
+            test -f android/app/src/main/jniLibs/armeabi-v7a/librust.so
+          fi
+
       - name: Build Android core
         if: matrix.config.target == 'android-core'
-        run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}
-          rustup target install aarch64-linux-android
-          rustup target install armv7-linux-androideabi
-          cd native/jmbackend/platforms/android
-          cargo ndk -o ../../../../android/app/src/main/jniLibs -t arm64-v8a build --release
-          cargo ndk -o ../../../../android/app/src/main/jniLibs -t armeabi-v7a build --release
-          cd ../../../..
-          zip -r -9 android-core.zip android/app/src/main/jniLibs
+        run: zip -r -9 android-core.zip android/app/src/main/jniLibs
 
       - name: Build Android arm64
         if: matrix.config.target == 'android-arm64'
-        run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}
-          rustup target install aarch64-linux-android
-          cd native/jmbackend/platforms/android
-          cargo ndk -o ../../../../android/app/src/main/jniLibs -t arm64-v8a build --release
-          cd ../../../..
-          flutter build apk --target-platform android-arm64 --split-per-abi
+        run: flutter build apk --target-platform android-arm64 --split-per-abi
 
       - name: Build Android arm32
         if: matrix.config.target == 'android-arm32'
-        run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}
-          rustup target install armv7-linux-androideabi
-          cd native/jmbackend/platforms/android
-          cargo ndk -o ../../../../android/app/src/main/jniLibs -t armeabi-v7a build --release
-          cd ../../../..
-          flutter build apk --target-platform android-arm --split-per-abi
+        run: flutter build apk --target-platform android-arm --split-per-abi
 
       - name: Sign APK
         if: matrix.config.target == 'android-arm32' || matrix.config.target == 'android-arm64'
