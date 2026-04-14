@@ -8,6 +8,7 @@ on:
 
 env:
   GH_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+  RUST_BACKEND_REPO: MrYu-JMComic/jmcomic3-rust-backend
   NDK_VERSION: 27.2.12479018
   FLUTTER_CHANNEL: stable
   FLUTTER_VERSION: '3.7.3'
@@ -30,7 +31,7 @@ jobs:
       matrix: ${{ steps.check-release.outputs.matrix }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Check and create release
         id: check-release
@@ -96,10 +97,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Checkout Rust backend
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.RUST_BACKEND_REPO }}
+          token: ${{ secrets.RUST_BACKEND_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          path: rust-backend
+          fetch-depth: 1
 
       - name: Cache Flutter dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /opt/hostedtoolcache/flutter
           key: ${{ runner.os }}-flutter
@@ -112,7 +121,7 @@ jobs:
           architecture: x64
 
       - name: Setup java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JDK_VERSION }}
           distribution: temurin
@@ -122,6 +131,49 @@ jobs:
         with:
           cmdline-tools-version: 8512546
           packages: platform-tools platforms;android-32 build-tools;30.0.2 ndk;${{ env.NDK_VERSION }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-backend/rust -> target
+
+      - name: Install cargo-ndk
+        shell: bash
+        run: cargo install cargo-ndk --locked
+
+      - name: Build Android Rust so
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}"
+          if [ ! -d "$ANDROID_NDK_HOME" ]; then
+            echo "NDK directory not found: $ANDROID_NDK_HOME"
+            ls -la "$ANDROID_HOME/ndk" || true
+            exit 1
+          fi
+          pushd rust-backend/rust
+          if [ "${{ matrix.config.target }}" = "android-arm64" ]; then
+            cargo ndk -t arm64-v8a -o ../../android/app/src/main/jniLibs build --release
+            cp ../../android/app/src/main/jniLibs/arm64-v8a/librust_lib_jasmine.so ../../android/app/src/main/jniLibs/arm64-v8a/librust.so
+            rm -f ../../android/app/src/main/jniLibs/arm64-v8a/librust_lib_jasmine.so
+          elif [ "${{ matrix.config.target }}" = "android-arm32" ]; then
+            cargo ndk -t armeabi-v7a -o ../../android/app/src/main/jniLibs build --release
+            cp ../../android/app/src/main/jniLibs/armeabi-v7a/librust_lib_jasmine.so ../../android/app/src/main/jniLibs/armeabi-v7a/librust.so
+            rm -f ../../android/app/src/main/jniLibs/armeabi-v7a/librust_lib_jasmine.so
+          else
+            cargo ndk -t arm64-v8a -o ../../android/app/src/main/jniLibs build --release
+            cargo ndk -t armeabi-v7a -o ../../android/app/src/main/jniLibs build --release
+            cp ../../android/app/src/main/jniLibs/arm64-v8a/librust_lib_jasmine.so ../../android/app/src/main/jniLibs/arm64-v8a/librust.so
+            cp ../../android/app/src/main/jniLibs/armeabi-v7a/librust_lib_jasmine.so ../../android/app/src/main/jniLibs/armeabi-v7a/librust.so
+            rm -f ../../android/app/src/main/jniLibs/arm64-v8a/librust_lib_jasmine.so
+            rm -f ../../android/app/src/main/jniLibs/armeabi-v7a/librust_lib_jasmine.so
+          fi
+          popd
 
       - name: Set version
         run: |
@@ -151,6 +203,16 @@ jobs:
       - name: Build Android arm32
         if: matrix.config.target == 'android-arm32'
         run: flutter build apk --target-platform android-arm --split-per-abi
+
+      - name: Show APK size
+        if: matrix.config.target == 'android-arm32' || matrix.config.target == 'android-arm64'
+        shell: bash
+        run: |
+          if [ "${{ matrix.config.target }}" = "android-arm64" ]; then
+            ls -lh build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          else
+            ls -lh build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+          fi
 
       - name: Sign APK
         if: matrix.config.target == 'android-arm32' || matrix.config.target == 'android-arm64'

@@ -1,85 +1,40 @@
 import 'dart:collection';
-import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:jmcomic3/basic/http_client.dart';
 import 'package:jmcomic3/basic/methods.dart';
-import 'package:crypto/crypto.dart';
+import 'package:jmcomic3/basic/log.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
-import 'package:pointycastle/export.dart' as pc;
 
-late String _apiHost;
-
-const _base64List = [
-  "d3d3LmNkbmJlYS5uZXQ=",
-  "d3d3LmNkbmh0aC5uZXQ=",
-  "d3d3LmNkbmd3Yy5jYw==",
-  "d3d3LmNkbmh0aC5jbHVi",
+const _defaultApiHost = "www.cdngwc.club";
+const _fallbackApiHosts = <String>[
+  "www.cdngwc.club",
+  "www.cdnbea.net",
+  "www.cdnhth.net",
+  "www.cdngwc.cc",
+  "www.cdnhth.club",
 ];
-
-const _apiDomainServerUrls = [
-  "https://rup4a04-c01.tos-ap-southeast-1.bytepluses.com/newsvr-2025.txt",
-  "https://rup4a04-c02.tos-cn-hongkong.bytepluses.com/newsvr-2025.txt",
-];
-
-const _apiDomainServerSecret = "diosfjckwpqpdfjkvnqQjsik";
-const _apiDomainCacheKey = "api_domain_cache";
-const _apiDomainCacheTsKey = "api_domain_cache_ts";
-const _apiDomainCacheTtlSeconds = 7 * 24 * 60 * 60;
+String _apiHost = _defaultApiHost;
 
 List<String> _apiList = [];
 
 Future<void> initApiHost() async {
-  _apiList = _decodeBase64List(_base64List);
-  await _loadCachedApiList();
-  await _refreshApiListIfNeeded();
-  _apiHost = await methods.loadApiHost();
-  if (_apiHost.isEmpty && _apiList.isNotEmpty) {
-    _apiHost = _apiList.first;
+  _apiList = [];
+  _mergeApiList(_fallbackApiHosts);
+  try {
+    _mergeApiList(await methods.loadApiHostList());
+  } catch (e) {
+    debugPrient("initApiHost loadApiHostList failed: $e");
+    // Keep local fallback list when backend list is unavailable.
+  }
+  final loaded = (await methods.loadApiHost()).trim();
+  _apiHost = loaded.isNotEmpty ? loaded : _defaultApiHost;
+  _mergeApiList([_apiHost]);
+  if (loaded != _apiHost) {
     await methods.saveApiHost(_apiHost);
   }
 }
 
 String get currentApiHostName => (_apiHost);
-
-List<String> _decodeBase64List(List<String> encoded) {
-  return encoded
-      .map((e) => utf8.decode(base64.decode(e)))
-      .where((e) => e.isNotEmpty)
-      .toList();
-}
-
-Future<void> _loadCachedApiList() async {
-  final cached = await methods.loadProperty(_apiDomainCacheKey);
-  if (cached.isEmpty) {
-    return;
-  }
-  try {
-    final decoded = jsonDecode(cached);
-    if (decoded is List) {
-      _mergeApiList(decoded.map((e) => "$e"));
-    }
-  } catch (_) {
-    // Ignore cache parse errors.
-  }
-}
-
-Future<void> _refreshApiListIfNeeded() async {
-  final tsStr = await methods.loadProperty(_apiDomainCacheTsKey);
-  final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  final last = int.tryParse(tsStr) ?? 0;
-  if (now - last < _apiDomainCacheTtlSeconds) {
-    return;
-  }
-  final latest = await _fetchLatestApiDomainList();
-  if (latest.isEmpty) {
-    return;
-  }
-  _mergeApiList(latest);
-  await methods.saveProperty(_apiDomainCacheKey, jsonEncode(latest));
-  await methods.saveProperty(_apiDomainCacheTsKey, "$now");
-}
 
 void _mergeApiList(Iterable<String> items) {
   final merged = LinkedHashSet<String>.from(_apiList);
@@ -92,125 +47,76 @@ void _mergeApiList(Iterable<String> items) {
   _apiList = merged.toList();
 }
 
-Future<List<String>> _fetchLatestApiDomainList() async {
-  for (final url in _apiDomainServerUrls) {
-    try {
-      final list = await _fetchApiDomainList(url);
-      if (list.isNotEmpty) {
-        return list;
-      }
-    } catch (_) {
-      // Try next server.
-    }
-  }
-  return [];
-}
-
-Future<List<String>> _fetchApiDomainList(String url) async {
-  final text = await _httpGetText(url);
-  if (text == null || text.isEmpty) {
-    return [];
-  }
-  final cleaned = _stripNonAsciiPrefix(text.trim());
-  if (cleaned.isEmpty) {
-    return [];
-  }
-  final decodedJson = _decodeDomainServerData(cleaned);
-  final decoded = jsonDecode(decodedJson);
-  final serverList = decoded is Map ? decoded["Server"] : null;
-  if (serverList is! List) {
-    return [];
-  }
-  return serverList.map((e) => "$e").where((e) => e.isNotEmpty).toList();
-}
-
-Future<String?> _httpGetText(String url) async {
-  return AppHttpClient.getTextOrNull(
-    url,
-    requestTimeout: const Duration(seconds: 12),
-    retries: 1,
-  );
-}
-
-String _stripNonAsciiPrefix(String text) {
-  var index = 0;
-  while (index < text.length) {
-    final code = text.codeUnitAt(index);
-    if (code <= 0x7F) {
-      break;
-    }
-    index++;
-  }
-  return text.substring(index);
-}
-
-String _decodeDomainServerData(String data) {
-  final normalized = data.replaceAll(RegExp(r"\s"), "");
-  final decoded = base64.decode(normalized);
-  final key = _md5HexBytes(_apiDomainServerSecret);
-  final decrypted = _aesEcbDecrypt(Uint8List.fromList(decoded), key);
-  return _pkcs7UnpadToString(decrypted);
-}
-
-Uint8List _md5HexBytes(String input) {
-  final digest = md5.convert(utf8.encode(input)).toString();
-  return Uint8List.fromList(utf8.encode(digest));
-}
-
-Uint8List _aesEcbDecrypt(Uint8List data, Uint8List key) {
-  final cipher = pc.ECBBlockCipher(pc.AESEngine());
-  cipher.init(false, pc.KeyParameter(key));
-  final blockSize = cipher.blockSize;
-  final output = Uint8List(data.length);
-  for (var offset = 0; offset < data.length; offset += blockSize) {
-    cipher.processBlock(data, offset, output, offset);
-  }
-  return output;
-}
-
-String _pkcs7UnpadToString(Uint8List data) {
-  if (data.isEmpty) {
-    return "";
-  }
-  final pad = data.last;
-  final cut = data.length - pad;
-  if (pad <= 0 || pad > data.length) {
-    return utf8.decode(data, allowMalformed: true);
-  }
-  return utf8.decode(data.sublist(0, cut), allowMalformed: true);
-}
-
 Future<T?> chooseApiDialog<T>(BuildContext buildContext) async {
   return await showDialog<T>(
     context: buildContext,
     builder: (BuildContext context) {
-      return SimpleDialog(
-        title: Text(context.l10n.tr("API分流", en: "API routing")),
-        children: [
-          ..._apiList.map(
-            (e) => SimpleDialogOption(
-              child: ApiOptionRow(
-                e,
-                key: Key("API:${e}"),
+      return StatefulBuilder(
+        builder:
+            (BuildContext context, void Function(void Function()) setState) {
+          return SimpleDialog(
+            title: Text(context.l10n.tr("API分流", en: "API routing")),
+            children: [
+              ..._apiList.map(
+                (e) => SimpleDialogOption(
+                  child: ApiOptionRow(
+                    e,
+                    key: Key("API:$e"),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).pop(e);
+                  },
+                ),
               ),
-              onPressed: () {
-                Navigator.of(context).pop(e);
-              },
-            ),
-          ),
-          SimpleDialogOption(
-            child: Text(context.l10n.tr("手动输入", en: "Manual input")),
-            onPressed: () async {
-              Navigator.of(context).pop(await _manualInputApiHost(context));
-            },
-          ),
-          SimpleDialogOption(
-            child: Text(context.l10n.tr("取消", en: "Cancel")),
-            onPressed: () {
-              Navigator.of(context).pop(null);
-            },
-          ),
-        ],
+              SimpleDialogOption(
+                child: Text(context.l10n.tr("手动拉取", en: "Refresh list")),
+                onPressed: () async {
+                  try {
+                    final latest = await methods.refreshApiHostList();
+                    _mergeApiList(_fallbackApiHosts);
+                    _mergeApiList(latest);
+                    _mergeApiList([_apiHost]);
+                    if (!context.mounted) {
+                      return;
+                    }
+                    setState(() {});
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(context.l10n
+                            .tr("分流列表已更新", en: "Routing list updated")),
+                        duration: const Duration(seconds: 1),
+                      ),
+                    );
+                  } catch (e) {
+                    debugPrient("refreshApiHostList failed: $e");
+                    if (!context.mounted) {
+                      return;
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content:
+                            Text(context.l10n.tr("拉取失败", en: "Refresh failed")),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+              ),
+              SimpleDialogOption(
+                child: Text(context.l10n.tr("手动输入", en: "Manual input")),
+                onPressed: () async {
+                  Navigator.of(context).pop(await _manualInputApiHost(context));
+                },
+              ),
+              SimpleDialogOption(
+                child: Text(context.l10n.tr("取消", en: "Cancel")),
+                onPressed: () {
+                  Navigator.of(context).pop(null);
+                },
+              ),
+            ],
+          );
+        },
       );
     },
   );
@@ -224,7 +130,8 @@ Future<String> _manualInputApiHost(BuildContext context) async {
     context: context,
     builder: (BuildContext context) {
       return AlertDialog(
-        title: Text(context.l10n.tr("手动输入API地址", en: "Enter API address manually")),
+        title: Text(
+            context.l10n.tr("手动输入API地址", en: "Enter API address manually")),
         content: TextField(
           controller: _controller,
           decoration: const InputDecoration(
@@ -341,8 +248,10 @@ class PingStatus extends StatelessWidget {
 Future chooseApiHost(BuildContext context) async {
   final choose = await chooseApiDialog(context);
   if (choose != null) {
-    await methods.saveApiHost(choose);
-    _apiHost = choose;
+    final value = "$choose".trim();
+    _apiHost = value.isNotEmpty ? value : _defaultApiHost;
+    await methods.saveApiHost(_apiHost);
+    _mergeApiList([_apiHost]);
   }
 }
 
@@ -355,7 +264,7 @@ Widget apiHostSetting() {
           setState(() {});
         },
         title: Text(context.l10n.tr("API分流", en: "API routing")),
-        subtitle: Text(_apiHost),
+        subtitle: Text(_apiHost.isEmpty ? _defaultApiHost : _apiHost),
       );
     },
   );

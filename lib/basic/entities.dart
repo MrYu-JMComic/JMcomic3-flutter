@@ -30,6 +30,38 @@ const sorts = [
   sortByViewMonth,
 ];
 
+int _toInt(dynamic value, {int fallback = 0}) {
+  if (value == null) {
+    return fallback;
+  }
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value.trim()) ?? fallback;
+  }
+  return fallback;
+}
+
+int? _toNullableInt(dynamic value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value.trim());
+  }
+  return null;
+}
+
 class Page<T> {
   late final List<T> list;
   late final int total;
@@ -59,19 +91,16 @@ class CountPage<T> {
 }
 
 class SearchPage {
-  SearchPage({
-    required this.searchQuery,
-    required this.total,
-  });
+  SearchPage({required this.searchQuery, required this.total});
 
   late final String searchQuery;
   late final int total;
   late final int? redirectAid;
 
   SearchPage.fromJson(Map<String, dynamic> json) {
-    searchQuery = json['search_query'];
-    total = json['total'];
-    redirectAid = json['redirect_aid'];
+    searchQuery = "${json['search_query'] ?? ''}";
+    total = _toInt(json['total']);
+    redirectAid = _toNullableInt(json['redirect_aid']);
   }
 
   Map<String, dynamic> toJson() {
@@ -87,8 +116,10 @@ class ComicsResponse extends SearchPage {
   late final List<ComicSimple> content;
 
   ComicsResponse.fromJson(Map<String, dynamic> json) : super.fromJson(json) {
-    content =
-        List.from(json['content']).map((e) => ComicSimple.fromJson(e)).toList();
+    content = List.from(json['content'] ?? [])
+        .whereType<Map>()
+        .map((e) => ComicSimple.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
   }
 
   @override
@@ -106,21 +137,38 @@ class ComicSimple extends ComicBasic {
     required String description,
     required String name,
     required String image,
+    int? updateAt,
+    int? addtime,
     required this.category,
     required this.categorySub,
   }) : super(
-            id: id,
-            author: author,
-            description: description,
-            name: name,
-            image: image);
+         id: id,
+         author: author,
+         description: description,
+         name: name,
+         image: image,
+         updateAt: updateAt,
+         addtime: addtime,
+       );
 
   late final ComicSimpleCategory category;
   late final ComicSimpleCategory categorySub;
 
   ComicSimple.fromJson(Map<String, dynamic> json) : super.fromJson(json) {
-    category = ComicSimpleCategory.fromJson(json['category']);
-    categorySub = ComicSimpleCategory.fromJson(json['category_sub']);
+    final categoryMap = json['category'];
+    final categorySubMap = json['category_sub'];
+    category = ComicSimpleCategory.fromJson(
+      categoryMap is Map<String, dynamic>
+          ? categoryMap
+          : (categoryMap is Map ? Map<String, dynamic>.from(categoryMap) : {}),
+    );
+    categorySub = ComicSimpleCategory.fromJson(
+      categorySubMap is Map<String, dynamic>
+          ? categorySubMap
+          : (categorySubMap is Map
+                ? Map<String, dynamic>.from(categorySubMap)
+                : {}),
+    );
   }
 
   @override
@@ -133,17 +181,20 @@ class ComicSimple extends ComicBasic {
 }
 
 class ComicSimpleCategory {
-  ComicSimpleCategory({
-    this.id,
-    this.title,
-  });
+  ComicSimpleCategory({this.id, this.title});
 
   late final String? id;
   late final String? title;
 
   ComicSimpleCategory.fromJson(Map<String, dynamic> json) {
-    id = null;
-    title = null;
+    final idValue = json['id'];
+    final titleValue = json['title'];
+    final normalizedId = idValue == null ? null : "$idValue".trim();
+    final normalizedTitle = titleValue == null ? null : "$titleValue".trim();
+    id = (normalizedId == null || normalizedId.isEmpty) ? null : normalizedId;
+    title = (normalizedTitle == null || normalizedTitle.isEmpty)
+        ? null
+        : normalizedTitle;
   }
 
   Map<String, dynamic> toJson() {
@@ -155,18 +206,15 @@ class ComicSimpleCategory {
 }
 
 class CategoriesResponse {
-  CategoriesResponse({
-    required this.categories,
-    required this.blocks,
-  });
+  CategoriesResponse({required this.categories, required this.blocks});
 
   late final List<Categories> categories;
   late final List<Block> blocks;
 
   CategoriesResponse.fromJson(Map<String, dynamic> json) {
-    categories = List.from(json['categories'])
-        .map((e) => Categories.fromJson(e))
-        .toList();
+    categories = List.from(
+      json['categories'],
+    ).map((e) => Categories.fromJson(e)).toList();
     blocks = List.from(json['blocks']).map((e) => Block.fromJson(e)).toList();
   }
 
@@ -213,10 +261,7 @@ class Categories {
 }
 
 class Block {
-  Block({
-    required this.title,
-    required this.content,
-  });
+  Block({required this.title, required this.content});
 
   late final String title;
   late final List<String> content;
@@ -251,6 +296,8 @@ class AlbumResponse {
     required this.relatedList,
     required this.liked,
     required this.isFavorite,
+    this.updateAt,
+    this.addtime,
   });
 
   late final int id;
@@ -268,6 +315,8 @@ class AlbumResponse {
   late final List<ComicBasic> relatedList;
   late final bool liked;
   late bool isFavorite;
+  late final int? updateAt;
+  late final int? addtime;
 
   AlbumResponse.fromJson(Map<String, dynamic> json) {
     id = json['id'];
@@ -282,11 +331,13 @@ class AlbumResponse {
     commentTotal = json['comment_total'];
     tags = List.castFrom<dynamic, String>(json['tags']);
     works = List.castFrom<dynamic, String>(json['works']);
-    relatedList = List.from(json['related_list'])
-        .map((e) => ComicBasic.fromJson(e))
-        .toList();
+    relatedList = List.from(
+      json['related_list'],
+    ).map((e) => ComicBasic.fromJson(e)).toList();
     liked = json['liked'];
     isFavorite = json['is_favorite'];
+    updateAt = _parseNullableInt(json['update_at']);
+    addtime = _parseNullableInt(json['addtime']);
   }
 
   Map<String, dynamic> toJson() {
@@ -306,16 +357,30 @@ class AlbumResponse {
     _data['related_list'] = relatedList.map((e) => e.toJson()).toList();
     _data['liked'] = liked;
     _data['is_favorite'] = isFavorite;
+    _data['update_at'] = updateAt;
+    _data['addtime'] = addtime;
     return _data;
+  }
+
+  static int? _parseNullableInt(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      return int.tryParse(value.trim());
+    }
+    return null;
   }
 }
 
 class Series {
-  Series({
-    required this.id,
-    required this.name,
-    required this.sort,
-  });
+  Series({required this.id, required this.name, required this.sort});
 
   late final int id;
   late final String name;
@@ -343,6 +408,8 @@ class ComicBasic {
     required this.description,
     required this.name,
     required this.image,
+    this.updateAt,
+    this.addtime,
   });
 
   late final int id;
@@ -350,13 +417,17 @@ class ComicBasic {
   late final String description;
   late final String name;
   late final String image;
+  late final int? updateAt;
+  late final int? addtime;
 
   ComicBasic.fromJson(Map<String, dynamic> json) {
-    id = json['id'];
-    author = json['author'];
-    description = json['description'];
-    name = json['name'];
-    image = json['image'];
+    id = _toInt(json['id']);
+    author = "${json['author'] ?? ''}";
+    description = "${json['description'] ?? ''}";
+    name = "${json['name'] ?? ''}";
+    image = "${json['image'] ?? ''}";
+    updateAt = _toNullableInt(json['update_at']);
+    addtime = _toNullableInt(json['addtime']);
   }
 
   Map<String, dynamic> toJson() {
@@ -366,6 +437,8 @@ class ComicBasic {
     _data['description'] = description;
     _data['name'] = name;
     _data['image'] = image;
+    _data['update_at'] = updateAt;
+    _data['addtime'] = addtime;
     return _data;
   }
 }
@@ -417,10 +490,7 @@ class ChapterResponse {
 }
 
 class ImageSize {
-  ImageSize({
-    required this.h,
-    required this.w,
-  });
+  ImageSize({required this.h, required this.w});
 
   late final int h;
   late final int w;
@@ -491,10 +561,9 @@ class Comment {
     content = json['content'];
     photo = json['photo'];
     spoiler = json['spoiler'];
-    replys = List.from(json['replys'])
-        .map((e) => Comment.fromJson(e))
-        .cast<Comment>()
-        .toList();
+    replys = List.from(
+      json['replys'],
+    ).map((e) => Comment.fromJson(e)).cast<Comment>().toList();
   }
 
   Map<String, dynamic> toJson() {
@@ -562,11 +631,7 @@ class Expinfo {
 }
 
 class Badge {
-  Badge({
-    required this.content,
-    required this.name,
-    required this.id,
-  });
+  Badge({required this.content, required this.name, required this.id});
 
   late final String content;
   late final String name;
@@ -715,11 +780,7 @@ class SelfInfo {
 }
 
 class FavoriteFolder {
-  FavoriteFolder({
-    required this.fid,
-    required this.uid,
-    required this.name,
-  });
+  FavoriteFolder({required this.fid, required this.uid, required this.name});
 
   late final String fid;
   late final String uid;
@@ -744,9 +805,9 @@ class Favorite extends CountPage<ComicSimple> {
   late final List<FavoriteFolderItem> folderList;
   Favorite.fromJson(Map<String, dynamic> json) : super.fromJson(json) {
     list = List.from(json['list']).map((e) => ComicSimple.fromJson(e)).toList();
-    folderList = List.from(json['folder_list'])
-        .map((e) => FavoriteFolderItem.fromJson(e))
-        .toList();
+    folderList = List.from(
+      json['folder_list'],
+    ).map((e) => FavoriteFolderItem.fromJson(e)).toList();
   }
 
   @override
@@ -810,11 +871,7 @@ class WeekFilterResponse extends Page<ComicSimple> {
 }
 
 class ActionResponse {
-  ActionResponse({
-    required this.status,
-    required this.msg,
-    required this.type,
-  });
+  ActionResponse({required this.status, required this.msg, required this.type});
 
   late final String status;
   late final String msg;
@@ -840,11 +897,7 @@ class InnerComicPage {
   final List<ComicSimple> list;
   final int? redirectAid;
 
-  InnerComicPage({
-    required this.total,
-    required this.list,
-    this.redirectAid,
-  });
+  InnerComicPage({required this.total, required this.list, this.redirectAid});
 }
 
 class CommentResponse {
@@ -939,11 +992,12 @@ class GamePage {
   GamePage.fromJson(Map<String, dynamic> json) {
     games = List.from(json['games']).map((e) => Game.fromJson(e)).toList();
     gamesTotal = json['games_total'];
-    categories = List.from(json['categories'])
-        .map((e) => GameCategory.fromJson(e))
-        .toList();
-    hotGames =
-        List.from(json['hot_games']).map((e) => Game.fromJson(e)).toList();
+    categories = List.from(
+      json['categories'],
+    ).map((e) => GameCategory.fromJson(e)).toList();
+    hotGames = List.from(
+      json['hot_games'],
+    ).map((e) => Game.fromJson(e)).toList();
   }
 
   Map<String, dynamic> toJson() {
@@ -1027,10 +1081,7 @@ class Game {
 }
 
 class GameCategory {
-  GameCategory({
-    this.name,
-    this.slug,
-  });
+  GameCategory({this.name, this.slug});
 
   late final String? name;
   late final String? slug;
@@ -1049,10 +1100,7 @@ class GameCategory {
 }
 
 class SearchHistory {
-  SearchHistory({
-    required this.searchQuery,
-    required this.lastSearchTime,
-  });
+  SearchHistory({required this.searchQuery, required this.lastSearchTime});
 
   late final String searchQuery;
   late final int lastSearchTime;
@@ -1071,19 +1119,16 @@ class SearchHistory {
 }
 
 class DownloadCreate {
-  DownloadCreate({
-    required this.album,
-    required this.chapters,
-  });
+  DownloadCreate({required this.album, required this.chapters});
 
   late final DownloadCreateAlbum album;
   late final List<DownloadCreateChapter> chapters;
 
   DownloadCreate.fromJson(Map<String, dynamic> json) {
     album = DownloadCreateAlbum.fromJson(json['album']);
-    chapters = List.from(json['chapters'])
-        .map((e) => DownloadCreateChapter.fromJson(e))
-        .toList();
+    chapters = List.from(
+      json['chapters'],
+    ).map((e) => DownloadCreateChapter.fromJson(e)).toList();
   }
 
   Map<String, dynamic> toJson() {
@@ -1269,6 +1314,8 @@ ComicBasic albumToSimple(AlbumResponse album) {
     name: album.name,
     author: album.author.join(" / "),
     image: album.images.isEmpty ? '' : album.images[0],
+    updateAt: album.updateAt,
+    addtime: album.addtime,
   );
 }
 
@@ -1329,9 +1376,9 @@ class WeekData {
   late List<WeekType> types;
 
   WeekData.fromJson(Map<String, dynamic> json) {
-    categories = List.from(json['categories'])
-        .map((e) => WeekCategory.fromJson(e))
-        .toList();
+    categories = List.from(
+      json['categories'],
+    ).map((e) => WeekCategory.fromJson(e)).toList();
     types = List.from(json['type']).map((e) => WeekType.fromJson(e)).toList();
   }
 }

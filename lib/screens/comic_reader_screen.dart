@@ -260,6 +260,7 @@ class _ComicReader extends StatefulWidget {
 }
 
 abstract class _ComicReaderState extends State<_ComicReader> {
+  static const int _uiSyncMinIntervalMs = 80;
   bool _sliderDragging = false;
   Widget _buildViewer();
 
@@ -272,6 +273,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   int? _nextEpId;
   Timer? _viewLogDebounce;
   int? _pendingViewLogPage;
+  int _lastUiSyncMs = 0;
 
   void _persistViewLog(int index) {
     methods
@@ -341,15 +343,22 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     });
   }
 
-  void _onCurrentChange(int index) {
+  void _onCurrentChange(int index, {bool forceUiSync = false}) {
     if (index == _current) {
       return;
     }
-    setState(() {
-      _current = index;
-      _slider = index;
-    });
+    _current = index;
+    _slider = index;
     _schedulePersistViewLog(index);
+    if (!mounted) {
+      return;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final isEdge = index <= 0 || index >= widget.chapter.images.length - 1;
+    if (forceUiSync || isEdge || now - _lastUiSyncMs >= _uiSyncMinIntervalMs) {
+      _lastUiSyncMs = now;
+      setState(() {});
+    }
   }
 
   @override
@@ -807,29 +816,46 @@ abstract class _ComicReaderState extends State<_ComicReader> {
         );
 
   Widget _buildSliderWidget(Axis axis) {
+    final imageCount = widget.chapter.images.length;
+    if (imageCount <= 1) {
+      return const SizedBox.shrink();
+    }
+    final maxIndex = imageCount - 1;
+    final sliderValue = _slider.clamp(0, maxIndex);
+
     return FlutterSlider(
       axis: axis,
-      values: [_slider.toDouble()],
+      values: [sliderValue.toDouble()],
       min: 0,
-      max: (widget.chapter.images.length - 1).toDouble(),
+      max: maxIndex.toDouble(),
       onDragging: (handlerIndex, lowerValue, upperValue) {
-        setState(() {
-          _slider = (lowerValue.toInt());
-        });
+        final next = lowerValue.toInt();
+        if (next == _slider) {
+          return;
+        }
+        _slider = next;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - _lastUiSyncMs >= 40 && mounted) {
+          _lastUiSyncMs = now;
+          setState(() {});
+        }
       },
       onDragCompleted: (handlerIndex, lowerValue, upperValue) {
-        setState(() {
-          _sliderDragging = false;
-        });
-        _slider = (lowerValue.toInt());
+        _sliderDragging = false;
+        _slider = lowerValue.toInt();
+        if (mounted) {
+          setState(() {});
+        }
         if (_slider != _current) {
           _needJumpTo(_slider, false);
         }
       },
       onDragStarted: (handlerIndex, lowerValue, upperValue) {
-        setState(() {
-          _sliderDragging = true;
-        });
+        if (!_sliderDragging && mounted) {
+          setState(() {
+            _sliderDragging = true;
+          });
+        }
       },
       trackBar: FlutterSliderTrackBar(
         inactiveTrackBar: BoxDecoration(
@@ -1076,6 +1102,8 @@ class _ComicReaderWebToonState extends _ComicReaderState {
   late final List<Size?> _trueSizes = [];
   late final ItemScrollController _itemScrollController;
   late final ItemPositionsListener _itemPositionsListener;
+  bool _trueSizeRefreshQueued = false;
+  int _lastScrollUiSyncMs = 0;
 
   @override
   void initState() {
@@ -1095,6 +1123,11 @@ class _ComicReaderWebToonState extends _ComicReaderState {
   }
 
   void _onListCurrentChange() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastScrollUiSyncMs < 50) {
+      return;
+    }
+    _lastScrollUiSyncMs = now;
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty) {
       return;
@@ -1146,8 +1179,21 @@ class _ComicReaderWebToonState extends _ComicReaderState {
     if (!mounted) {
       return;
     }
-    setState(() {
-      _trueSizes[index] = size;
+    _trueSizes[index] = size;
+    _scheduleTrueSizeRefresh();
+  }
+
+  void _scheduleTrueSizeRefresh() {
+    if (_trueSizeRefreshQueued) {
+      return;
+    }
+    _trueSizeRefreshQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _trueSizeRefreshQueued = false;
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
     });
   }
 
@@ -1167,6 +1213,7 @@ class _ComicReaderWebToonState extends _ComicReaderState {
         index: index,
       );
     }
+    super._onCurrentChange(index, forceUiSync: true);
   }
 
   @override
@@ -1206,14 +1253,16 @@ class _ComicReaderWebToonState extends _ComicReaderState {
               return _buildNextEp();
             }
             final renderSize = _renderSizeFor(constraints, index);
-            return JMPageImage(
-              key: ValueKey(
-                  "wt_${widget.chapter.id}_${widget.chapter.images[index]}"),
-              widget.chapter.id,
-              widget.chapter.images[index],
-              width: renderSize.width,
-              height: renderSize.height,
-              onTrueSize: (size) => _onTrueSize(index, size),
+            return RepaintBoundary(
+              child: JMPageImage(
+                key: ValueKey(
+                    "wt_${widget.chapter.id}_${widget.chapter.images[index]}"),
+                widget.chapter.id,
+                widget.chapter.images[index],
+                width: renderSize.width,
+                height: renderSize.height,
+                onTrueSize: (size) => _onTrueSize(index, size),
+              ),
             );
           },
         );
@@ -1375,6 +1424,7 @@ class _ComicReaderGalleryState extends _ComicReaderState {
       _pageController.jumpToPage(pageIndex);
     }
     _preloadJump(pageIndex);
+    super._onCurrentChange(pageIndex, forceUiSync: true);
   }
 
   void _onGalleryPageChange(int to) {
@@ -1572,7 +1622,7 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
       _pageController.jumpToPage(pageIndex);
     }
     _preloadAround(pageIndex);
-    super._onCurrentChange(pageIndex);
+    super._onCurrentChange(pageIndex, forceUiSync: true);
   }
 
   void _onGalleryPageChange(int to) {
@@ -1749,6 +1799,8 @@ class _ListViewReaderState extends _ComicReaderState
   var _activePointers = 0;
   final List<Size?> _trueSizes = [];
   final List<GlobalKey> _pageKeys = [];
+  bool _trueSizeRefreshQueued = false;
+  int _lastScrollUiSyncMs = 0;
   final _transformationController = TransformationController();
   late final ScrollController _scrollController;
   late TapDownDetails _doubleTapDetails;
@@ -1799,6 +1851,11 @@ class _ListViewReaderState extends _ComicReaderState
     if (_isZoomed || _activePointers > 1 || !_scrollController.hasClients) {
       return;
     }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastScrollUiSyncMs < 50) {
+      return;
+    }
+    _lastScrollUiSyncMs = now;
     final imageCount = widget.chapter.images.length;
     if (imageCount <= 1) {
       super._onCurrentChange(0);
@@ -1848,7 +1905,7 @@ class _ListViewReaderState extends _ComicReaderState
         duration: animation ? const Duration(milliseconds: 400) : Duration.zero,
         curve: Curves.ease,
       );
-      super._onCurrentChange(index);
+      super._onCurrentChange(index, forceUiSync: true);
       return;
     }
     if (!_scrollController.hasClients) {
@@ -1875,7 +1932,7 @@ class _ListViewReaderState extends _ComicReaderState
     } else {
       _scrollController.jumpTo(target);
     }
-    super._onCurrentChange(index);
+    super._onCurrentChange(index, forceUiSync: true);
   }
 
   @override
@@ -1923,8 +1980,21 @@ class _ListViewReaderState extends _ComicReaderState
     if (!mounted) {
       return;
     }
-    setState(() {
-      _trueSizes[index] = size;
+    _trueSizes[index] = size;
+    _scheduleTrueSizeRefresh();
+  }
+
+  void _scheduleTrueSizeRefresh() {
+    if (_trueSizeRefreshQueued) {
+      return;
+    }
+    _trueSizeRefreshQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _trueSizeRefreshQueued = false;
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
     });
   }
 
@@ -1957,16 +2027,18 @@ class _ListViewReaderState extends _ComicReaderState
               return _buildNextEp();
             }
             final renderSize = _renderSizeFor(constraints, index);
-            return KeyedSubtree(
-              key: _pageKeys[index],
-              child: JMPageImage(
-                key: ValueKey(
-                    "fz_${widget.chapter.id}_${widget.chapter.images[index]}"),
-                widget.chapter.id,
-                widget.chapter.images[index],
-                width: renderSize.width,
-                height: renderSize.height,
-                onTrueSize: (size) => _onTrueSize(index, size),
+            return RepaintBoundary(
+              child: KeyedSubtree(
+                key: _pageKeys[index],
+                child: JMPageImage(
+                  key: ValueKey(
+                      "fz_${widget.chapter.id}_${widget.chapter.images[index]}"),
+                  widget.chapter.id,
+                  widget.chapter.images[index],
+                  width: renderSize.width,
+                  height: renderSize.height,
+                  onTrueSize: (size) => _onTrueSize(index, size),
+                ),
               ),
             );
           },
@@ -2223,6 +2295,7 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
       );
     }
     _preloadJump(index);
+    super._onCurrentChange(index, forceUiSync: true);
   }
 
   _preloadJump(int index, {bool init = false}) {
@@ -2262,13 +2335,15 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
     }
     // Includes a synthetic trailing item for next-episode action.
     if (to >= 0 && to < widget.chapter.images.length) {
-      super._onCurrentChange(toIndex);
+      super._onCurrentChange(toIndex, forceUiSync: true);
     }
   }
 
   Widget _buildNextEpController() {
     if (super._fullscreenController() ||
-        _current < widget.chapter.images.length - 2) return Container();
+        _current < widget.chapter.images.length - 2) {
+      return Container();
+    }
     return Align(
       alignment: Alignment.bottomRight,
       child: Material(

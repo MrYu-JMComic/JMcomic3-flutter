@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -15,6 +15,96 @@ class Methods {
 
   static const _channel = MethodChannel("methods");
   static HttpClient httpClient = HttpClient();
+  static const Set<String> _downloadDebugMethods = {
+    "all_downloads",
+    "download_by_id",
+    "create_download",
+    "dl_image_by_chapter_id",
+    "delete_download",
+    "renew_all_downloads",
+    "jm_3x4_cover",
+    "jm_square_cover",
+    "jm_page_image",
+    "jm_photo_image",
+    "image_size",
+  };
+  static const Duration _categoriesCacheTtl = Duration(minutes: 10);
+  static const Duration _comicsCacheTtl = Duration(minutes: 5);
+  static const Duration _albumCacheTtl = Duration(minutes: 10);
+  static const Duration _coverCacheTtl = Duration(minutes: 30);
+  static const String _defaultCategoriesCacheKey = "__default__";
+
+  static final Map<String, _CacheEntry<String>> _categoriesCache = {};
+  static final Map<String, _CacheEntry<String>> _comicsCache = {};
+  static final Map<String, _CacheEntry<String>> _albumCache = {};
+  static final Map<String, _CacheEntry<String>> _coverCache = {};
+  static final Map<String, Future<String>> _categoriesInflight = {};
+  static final Map<String, Future<String>> _comicsInflight = {};
+  static final Map<String, Future<String>> _albumInflight = {};
+  static final Map<String, Future<String>> _coverInflight = {};
+
+  void _clearResponseCaches() {
+    _categoriesCache.clear();
+    _comicsCache.clear();
+    _albumCache.clear();
+    _coverCache.clear();
+    _categoriesInflight.clear();
+    _comicsInflight.clear();
+    _albumInflight.clear();
+    _coverInflight.clear();
+  }
+
+  void _evictAlbumCache(int comicId) {
+    _albumCache.removeWhere((key, _) => key.startsWith("$comicId|"));
+    _albumInflight.removeWhere((key, _) => key.startsWith("$comicId|"));
+  }
+
+  Future<String> _loadCachedString({
+    required String cacheKey,
+    required Duration ttl,
+    required Map<String, _CacheEntry<String>> cache,
+    required Map<String, Future<String>> inflight,
+    required Future<String> Function() loader,
+    String? debugName,
+  }) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final current = cache[cacheKey];
+    if (current != null &&
+        (nowMs - current.createdAtMs) <= ttl.inMilliseconds) {
+      if (debugName != null) {
+        debugPrient("[api-cache-hit] method=$debugName key=$cacheKey");
+      }
+      return current.value;
+    }
+
+    final running = inflight[cacheKey];
+    if (running != null) {
+      if (debugName != null) {
+        debugPrient("[api-cache-wait] method=$debugName key=$cacheKey");
+      }
+      return running;
+    }
+
+    final future = loader();
+    inflight[cacheKey] = future;
+    try {
+      final value = await future;
+      cache[cacheKey] = _CacheEntry(value, nowMs);
+      if (debugName != null) {
+        debugPrient("[api-cache-store] method=$debugName key=$cacheKey");
+      }
+      return value;
+    } finally {
+      inflight.remove(cacheKey);
+      if (cache.length > 600) {
+        final removeCount = cache.length - 500;
+        final keys = cache.keys.take(removeCount).toList();
+        for (final key in keys) {
+          cache.remove(key);
+        }
+      }
+    }
+  }
 
   bool _isLikelyProGateError(String method, String errorMessage) {
     final lower = errorMessage.toLowerCase();
@@ -54,10 +144,19 @@ class Methods {
   }
 
   Future<String> _invoke(String method, dynamic params) async {
+    final shouldDebug = _downloadDebugMethods.contains(method);
+    if (shouldDebug) {
+      debugPrient("[download-api:req] method=$method params=${_brief(params)}");
+    }
     final resp = await _invokeRaw(method, params);
     final response = _Response.fromJson(jsonDecode(resp));
 
     if (response.errorMessage.isNotEmpty) {
+      if (shouldDebug) {
+        debugPrient(
+          "[download-api:err] method=$method error=${response.errorMessage}",
+        );
+      }
       if (_isLikelyProGateError(method, response.errorMessage)) {
         debugPrient(
           "backend-pro-gate method=$method params=$params error=${response.errorMessage}",
@@ -65,7 +164,20 @@ class Methods {
       }
       throw StateError(response.errorMessage);
     }
+    if (shouldDebug) {
+      debugPrient(
+        "[download-api:rsp] method=$method data=${_brief(response.responseData)}",
+      );
+    }
     return response.responseData;
+  }
+
+  String _brief(dynamic value) {
+    final raw = value == null ? "null" : value.toString();
+    if (raw.length <= 320) {
+      return raw;
+    }
+    return "${raw.substring(0, 320)}...";
   }
 
   Future init() {
@@ -81,16 +193,34 @@ class Methods {
     return decoded.map((key, value) => MapEntry("$key", "$value"));
   }
 
+  Future<Map<String, dynamic>> appConfig() async {
+    final rsp = await _invoke("app_config", "");
+    final decoded = jsonDecode(rsp);
+    if (decoded is! Map) {
+      return {};
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
   Future<String> loadProperty(String propertyKey) {
     return _invoke("load_property", propertyKey);
   }
 
   Future<ComicsResponse> comics(String slug, SortBy sortBy, int page) async {
-    final rsp = await _invoke("comics", {
-      "categories_slug": slug,
-      "sort_by": sortBy.value,
-      "page": page,
-    });
+    final normalizedSlug = slug.trim();
+    final cacheKey = "$normalizedSlug|${sortBy.value}|$page";
+    final rsp = await _loadCachedString(
+      cacheKey: cacheKey,
+      ttl: _comicsCacheTtl,
+      cache: _comicsCache,
+      inflight: _comicsInflight,
+      loader: () => _invoke("comics", {
+        "categories_slug": normalizedSlug,
+        "sort_by": sortBy.value,
+        "page": page,
+      }),
+      debugName: "comics",
+    );
     return ComicsResponse.fromJson(jsonDecode(rsp));
   }
 
@@ -118,8 +248,15 @@ class Methods {
   }
 
   Future<CategoriesResponse> categories() async {
-    return CategoriesResponse.fromJson(
-        jsonDecode(await _invoke("categories", "")));
+    final rsp = await _loadCachedString(
+      cacheKey: _defaultCategoriesCacheKey,
+      ttl: _categoriesCacheTtl,
+      cache: _categoriesCache,
+      inflight: _categoriesInflight,
+      loader: () => _invoke("categories", ""),
+      debugName: "categories",
+    );
+    return CategoriesResponse.fromJson(jsonDecode(rsp));
   }
 
   Future saveImageFileToGallery(String path) {
@@ -131,10 +268,19 @@ class Methods {
   }
 
   Future<AlbumResponse> album(int id, {bool ignoreViewLog = false}) async {
-    return AlbumResponse.fromJson(jsonDecode(await _invoke("album", {
-      "id": id,
-      "ignore_view_log": ignoreViewLog,
-    })));
+    final cacheKey = "$id|$ignoreViewLog";
+    final rsp = await _loadCachedString(
+      cacheKey: cacheKey,
+      ttl: _albumCacheTtl,
+      cache: _albumCache,
+      inflight: _albumInflight,
+      loader: () => _invoke("album", {
+        "id": id,
+        "ignore_view_log": ignoreViewLog,
+      }),
+      debugName: "album",
+    );
+    return AlbumResponse.fromJson(jsonDecode(rsp));
   }
 
   Future<ChapterResponse> chapter(int id) async {
@@ -167,9 +313,9 @@ class Methods {
   }
 
   Future<ActionResponse> setFavorite(int aid) async {
-    return ActionResponse.fromJson(
-      jsonDecode(await _invoke("set_favorite", aid)),
-    );
+    final rsp = await _invoke("set_favorite", aid);
+    _evictAlbumCache(aid);
+    return ActionResponse.fromJson(jsonDecode(rsp));
   }
 
   Future createFavoriteFolder(String name) async {
@@ -211,15 +357,31 @@ class Methods {
   }
 
   Future cleanAllCache() async {
-    return _invoke("clean_all_cache", "params");
+    final rsp = await _invoke("clean_all_cache", "params");
+    _clearResponseCaches();
+    return rsp;
   }
 
   Future<String> jm3x4Cover(int comicId) {
-    return _invoke("jm_3x4_cover", comicId);
+    return _loadCachedString(
+      cacheKey: "3x4|$comicId",
+      ttl: _coverCacheTtl,
+      cache: _coverCache,
+      inflight: _coverInflight,
+      loader: () => _invoke("jm_3x4_cover", comicId),
+      debugName: "jm_3x4_cover",
+    );
   }
 
   Future<String> jmSquareCover(int comicId) {
-    return _invoke("jm_square_cover", comicId);
+    return _loadCachedString(
+      cacheKey: "square|$comicId",
+      ttl: _coverCacheTtl,
+      cache: _coverCache,
+      inflight: _coverInflight,
+      loader: () => _invoke("jm_square_cover", comicId),
+      debugName: "jm_square_cover",
+    );
   }
 
   Future<String> jmPageImage(int id, String imageName) {
@@ -242,15 +404,35 @@ class Methods {
     return _invoke("load_api_host", "");
   }
 
+  Future<List<String>> loadApiHostList() async {
+    final rsp = await _invoke("load_api_host_list", "");
+    final decoded = jsonDecode(rsp);
+    if (decoded is! List) {
+      return [];
+    }
+    return decoded.map((e) => "$e").toList();
+  }
+
+  Future<List<String>> refreshApiHostList() async {
+    final rsp = await _invoke("refresh_api_host_list", "");
+    final decoded = jsonDecode(rsp);
+    if (decoded is! List) {
+      return [];
+    }
+    return decoded.map((e) => "$e").toList();
+  }
+
   Future<String> loadCdnHost() {
     return _invoke("load_cdn_host", "");
   }
 
   Future saveApiHost(String choose) {
+    _clearResponseCaches();
     return _invoke("save_api_host", choose);
   }
 
   Future saveCdnHost(String choose) {
+    _clearResponseCaches();
     return _invoke("save_cdn_host", choose);
   }
 
@@ -261,16 +443,17 @@ class Methods {
   }
 
   Future<SelfInfo> login(String username, String password) async {
-    return SelfInfo.fromJson(
-      jsonDecode(await _invoke("login", {
-        "username": username,
-        "password": password,
-      })),
-    );
+    final rsp = await _invoke("login", {
+      "username": username,
+      "password": password,
+    });
+    _clearResponseCaches();
+    return SelfInfo.fromJson(jsonDecode(rsp));
   }
 
   Future logout() async {
     await _invoke("logout", {});
+    _clearResponseCaches();
   }
 
   Future<CommentResponse> commentResponse(int aid, String comment) async {
@@ -321,6 +504,7 @@ class Methods {
         .toList()
         .cast<SearchHistory>();
   }
+
   /// Download list
   Future<List<DownloadAlbum>> allDownloads() async {
     return List.of(jsonDecode(await _invoke("all_downloads", "")))
@@ -328,6 +512,7 @@ class Methods {
         .toList()
         .cast<DownloadAlbum>();
   }
+
   /// Find download item
   Future<DownloadCreate?> downloadById(int id) async {
     var map = jsonDecode(await _invoke("download_by_id", "$id"));
@@ -336,10 +521,12 @@ class Methods {
     }
     return DownloadCreate.fromJson(map);
   }
+
   /// Create download task
   Future<dynamic> createDownload(DownloadCreate create) async {
     return _invoke("create_download", create);
   }
+
   /// Download image list
   Future<List<DlImage>> dlImageByChapterId(int id) async {
     return List.of(jsonDecode(await _invoke("dl_image_by_chapter_id", "$id")))
@@ -355,17 +542,20 @@ class Methods {
   Future<dynamic> renewAllDownloads() async {
     return _invoke("renew_all_downloads", "");
   }
+
   /// Get Android refresh modes
   Future<List<String>> loadAndroidModes() async {
     return List.of(await _channel.invokeMethod("androidGetModes"))
         .map((e) => "$e")
         .toList();
   }
+
   /// Set Android refresh mode
   Future setAndroidMode(String androidDisplayMode) {
     return _channel
         .invokeMethod("androidSetMode", {"mode": androidDisplayMode});
   }
+
   /// Get Android SDK version
   Future<int> androidGetVersion() async {
     if (Platform.isAndroid) {
@@ -541,6 +731,7 @@ class Methods {
   }
 
   Future setProxy(String url) {
+    _clearResponseCaches();
     return _invoke("set_proxy", url);
   }
 
@@ -657,4 +848,11 @@ class _Response {
     errorMessage = json["error_message"];
     responseData = json["response_data"];
   }
+}
+
+class _CacheEntry<T> {
+  final T value;
+  final int createdAtMs;
+
+  const _CacheEntry(this.value, this.createdAtMs);
 }

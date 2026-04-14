@@ -188,6 +188,36 @@ T _putCacheWithLimit<K, T>(
   return value;
 }
 
+Future<String> _cachePathFuture<K>({
+  required Map<K, Future<String>> cache,
+  required K key,
+  required Future<String> Function() loader,
+  required int limit,
+}) {
+  final cached = cache[key];
+  if (cached != null) {
+    return cached;
+  }
+  final future = loader().then((path) async {
+    final normalized = path.trim();
+    if (normalized.isEmpty) {
+      throw StateError("empty image path");
+    }
+    final file = File(normalized);
+    if (!await file.exists()) {
+      throw StateError("image file not found: $normalized");
+    }
+    if (await file.length() <= 0) {
+      throw StateError("image file empty: $normalized");
+    }
+    return normalized;
+  }).catchError((Object error, StackTrace stackTrace) {
+    cache.remove(key);
+    throw error;
+  });
+  return _putCacheWithLimit(cache, key, future, limit);
+}
+
 Future<String> _cachedJm3x4CoverPath(
   int comicId, {
   bool forceRefresh = false,
@@ -195,15 +225,11 @@ Future<String> _cachedJm3x4CoverPath(
   if (forceRefresh) {
     _jm3x4CoverPathFutureCache.remove(comicId);
   }
-  final cached = _jm3x4CoverPathFutureCache[comicId];
-  if (cached != null) {
-    return cached;
-  }
-  return _putCacheWithLimit(
-    _jm3x4CoverPathFutureCache,
-    comicId,
-    methods.jm3x4Cover(comicId),
-    _coverPathCacheLimit,
+  return _cachePathFuture(
+    cache: _jm3x4CoverPathFutureCache,
+    key: comicId,
+    loader: () => methods.jm3x4Cover(comicId),
+    limit: _coverPathCacheLimit,
   );
 }
 
@@ -214,15 +240,11 @@ Future<String> _cachedJmSquareCoverPath(
   if (forceRefresh) {
     _jmSquareCoverPathFutureCache.remove(comicId);
   }
-  final cached = _jmSquareCoverPathFutureCache[comicId];
-  if (cached != null) {
-    return cached;
-  }
-  return _putCacheWithLimit(
-    _jmSquareCoverPathFutureCache,
-    comicId,
-    methods.jmSquareCover(comicId),
-    _coverPathCacheLimit,
+  return _cachePathFuture(
+    cache: _jmSquareCoverPathFutureCache,
+    key: comicId,
+    loader: () => methods.jmSquareCover(comicId),
+    limit: _coverPathCacheLimit,
   );
 }
 
@@ -233,15 +255,11 @@ Future<String> _cachedPhotoPath(
   if (forceRefresh) {
     _photoPathFutureCache.remove(photoName);
   }
-  final cached = _photoPathFutureCache[photoName];
-  if (cached != null) {
-    return cached;
-  }
-  return _putCacheWithLimit(
-    _photoPathFutureCache,
-    photoName,
-    methods.jmPhotoImage(photoName),
-    _photoPathCacheLimit,
+  return _cachePathFuture(
+    cache: _photoPathFutureCache,
+    key: photoName,
+    loader: () => methods.jmPhotoImage(photoName),
+    limit: _photoPathCacheLimit,
   );
 }
 
@@ -254,15 +272,11 @@ Future<String> _cachedPageImagePath(
   if (forceRefresh) {
     _pageImagePathFutureCache.remove(key);
   }
-  final cached = _pageImagePathFutureCache[key];
-  if (cached != null) {
-    return cached;
-  }
-  return _putCacheWithLimit(
-    _pageImagePathFutureCache,
-    key,
-    methods.jmPageImage(id, imageName),
-    _pageImagePathCacheLimit,
+  return _cachePathFuture(
+    cache: _pageImagePathFutureCache,
+    key: key,
+    loader: () => methods.jmPageImage(id, imageName),
+    limit: _pageImagePathCacheLimit,
   );
 }
 
@@ -334,6 +348,8 @@ class JM3x4Cover extends StatefulWidget {
 
 class _JM3x4CoverState extends State<JM3x4Cover> {
   late Future<String> _future;
+  int _autoRetryCount = 0;
+  bool _autoRetryQueued = false;
 
   @override
   void initState() {
@@ -345,8 +361,34 @@ class _JM3x4CoverState extends State<JM3x4Cover> {
   void didUpdateWidget(covariant JM3x4Cover oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.comicId != widget.comicId) {
+      _autoRetryCount = 0;
+      _autoRetryQueued = false;
       _future = _cachedJm3x4CoverPath(widget.comicId);
     }
+  }
+
+  void _reload() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _future = _cachedJm3x4CoverPath(widget.comicId, forceRefresh: true);
+    });
+  }
+
+  void _autoRetryOnDecodeError() {
+    if (_autoRetryCount >= 1 || _autoRetryQueued) {
+      return;
+    }
+    _autoRetryQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoRetryQueued = false;
+      if (!mounted) {
+        return;
+      }
+      _autoRetryCount++;
+      _reload();
+    });
   }
 
   @override
@@ -358,6 +400,8 @@ class _JM3x4CoverState extends State<JM3x4Cover> {
       widget.height,
       fit: widget.fit,
       longPressMenuItems: widget.longPressMenuItems,
+      onReload: _reload,
+      onDecodeError: _autoRetryOnDecodeError,
     );
   }
 }
@@ -385,6 +429,8 @@ class JMSquareCover extends StatefulWidget {
 
 class _JMSquareCoverState extends State<JMSquareCover> {
   late Future<String> _future;
+  int _autoRetryCount = 0;
+  bool _autoRetryQueued = false;
 
   @override
   void initState() {
@@ -396,8 +442,34 @@ class _JMSquareCoverState extends State<JMSquareCover> {
   void didUpdateWidget(covariant JMSquareCover oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.comicId != widget.comicId) {
+      _autoRetryCount = 0;
+      _autoRetryQueued = false;
       _future = _cachedJmSquareCoverPath(widget.comicId);
     }
+  }
+
+  void _reload() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _future = _cachedJmSquareCoverPath(widget.comicId, forceRefresh: true);
+    });
+  }
+
+  void _autoRetryOnDecodeError() {
+    if (_autoRetryCount >= 1 || _autoRetryQueued) {
+      return;
+    }
+    _autoRetryQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoRetryQueued = false;
+      if (!mounted) {
+        return;
+      }
+      _autoRetryCount++;
+      _reload();
+    });
   }
 
   @override
@@ -409,6 +481,8 @@ class _JMSquareCoverState extends State<JMSquareCover> {
       widget.height,
       fit: widget.fit,
       longPressMenuItems: widget.longPressMenuItems,
+      onReload: _reload,
+      onDecodeError: _autoRetryOnDecodeError,
     );
   }
 }
@@ -434,6 +508,8 @@ class JMPhotoImage extends StatefulWidget {
 
 class _JMPhotoImageState extends State<JMPhotoImage> {
   late Future<String> _future;
+  int _autoRetryCount = 0;
+  bool _autoRetryQueued = false;
 
   @override
   void initState() {
@@ -445,8 +521,34 @@ class _JMPhotoImageState extends State<JMPhotoImage> {
   void didUpdateWidget(covariant JMPhotoImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.photoName != widget.photoName) {
+      _autoRetryCount = 0;
+      _autoRetryQueued = false;
       _future = _cachedPhotoPath(widget.photoName);
     }
+  }
+
+  void _reload() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _future = _cachedPhotoPath(widget.photoName, forceRefresh: true);
+    });
+  }
+
+  void _autoRetryOnDecodeError() {
+    if (_autoRetryCount >= 1 || _autoRetryQueued) {
+      return;
+    }
+    _autoRetryQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoRetryQueued = false;
+      if (!mounted) {
+        return;
+      }
+      _autoRetryCount++;
+      _reload();
+    });
   }
 
   @override
@@ -457,6 +559,8 @@ class _JMPhotoImageState extends State<JMPhotoImage> {
       widget.width,
       widget.height,
       fit: widget.fit,
+      onReload: _reload,
+      onDecodeError: _autoRetryOnDecodeError,
     );
   }
 }
@@ -479,6 +583,8 @@ class JMPageImage extends StatefulWidget {
 
 class _JMPageImageState extends State<JMPageImage> {
   late Future<String> _future;
+  int _autoRetryCount = 0;
+  bool _autoRetryQueued = false;
 
   @override
   void initState() {
@@ -490,6 +596,8 @@ class _JMPageImageState extends State<JMPageImage> {
   void didUpdateWidget(covariant JMPageImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.id != widget.id || oldWidget.imageName != widget.imageName) {
+      _autoRetryCount = 0;
+      _autoRetryQueued = false;
       _future = _init();
     }
   }
@@ -522,6 +630,21 @@ class _JMPageImageState extends State<JMPageImage> {
     });
   }
 
+  void _autoRetryOnDecodeError() {
+    if (_autoRetryCount >= 1 || _autoRetryQueued) {
+      return;
+    }
+    _autoRetryQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoRetryQueued = false;
+      if (!mounted) {
+        return;
+      }
+      _autoRetryCount++;
+      _reload();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // 按 future 状态渲染图片
@@ -531,6 +654,7 @@ class _JMPageImageState extends State<JMPageImage> {
       widget.width,
       widget.height,
       onReload: _reload,
+      onDecodeError: _autoRetryOnDecodeError,
     );
   }
 }
@@ -539,7 +663,8 @@ Widget pathFutureImage(
     BuildContext context, Future<String> future, double? width, double? height,
     {BoxFit fit = BoxFit.cover,
     List<LongPressMenuItem>? longPressMenuItems,
-    VoidCallback? onReload}) {
+    VoidCallback? onReload,
+    VoidCallback? onDecodeError}) {
   // 使用 FutureBuilder 渲染加载/错误/成功状态
   return FutureBuilder<String>(
       future: future,
@@ -565,6 +690,7 @@ Widget pathFutureImage(
             fit: fit,
             longPressMenuItems: longPressMenuItems,
             onReload: onReload,
+            onDecodeError: onDecodeError,
           );
         }
         // 其他状态（waiting/active/none）显示加载状态
@@ -718,7 +844,8 @@ Widget buildFile(
     BuildContext context, String file, double? width, double? height,
     {BoxFit fit = BoxFit.cover,
     List<LongPressMenuItem>? longPressMenuItems,
-    VoidCallback? onReload}) {
+    VoidCallback? onReload,
+    VoidCallback? onDecodeError}) {
   final devicePixelRatio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
   final cacheWidth = _cacheExtent(width, devicePixelRatio);
   final cacheHeight = _cacheExtent(height, devicePixelRatio);
@@ -733,6 +860,7 @@ Widget buildFile(
     errorBuilder: (a, b, c) {
       debugPrient("$b");
       debugPrient("$c");
+      onDecodeError?.call();
       return buildError(
         context,
         width,

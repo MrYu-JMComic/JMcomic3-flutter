@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
-late String _cdnHost;
+const _defaultCdnHost = "cdn-msp3.jmapiproxy1.cc";
+String _cdnHost = _defaultCdnHost;
 
 String _truncateLabel(String value, {int max = 21}) {
   if (value.length <= max) return value;
@@ -25,20 +26,37 @@ const _base64List = [
   "Y2RuLW1zcC5qbWFwaXByb3h5Mi5jYw==",
 ];
 
-var _cdnList = [];
+List<String> _cdnList = [];
 
 Future<void> initCdnHost() async {
+  _cdnList = [];
+  final merged = <String>{_defaultCdnHost};
   for (var i = 0; i < _base64List.length; i++) {
-    _cdnList.add(utf8.decode(base64.decode(_base64List[i])));
+    final host = utf8.decode(base64.decode(_base64List[i])).trim();
+    if (host.isNotEmpty) {
+      merged.add(host);
+    }
   }
-  _cdnHost = await methods.loadCdnHost();
+  _cdnList = merged.toList();
+  final loaded = (await methods.loadCdnHost()).trim();
+  _cdnHost = loaded.isNotEmpty ? loaded : _defaultCdnHost;
+  if (!_cdnList.contains(_cdnHost)) {
+    _cdnList.insert(0, _cdnHost);
+  }
+  if (loaded != _cdnHost) {
+    await methods.saveCdnHost(_cdnHost);
+  }
 }
 
 Future chooseCdnHost(BuildContext context) async {
   final choose = await chooseCdnDialog(context);
   if (choose != null) {
-    await methods.saveCdnHost(choose);
-    _cdnHost = choose;
+    final value = "$choose".trim();
+    _cdnHost = value.isNotEmpty ? value : _defaultCdnHost;
+    await methods.saveCdnHost(_cdnHost);
+    if (!_cdnList.contains(_cdnHost)) {
+      _cdnList.insert(0, _cdnHost);
+    }
   }
 }
 
@@ -51,7 +69,7 @@ Widget cdnHostSetting() {
           setState(() {});
         },
         title: Text(context.l10n.tr("图片分流", en: "Image routing")),
-        subtitle: Text(_cdnHost),
+        subtitle: Text(_cdnHost.isEmpty ? _defaultCdnHost : _cdnHost),
       );
     },
   );
@@ -71,7 +89,7 @@ Future<T?> chooseCdnDialog<T>(BuildContext buildContext) async {
                 width: dialogWidth,
                 child: CdnOptionRow(
                   e,
-                  key: Key("CDN:${e}"),
+                  key: Key("CDN:$e"),
                 ),
               ),
               onPressed: () {
@@ -111,7 +129,8 @@ Future<String> _manualInputApiHost(BuildContext context) async {
     context: context,
     builder: (BuildContext context) {
       return AlertDialog(
-        title: Text(context.l10n.tr("手动输入CDN地址", en: "Enter CDN address manually")),
+        title: Text(
+            context.l10n.tr("手动输入CDN地址", en: "Enter CDN address manually")),
         content: TextField(
           controller: _controller,
           decoration: const InputDecoration(

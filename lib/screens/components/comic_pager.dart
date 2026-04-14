@@ -360,21 +360,31 @@ class _StreamPagerState extends State<_StreamPager> {
             _join();
           },
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 child: const Icon(Icons.sync_problem_rounded),
               ),
-              Text(context.l10n
-                  .tr('Error, tap to retry', en: 'Error, tap to retry')),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  context.l10n
+                      .tr('Error, tap to retry', en: 'Error, tap to retry'),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               if (_joinErrorMessage.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
                   child: Text(
                     _joinErrorMessage,
                     textAlign: TextAlign.center,
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
             ],

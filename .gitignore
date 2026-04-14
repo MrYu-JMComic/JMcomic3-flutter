@@ -95,3 +95,11 @@ tests_data/
 /null
 /android/null
 /android/build/
+
+# Keep Rust backend source isolated in dedicated private repository.
+/rust/
+/rust_builder/
+/flutter_rust_bridge.yaml
+/scripts/gen_frb.ps1
+/lib/src/rust/
+/lib/basic/backend/
