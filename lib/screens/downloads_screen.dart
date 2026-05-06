@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/methods.dart';
@@ -19,8 +21,12 @@ class DownloadsScreen extends StatefulWidget {
 }
 
 class _DownloadsScreenState extends State<DownloadsScreen> {
+  static const _autoRefreshInterval = Duration(seconds: 2);
+
   bool _loading = true;
+  bool _loadingDownloads = false;
   List<DownloadAlbum> _downloads = [];
+  Timer? _autoRefreshTimer;
 
   void _setState(_) {
     if (mounted) {
@@ -28,30 +34,62 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     }
   }
 
-  _load() async {
-    setState(() {
-      _loading = true;
-    });
+  Future<void> _load({bool showLoading = false}) async {
+    if (_loadingDownloads) {
+      _syncAutoRefresh();
+      return;
+    }
+    _loadingDownloads = true;
+    if (showLoading && mounted) {
+      setState(() {
+        _loading = true;
+      });
+    }
     try {
-      _downloads = await methods.allDownloads();
+      final downloads = await methods.allDownloads();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _downloads = downloads;
+        _loading = false;
+      });
     } catch (_e) {
       // 极端情况才发生, 忽略
     } finally {
-      setState(() {
-        _loading = false;
-      });
+      _loadingDownloads = false;
+      if (mounted) {
+        if (showLoading && _loading) {
+          setState(() {
+            _loading = false;
+          });
+        }
+        _syncAutoRefresh();
+      }
     }
+  }
+
+  void _syncAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+    if (!_downloads.any((e) => e.shouldAutoRefreshStatus)) {
+      return;
+    }
+    _autoRefreshTimer = Timer(_autoRefreshInterval, () {
+      _load();
+    });
   }
 
   @override
   void initState() {
     super.initState();
     downloadThreadCountEvent.subscribe(_setState);
-    _load();
+    _load(showLoading: true);
   }
 
   @override
   void dispose() {
+    _autoRefreshTimer?.cancel();
     downloadThreadCountEvent.unsubscribe(_setState);
     super.dispose();
   }
@@ -73,9 +111,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           IconButton(
             onPressed: () async {
               await methods.renewAllDownloads();
-              if (!_loading) {
-                _load();
-              }
+              _load(showLoading: _downloads.isEmpty);
             },
             icon: const Icon(Icons.autorenew),
           ),
@@ -98,15 +134,16 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       children: _downloads
           .map((e) => GestureDetector(
                 key: Key("DOWNLOAD:${e.id}"),
-                onTap: () {
+                onTap: () async {
                   if (e.dlStatus == 3) {
                     return;
                   }
-                  Navigator.of(context).push(
+                  await Navigator.of(context).push(
                     MaterialPageRoute(builder: (BuildContext context) {
                       return DownloadAlbumScreen(e);
                     }),
                   );
+                  _load();
                 },
                 onLongPress: () async {
                   String? action = await chooseListDialog(context,
@@ -114,7 +151,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                       title: context.l10n.choose);
                   if (action != null && action == context.l10n.delete) {
                     await methods.deleteDownload(e.id);
-                    _load();
+                    _load(showLoading: _downloads.isEmpty);
                   }
                 },
                 child: ComicDownloadCard(e),
@@ -132,7 +169,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
             builder: (context) => const DownloadImportScreen(),
           ),
         );
-        _load();
+        _load(showLoading: _downloads.isEmpty);
       },
       icon: const Icon(
         Icons.drive_folder_upload,
@@ -149,7 +186,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
             builder: (context) => const DownloadsExportScreen(),
           ),
         );
-        _load();
+        _load(showLoading: _downloads.isEmpty);
       },
       icon: const Icon(
         Icons.sim_card_download_outlined,

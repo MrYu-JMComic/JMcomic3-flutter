@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
@@ -46,7 +44,7 @@ class ComicDownloadCard extends StatelessWidget {
               children: [
                 Text(comic.name, style: titleStyle),
                 Container(height: 4),
-                Text(_author(comic.author), style: authorStyle),
+                Text(comic.authorLabel, style: authorStyle),
                 Container(height: 4),
                 _buildCategoryRow(),
                 Container(height: 4),
@@ -64,44 +62,71 @@ class ComicDownloadCard extends StatelessWidget {
                     style: const TextStyle(fontSize: 10),
                   ),
                 ])),
-                ...(comic.dlStatus == 0)
-                    ? [
-                        Text(
-                          context.l10n.tr("队列中", en: "Queued"),
-                          style: const TextStyle(color: Colors.blue),
-                        ),
-                      ]
-                    : [],
-                ...(comic.dlStatus == 1)
-                    ? [
-                        Text(
-                          context.l10n.tr("已下载", en: "Downloaded"),
-                          style: const TextStyle(color: Colors.green),
-                        ),
-                      ]
-                    : [],
-                ...(comic.dlStatus == 2)
-                    ? [
-                        Text(
-                          context.l10n.tr("已失败", en: "Failed"),
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                      ]
-                    : [],
-                ...(comic.dlStatus == 3)
-                    ? [
-                        Text(
-                          context.l10n.tr("删除中", en: "Deleting"),
-                          style: const TextStyle(color: Colors.orange),
-                        ),
-                      ]
-                    : [],
+                Container(height: 4),
+                _buildProgress(context),
+                Container(height: 4),
+                Text(
+                  _statusText(context),
+                  style: TextStyle(color: _statusColor()),
+                ),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildProgress(BuildContext context) {
+    final progress = comic.downloadProgress;
+    if (progress == null) {
+      return Container();
+    }
+    final color = _statusColor();
+    return ClipRRect(
+      borderRadius: const BorderRadius.all(Radius.circular(3)),
+      child: LinearProgressIndicator(
+        value: comic.isDeleting ? null : progress,
+        minHeight: 4,
+        color: color,
+        backgroundColor: color.withOpacity(.14),
+      ),
+    );
+  }
+
+  String _statusText(BuildContext context) {
+    if (comic.isQueuedOrDownloading) {
+      if (comic.dledImageCount > 0) {
+        return context.l10n.tr("下载中", en: "Downloading");
+      }
+      return context.l10n.tr("队列中", en: "Queued");
+    }
+    if (comic.isDownloaded) {
+      return context.l10n.tr("已下载", en: "Downloaded");
+    }
+    if (comic.isFailed) {
+      return context.l10n.tr("已失败", en: "Failed");
+    }
+    if (comic.isDeleting) {
+      return context.l10n.tr("删除中", en: "Deleting");
+    }
+    return context.l10n.tr("未知状态", en: "Unknown status");
+  }
+
+  Color _statusColor() {
+    if (comic.isQueuedOrDownloading) {
+      return Colors.blue;
+    }
+    if (comic.isDownloaded) {
+      return Colors.green;
+    }
+    if (comic.isFailed) {
+      return Colors.red;
+    }
+    if (comic.isDeleting) {
+      return Colors.orange;
+    }
+    return Colors.grey;
   }
 
   Widget _buildCategoryRow() {
@@ -125,13 +150,5 @@ class ComicDownloadCard extends StatelessWidget {
       Text(category.title!),
       Container(width: 15),
     ];
-  }
-}
-
-String _author(String author) {
-  try {
-    return List.of(jsonDecode(author)).cast<String>().join(", ");
-  } catch (e) {
-    return author;
   }
 }

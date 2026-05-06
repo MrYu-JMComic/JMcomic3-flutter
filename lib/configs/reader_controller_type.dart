@@ -24,15 +24,13 @@ Map<String, ReaderControllerType> _readerControllerTypeMap(
     context.l10n.tr("双击屏幕全屏", en: "Double tap to toggle fullscreen"):
         ReaderControllerType.touchDouble,
     context.l10n.tr(
-          "双击屏幕全屏 + 单击屏幕下一页",
-          en: "Double tap for fullscreen + single tap for next page",
-        ):
-        ReaderControllerType.touchDoubleOnceNext,
+      "双击屏幕全屏 + 单击屏幕下一页",
+      en: "Double tap for fullscreen + single tap for next page",
+    ): ReaderControllerType.touchDoubleOnceNext,
     context.l10n.tr(
-          "将屏幕划分成三个区域 (上一页, 下一页, 全屏)",
-          en: "Three areas (prev, next, fullscreen)",
-        ):
-        ReaderControllerType.threeArea,
+      "将屏幕划分成三个区域 (上一页, 下一页, 全屏)",
+      en: "Three areas (prev, next, fullscreen)",
+    ): ReaderControllerType.threeArea,
   };
 }
 

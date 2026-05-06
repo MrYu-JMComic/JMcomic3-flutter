@@ -5,6 +5,7 @@ import 'package:jmcomic3/screens/components/item_builder.dart';
 
 import 'components/comic_info_card.dart';
 import 'components/right_click_pop.dart';
+import 'comic_download_shared.dart';
 
 class ComicDownloadScreen extends StatefulWidget {
   final AlbumResponse album;
@@ -17,12 +18,15 @@ class ComicDownloadScreen extends StatefulWidget {
 
 class _ComicDownloadScreenState extends State<ComicDownloadScreen> {
   late Future _innerDownloadFuture;
-  final List<int> _taskedEps = []; // 已经下载的EP
-  final List<int> _selectedEps = []; // 选中的EP
+  // 章节按钮会反复查询下载/选中状态；Set 能避免大量章节时的线性 contains 扫描。
+  final Set<int> _taskedEps = {}; // 已经下载的EP
+  final Set<int> _selectedEps = {}; // 选中的EP
 
   Future _init() async {
     var task = await methods.downloadById(widget.album.id);
-    task?.chapters.map((e) => e.id).forEach(_taskedEps.add);
+    if (task != null) {
+      _taskedEps.addAll(task.chapters.map((e) => e.id));
+    }
   }
 
   @override
@@ -53,15 +57,7 @@ class _ComicDownloadScreenState extends State<ComicDownloadScreen> {
               BuildContext context,
               AsyncSnapshot snapshot,
             ) {
-              List<Series> series = widget.album.series.isEmpty
-                  ? [
-                      Series(
-                        id: widget.album.id,
-                        name: widget.album.name,
-                        sort: "1",
-                      ),
-                    ]
-                  : widget.album.series;
+              final series = downloadSeriesForAlbum(widget.album);
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -102,12 +98,9 @@ class _ComicDownloadScreenState extends State<ComicDownloadScreen> {
             textColor: Colors.white,
             onPressed: () {
               setState(() {
-                _selectedEps.clear();
-                series.map((e) => e.id).forEach((element) {
-                  if (!_taskedEps.contains(element)) {
-                    _selectedEps.add(element);
-                  }
-                });
+                _selectedEps
+                  ..clear()
+                  ..addAll(selectableDownloadChapterIds(series, _taskedEps));
               });
             },
             child: Text(context.l10n.tr('全选', en: 'Select all')),
@@ -116,20 +109,11 @@ class _ComicDownloadScreenState extends State<ComicDownloadScreen> {
             color: theme.colorScheme.secondary,
             textColor: Colors.white,
             onPressed: () async {
-              List<DownloadCreateChapter> chapters = [];
-              for (var element in series) {
-                if (_selectedEps.contains(element.id)) {
-                  chapters.add(DownloadCreateChapter(
-                    id: element.id,
-                    name: element.name,
-                    sort: element.sort,
-                  ));
-                }
-              }
+              final chapters = selectedDownloadChapters(series, _selectedEps);
               if (chapters.isEmpty) {
                 return;
               }
-              var carte = DownloadCreate(
+              final carte = DownloadCreate(
                 album: DownloadCreateAlbum(
                   id: albumResponse.id,
                   name: albumResponse.name,
@@ -141,6 +125,9 @@ class _ComicDownloadScreenState extends State<ComicDownloadScreen> {
                 chapters: chapters,
               );
               await methods.createDownload(carte);
+              if (!mounted) {
+                return;
+              }
               Navigator.pop(context);
             },
             child: Text(context.l10n.tr('确定下载', en: 'Download selected')),
@@ -151,21 +138,22 @@ class _ComicDownloadScreenState extends State<ComicDownloadScreen> {
   }
 
   Widget _buildSeries(Series e) {
+    final isLight =
+        Theme.of(context).colorScheme.brightness == Brightness.light;
+    final state = downloadChapterVisualState(_taskedEps, _selectedEps, e.id);
     return Container(
       padding: const EdgeInsets.all(5),
       child: MaterialButton(
-        elevation: Theme.of(context).colorScheme.brightness == Brightness.light
-            ? 1
-            : 0,
+        elevation: isLight ? 1 : 0,
         focusElevation: 0,
         onPressed: () {
           _clickOfEp(e.id);
         },
-        color: _colorOfEp(e.id),
+        color: _colorOfEp(state, isLight),
         child: Text.rich(TextSpan(children: [
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
-            child: _iconOfEp(e.id),
+            child: _iconOfEp(state, isLight),
           ),
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
@@ -173,7 +161,7 @@ class _ComicDownloadScreenState extends State<ComicDownloadScreen> {
           ),
           TextSpan(
             text: e.name == "" ? e.sort : "${e.sort} - ${e.name}",
-            style: TextStyle(color: _textColorOfEp(e.id)),
+            style: TextStyle(color: _textColorOfEp(state, isLight)),
           ),
         ])),
       ),
@@ -184,52 +172,45 @@ class _ComicDownloadScreenState extends State<ComicDownloadScreen> {
     if (_taskedEps.contains(id)) {
       return;
     }
-    if (_selectedEps.contains(id)) {
-      setState(() {
-        _selectedEps.remove(id);
-      });
-    } else {
-      setState(() {
-        _selectedEps.add(id);
-      });
+    setState(() {
+      toggleSelectedDownloadChapterId(_selectedEps, _taskedEps, id);
+    });
+  }
+
+  Color _colorOfEp(DownloadChapterVisualState state, bool isLight) {
+    switch (state) {
+      case DownloadChapterVisualState.tasked:
+        return Colors.grey.shade300;
+      case DownloadChapterVisualState.selected:
+        return Colors.blueGrey.shade300;
+      case DownloadChapterVisualState.idle:
+        return isLight
+            ? Colors.white
+            : Theme.of(context).textTheme.bodyMedium!.color!.withOpacity(.17);
     }
   }
 
-  Color _colorOfEp(int id) {
-    if (_taskedEps.contains(id)) {
-      return Colors.grey.shade300;
+  Icon _iconOfEp(DownloadChapterVisualState state, bool isLight) {
+    switch (state) {
+      case DownloadChapterVisualState.tasked:
+        return const Icon(Icons.download_rounded, color: Colors.black);
+      case DownloadChapterVisualState.selected:
+        return const Icon(Icons.check_box, color: Colors.black);
+      case DownloadChapterVisualState.idle:
+        return isLight
+            ? const Icon(Icons.check_box_outline_blank, color: Colors.black)
+            : const Icon(Icons.check_box_outline_blank, color: Colors.white);
     }
-    if (_selectedEps.contains(id)) {
-      return Colors.blueGrey.shade300;
-    }
-    return Theme.of(context).colorScheme.brightness == Brightness.light
-        ? Colors.white
-        : Theme.of(context).textTheme.bodyMedium!.color!.withOpacity(.17);
   }
 
-  Icon _iconOfEp(int id) {
-    if (_taskedEps.contains(id)) {
-      return const Icon(Icons.download_rounded, color: Colors.black);
+  Color _textColorOfEp(DownloadChapterVisualState state, bool isLight) {
+    switch (state) {
+      case DownloadChapterVisualState.tasked:
+        return Colors.black;
+      case DownloadChapterVisualState.selected:
+        return Colors.black;
+      case DownloadChapterVisualState.idle:
+        return isLight ? Colors.black : Colors.white;
     }
-    if (_selectedEps.contains(id)) {
-      return const Icon(Icons.check_box, color: Colors.black);
-    }
-    return Theme.of(context).colorScheme.brightness == Brightness.light
-        ? const Icon(Icons.check_box_outline_blank, color: Colors.black)
-        : const Icon(Icons.check_box_outline_blank, color: Colors.white);
-  }
-
-  Color _textColorOfEp(int id) {
-    if (_taskedEps.contains(id)) {
-      return Colors.black;
-    }
-    if (_selectedEps.contains(id)) {
-      return Theme.of(context).colorScheme.brightness == Brightness.light
-          ? Colors.black
-          : Colors.black;
-    }
-    return Theme.of(context).colorScheme.brightness == Brightness.light
-        ? Colors.black
-        : Colors.white;
   }
 }

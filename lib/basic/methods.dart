@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:jmcomic3/basic/log.dart';
 
+import 'method_response_decoder.dart';
 import 'entities.dart';
 
 export 'entities.dart';
@@ -33,6 +34,7 @@ class Methods {
   static const Duration _albumCacheTtl = Duration(minutes: 10);
   static const Duration _coverCacheTtl = Duration(minutes: 30);
   static const String _defaultCategoriesCacheKey = "__default__";
+  static const int _maxSearchHistoryCountHint = 200;
 
   static final Map<String, _CacheEntry<String>> _categoriesCache = {};
   static final Map<String, _CacheEntry<String>> _comicsCache = {};
@@ -180,26 +182,73 @@ class Methods {
     return "${raw.substring(0, 320)}...";
   }
 
+  Map<String, dynamic>? _decodeNullableMapResponse(String rsp, String method) {
+    return decodeNullableMapResponse(rsp, method);
+  }
+
+  Map<String, dynamic> _decodeMapResponse(
+    String rsp,
+    String method, {
+    bool nullAsEmpty = false,
+  }) {
+    return decodeMapResponse(rsp, method, nullAsEmpty: nullAsEmpty);
+  }
+
+  List<Map<String, dynamic>> _decodeMapListResponse(
+    String rsp,
+    String method, {
+    bool immutableItems = true,
+  }) {
+    return decodeMapListResponse(
+      rsp,
+      method,
+      immutableItems: immutableItems,
+    );
+  }
+
+  List<T> _decodeEntityListResponse<T>(
+    String rsp,
+    String method,
+    T Function(Map<String, dynamic>) mapper, {
+    bool immutableItems = false,
+  }) {
+    return decodeEntityListResponse(
+      rsp,
+      method,
+      mapper,
+      immutableItems: immutableItems,
+    );
+  }
+
+  List<String> _decodeStringListResponse(
+    String rsp,
+    String method, {
+    bool dedupe = false,
+  }) {
+    return decodeStringListResponse(rsp, method, dedupe: dedupe);
+  }
+
+  Map<String, String> _decodeStringMapResponse(String rsp, String method) {
+    return decodeStringMapResponse(rsp, method);
+  }
+
   Future init() {
     return _invoke("init_dart", "");
   }
 
   Future<Map<String, String>> configLinks() async {
-    final rsp = await _invoke("config_links", "");
-    final decoded = jsonDecode(rsp);
-    if (decoded is! Map) {
-      return {};
-    }
-    return decoded.map((key, value) => MapEntry("$key", "$value"));
+    return _decodeStringMapResponse(
+      await _invoke("config_links", ""),
+      "config_links",
+    );
   }
 
   Future<Map<String, dynamic>> appConfig() async {
-    final rsp = await _invoke("app_config", "");
-    final decoded = jsonDecode(rsp);
-    if (decoded is! Map) {
-      return {};
-    }
-    return Map<String, dynamic>.from(decoded);
+    return _decodeMapResponse(
+      await _invoke("app_config", ""),
+      "app_config",
+      nullAsEmpty: true,
+    );
   }
 
   Future<String> loadProperty(String propertyKey) {
@@ -349,7 +398,10 @@ class Methods {
   }
 
   Future<ViewLog?> findViewLog(int id) async {
-    final map = jsonDecode(await _invoke("find_view_log", id));
+    final map = _decodeNullableMapResponse(
+      await _invoke("find_view_log", id),
+      "find_view_log",
+    );
     if (map == null) {
       return null;
     }
@@ -405,21 +457,19 @@ class Methods {
   }
 
   Future<List<String>> loadApiHostList() async {
-    final rsp = await _invoke("load_api_host_list", "");
-    final decoded = jsonDecode(rsp);
-    if (decoded is! List) {
-      return [];
-    }
-    return decoded.map((e) => "$e").toList();
+    return _decodeStringListResponse(
+      await _invoke("load_api_host_list", ""),
+      "load_api_host_list",
+      dedupe: true,
+    );
   }
 
   Future<List<String>> refreshApiHostList() async {
-    final rsp = await _invoke("refresh_api_host_list", "");
-    final decoded = jsonDecode(rsp);
-    if (decoded is! List) {
-      return [];
-    }
-    return decoded.map((e) => "$e").toList();
+    return _decodeStringListResponse(
+      await _invoke("refresh_api_host_list", ""),
+      "refresh_api_host_list",
+      dedupe: true,
+    );
   }
 
   Future<String> loadCdnHost() {
@@ -499,25 +549,49 @@ class Methods {
   }
 
   Future<List<SearchHistory>> lastSearchHistories(int count) async {
-    return List.of(jsonDecode(await _invoke("last_search_histories", "$count")))
-        .map((e) => SearchHistory.fromJson(e))
-        .toList()
-        .cast<SearchHistory>();
+    if (count <= 0) {
+      // 调用方用 0 表示不展示搜索历史；直接在 Dart 侧短路，避免一次无意义桥接调用。
+      return const <SearchHistory>[];
+    }
+    // 后端当前最多返回 200 条；提前在前端裁剪可减少桥接 payload，保持行为兼容。
+    final normalizedCount =
+        count > _maxSearchHistoryCountHint ? _maxSearchHistoryCountHint : count;
+    return _decodeEntityListResponse(
+      await _invoke("last_search_histories", "$normalizedCount"),
+      "last_search_histories",
+      SearchHistory.fromJson,
+    );
   }
 
   /// Download list
   Future<List<DownloadAlbum>> allDownloads() async {
-    return List.of(jsonDecode(await _invoke("all_downloads", "")))
-        .map((e) => DownloadAlbum.fromJson(e))
-        .toList()
-        .cast<DownloadAlbum>();
+    return _decodeEntityListResponse(
+      await _invoke("all_downloads", ""),
+      "all_downloads",
+      DownloadAlbum.fromJson,
+    );
+  }
+
+  Future<DownloadAlbum?> downloadAlbumById(int id) async {
+    final map = _decodeNullableMapResponse(
+      await _invoke("download_album_by_id", "$id"),
+      "download_album_by_id",
+    );
+    if (map == null) {
+      return null;
+    }
+    // 下载详情页轮询只需要摘要字段；后端单项接口复用 all_downloads 的 wire 形状。
+    return DownloadAlbum.fromJson(map);
   }
 
   /// Find download item
   Future<DownloadCreate?> downloadById(int id) async {
-    var map = jsonDecode(await _invoke("download_by_id", "$id"));
+    final map = _decodeNullableMapResponse(
+      await _invoke("download_by_id", "$id"),
+      "download_by_id",
+    );
     if (map == null) {
-      return map;
+      return null;
     }
     return DownloadCreate.fromJson(map);
   }
@@ -529,10 +603,11 @@ class Methods {
 
   /// Download image list
   Future<List<DlImage>> dlImageByChapterId(int id) async {
-    return List.of(jsonDecode(await _invoke("dl_image_by_chapter_id", "$id")))
-        .map((e) => DlImage.fromJson(e))
-        .toList()
-        .cast<DlImage>();
+    return _decodeEntityListResponse(
+      await _invoke("dl_image_by_chapter_id", "$id"),
+      "dl_image_by_chapter_id",
+      DlImage.fromJson,
+    );
   }
 
   Future<dynamic> deleteDownload(int id) async {

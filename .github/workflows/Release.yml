@@ -156,24 +156,7 @@ jobs:
             ls -la "$ANDROID_HOME/ndk" || true
             exit 1
           fi
-          pushd rust-backend/rust
-          if [ "${{ matrix.config.target }}" = "android-arm64" ]; then
-            cargo ndk -t arm64-v8a -o ../../android/app/src/main/jniLibs build --release
-            cp ../../android/app/src/main/jniLibs/arm64-v8a/librust_lib_jasmine.so ../../android/app/src/main/jniLibs/arm64-v8a/librust.so
-            rm -f ../../android/app/src/main/jniLibs/arm64-v8a/librust_lib_jasmine.so
-          elif [ "${{ matrix.config.target }}" = "android-arm32" ]; then
-            cargo ndk -t armeabi-v7a -o ../../android/app/src/main/jniLibs build --release
-            cp ../../android/app/src/main/jniLibs/armeabi-v7a/librust_lib_jasmine.so ../../android/app/src/main/jniLibs/armeabi-v7a/librust.so
-            rm -f ../../android/app/src/main/jniLibs/armeabi-v7a/librust_lib_jasmine.so
-          else
-            cargo ndk -t arm64-v8a -o ../../android/app/src/main/jniLibs build --release
-            cargo ndk -t armeabi-v7a -o ../../android/app/src/main/jniLibs build --release
-            cp ../../android/app/src/main/jniLibs/arm64-v8a/librust_lib_jasmine.so ../../android/app/src/main/jniLibs/arm64-v8a/librust.so
-            cp ../../android/app/src/main/jniLibs/armeabi-v7a/librust_lib_jasmine.so ../../android/app/src/main/jniLibs/armeabi-v7a/librust.so
-            rm -f ../../android/app/src/main/jniLibs/arm64-v8a/librust_lib_jasmine.so
-            rm -f ../../android/app/src/main/jniLibs/armeabi-v7a/librust_lib_jasmine.so
-          fi
-          popd
+          RUST_BACKEND_RUST_DIR="$PWD/rust-backend/rust" bash scripts/build_android_rust_jnilibs.sh
 
       - name: Set version
         run: |
@@ -182,15 +165,7 @@ jobs:
 
       - name: Verify bundled JNI libs
         shell: bash
-        run: |
-          if [ "${{ matrix.config.target }}" = "android-arm64" ]; then
-            test -f android/app/src/main/jniLibs/arm64-v8a/librust.so
-          elif [ "${{ matrix.config.target }}" = "android-arm32" ]; then
-            test -f android/app/src/main/jniLibs/armeabi-v7a/librust.so
-          else
-            test -f android/app/src/main/jniLibs/arm64-v8a/librust.so
-            test -f android/app/src/main/jniLibs/armeabi-v7a/librust.so
-          fi
+        run: bash scripts/build_android_rust_jnilibs.sh --verify-only
 
       - name: Build Android core
         if: matrix.config.target == 'android-core'

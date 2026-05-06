@@ -77,6 +77,10 @@ tests_data/
 
 *.tgz
 *.so
+# Android Rust JNI entrypoint libraries are committed intentionally.
+!/android/app/src/main/jniLibs/
+!/android/app/src/main/jniLibs/**/
+!/android/app/src/main/jniLibs/**/librust.so
 *.dylib
 .build/
 .vscode/

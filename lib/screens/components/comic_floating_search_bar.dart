@@ -6,6 +6,7 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../../basic/commons.dart';
 import 'floating_search_bar.dart';
+import 'search_history_shared.dart';
 
 final _event = Event();
 final List<Block> _blockStore = [];
@@ -19,7 +20,7 @@ set blockStore(List<Block> values) {
 
 set searchHistories(List<SearchHistory> values) {
   _histories.clear();
-  _histories.addAll(values);
+  _histories.addAll(normalizeSearchHistoriesForPanel(values));
   _event.broadcast();
 }
 
@@ -71,9 +72,10 @@ class _ComicFloatingSearchBarScreenState
   }
 
   void _onSubmitted(String value) {
+    final query = normalizeSearchPanelQuery(value);
     widget.controller.hide();
-    if (value.isNotEmpty && widget.onQuery != null) {
-      widget.onQuery!(value);
+    if (query != null && widget.onQuery != null) {
+      widget.onQuery!(query);
     }
   }
 

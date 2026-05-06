@@ -33,6 +33,16 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+def rustAndroidTrackedAbis = ['arm64-v8a', 'armeabi-v7a']
+def rustAndroidDestLibName = 'librust.so'
+def rustAndroidDefaultSourceLibName = 'librust_lib_jasmine.so'
+def rustAndroidAbiMetadata = [
+        'arm64-v8a'  : [cargoTarget: 'aarch64-linux-android', elfClass: 2, machine: 183],
+        'armeabi-v7a': [cargoTarget: 'armv7-linux-androideabi', elfClass: 1, machine: 40],
+        'x86'        : [cargoTarget: 'i686-linux-android', elfClass: 1, machine: 3],
+        'x86_64'     : [cargoTarget: 'x86_64-linux-android', elfClass: 2, machine: 62],
+]
+
 android {
     namespace "com.jmcomic3.yee"
     compileSdkVersion flutter.compileSdkVersion
@@ -49,6 +59,7 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        main.jniLibs.srcDirs = ['src/main/jniLibs']
     }
 
     signingConfigs {
@@ -94,4 +105,285 @@ flutter {
 
 dependencies {
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1'
+}
+
+def rustAndroidRepoRoot = rootProject.projectDir.parentFile
+def rustAndroidJniDestRoot = file('src/main/jniLibs')
+
+def rustAndroidPropOrEnv = { String propName, String envName, String defaultValue = null ->
+    if (project.hasProperty(propName)) {
+        return project.property(propName).toString()
+    }
+    def envValue = System.getenv(envName)
+    return envValue == null || envValue.trim().isEmpty() ? defaultValue : envValue
+}
+
+def rustAndroidRepoFile = { String path ->
+    def candidate = new File(path)
+    return candidate.isAbsolute() ? candidate : new File(rustAndroidRepoRoot, path)
+}
+
+def rustAndroidByteAt = { byte[] bytes, int index -> bytes[index] & 0xff }
+
+def rustAndroidReadElfInfo = { File libFile ->
+    if (!libFile.isFile()) {
+        throw new GradleException("Android Rust JNI lib is missing: ${libFile}")
+    }
+    if (libFile.length() < 20) {
+        throw new GradleException("Android Rust JNI lib is too small to be an ELF shared object: ${libFile}")
+    }
+
+    byte[] header = new byte[20]
+    libFile.withInputStream { input ->
+        int total = 0
+        while (total < header.length) {
+            int read = input.read(header, total, header.length - total)
+            if (read == -1) {
+                break
+            }
+            total += read
+        }
+        if (total < header.length) {
+            throw new GradleException("Failed to read ELF header from ${libFile}")
+        }
+    }
+
+    if (rustAndroidByteAt(header, 0) != 0x7f ||
+            rustAndroidByteAt(header, 1) != 0x45 ||
+            rustAndroidByteAt(header, 2) != 0x4c ||
+            rustAndroidByteAt(header, 3) != 0x46) {
+        throw new GradleException("Android Rust JNI lib is not an ELF file: ${libFile}")
+    }
+    if (rustAndroidByteAt(header, 5) != 1) {
+        throw new GradleException("Only little-endian Android ELF libs are supported: ${libFile}")
+    }
+
+    int elfClass = rustAndroidByteAt(header, 4)
+    int machine = rustAndroidByteAt(header, 18) | (rustAndroidByteAt(header, 19) << 8)
+    return [elfClass: elfClass, machine: machine]
+}
+
+def rustAndroidValidateElf = { File libFile, String abi ->
+    def metadata = rustAndroidAbiMetadata[abi]
+    if (metadata == null) {
+        throw new GradleException("No ELF validation metadata configured for Android ABI '${abi}'")
+    }
+    def elf = rustAndroidReadElfInfo(libFile)
+    if (elf.elfClass != metadata.elfClass || elf.machine != metadata.machine) {
+        throw new GradleException(
+                "Android Rust JNI lib ABI mismatch for ${abi}: ${libFile} " +
+                        "(ELF class=${elf.elfClass}, machine=${elf.machine}; " +
+                        "expected class=${metadata.elfClass}, machine=${metadata.machine})")
+    }
+}
+
+def rustAndroidSha256 = { File fileToHash ->
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    fileToHash.withInputStream { input ->
+        byte[] buffer = new byte[8192]
+        while (true) {
+            int read = input.read(buffer)
+            if (read == -1) {
+                break
+            }
+            digest.update(buffer, 0, read)
+        }
+    }
+    return digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+def rustAndroidInputJniRoots = {
+    def roots = []
+    def configuredRoot = rustAndroidPropOrEnv('rustJniLibsSource', 'RUST_ANDROID_JNILIBS_SOURCE')
+    if (configuredRoot != null) {
+        roots << rustAndroidRepoFile(configuredRoot)
+    }
+    roots << new File(rustAndroidRepoRoot, 'build/rust-android-jni')
+    roots << new File(rustAndroidRepoRoot, 'rust-backend/target/android-jni')
+    roots << new File(rustAndroidRepoRoot, 'rust/target/android-jni')
+    return roots.unique { it.canonicalPath }
+}
+
+def rustAndroidInputTargetRoots = {
+    def roots = []
+    def configuredRoot = rustAndroidPropOrEnv('rustTargetDir', 'CARGO_TARGET_DIR')
+    if (configuredRoot != null) {
+        roots << rustAndroidRepoFile(configuredRoot)
+    }
+    roots << new File(rustAndroidRepoRoot, 'rust-backend/rust/target')
+    roots << new File(rustAndroidRepoRoot, 'rust/target')
+    roots << new File(rustAndroidRepoRoot, 'target')
+    return roots.unique { it.canonicalPath }
+}
+
+def rustAndroidSourceLibNames = {
+    def configuredName = rustAndroidPropOrEnv(
+            'rustSourceLibName',
+            'RUST_ANDROID_SOURCE_LIB_NAME',
+            rustAndroidDefaultSourceLibName)
+    return [configuredName, rustAndroidDestLibName].findAll { it != null && !it.trim().isEmpty() }.unique()
+}
+
+def rustAndroidSourceCandidates = { String abi ->
+    def metadata = rustAndroidAbiMetadata[abi]
+    if (metadata == null) {
+        throw new GradleException("No cargo target configured for Android ABI '${abi}'")
+    }
+    def candidates = []
+    rustAndroidInputJniRoots().each { root ->
+        rustAndroidSourceLibNames().each { libName ->
+            candidates << new File(new File(root, abi), libName)
+        }
+    }
+    rustAndroidInputTargetRoots().each { root ->
+        rustAndroidSourceLibNames().each { libName ->
+            candidates << new File(new File(new File(root, metadata.cargoTarget), 'release'), libName)
+        }
+    }
+    return candidates.unique { it.canonicalPath }
+}
+
+tasks.register('printRustAndroidAbis') {
+    group = 'rust'
+    description = 'Prints the Android ABI set that must be kept in sync for Rust JNI libs.'
+    doLast {
+        println rustAndroidTrackedAbis.join(' ')
+    }
+}
+
+tasks.register('syncRustJniLibs') {
+    group = 'rust'
+    description = 'Copies Android Rust JNI libs for every tracked ABI and validates the copied ELF files.'
+    doLast {
+        def resolvedSources = [:]
+        rustAndroidTrackedAbis.each { abi ->
+            def source = rustAndroidSourceCandidates(abi).find { it.isFile() }
+            if (source == null) {
+                throw new GradleException(
+                        "Missing Android Rust JNI source for ${abi}. Looked for:\n" +
+                                rustAndroidSourceCandidates(abi).collect { "  - ${it}" }.join('\n'))
+            }
+            rustAndroidValidateElf(source, abi)
+            resolvedSources[abi] = source
+        }
+
+        resolvedSources.each { abi, source ->
+            def dest = new File(new File(rustAndroidJniDestRoot, abi), rustAndroidDestLibName)
+            dest.parentFile.mkdirs()
+            if (source.canonicalFile != dest.canonicalFile) {
+                java.nio.file.Files.copy(
+                        source.toPath(),
+                        dest.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.COPY_ATTRIBUTES)
+            }
+
+            def sourceHash = rustAndroidSha256(source)
+            def destHash = rustAndroidSha256(dest)
+            if (sourceHash != destHash) {
+                throw new GradleException("Hash mismatch after copying ${abi}: ${source} -> ${dest}")
+            }
+            rustAndroidValidateElf(dest, abi)
+
+            rustAndroidSourceLibNames().findAll { it != rustAndroidDestLibName }.each { staleLibName ->
+                def staleDest = new File(dest.parentFile, staleLibName)
+                if (staleDest.isFile()) {
+                    staleDest.delete()
+                }
+            }
+            logger.lifecycle("Synced ${abi}: ${source} -> ${dest} (${dest.length()} bytes, sha256=${destHash})")
+        }
+    }
+}
+
+tasks.register('validateRustJniLibs') {
+    group = 'verification'
+    description = 'Validates that every tracked Android ABI has a correctly named Rust JNI ELF library.'
+    inputs.files(rustAndroidTrackedAbis.collect { abi ->
+        new File(new File(rustAndroidJniDestRoot, abi), rustAndroidDestLibName)
+    })
+    doLast {
+        rustAndroidTrackedAbis.each { abi ->
+            def libFile = new File(new File(rustAndroidJniDestRoot, abi), rustAndroidDestLibName)
+            rustAndroidValidateElf(libFile, abi)
+        }
+
+        def staleLibs = []
+        rustAndroidSourceLibNames().findAll { it != rustAndroidDestLibName }.each { staleLibName ->
+            staleLibs.addAll(fileTree(rustAndroidJniDestRoot) {
+                include "**/${staleLibName}"
+            }.files)
+        }
+        if (!staleLibs.isEmpty()) {
+            throw new GradleException(
+                    "Found cargo-ndk source-named JNI libs under ${rustAndroidJniDestRoot}. " +
+                            "Run :app:syncRustJniLibs to rename them to ${rustAndroidDestLibName}:\n" +
+                            staleLibs.collect { "  - ${it}" }.join('\n'))
+        }
+        logger.lifecycle("Validated Android Rust JNI libs for ABI set: ${rustAndroidTrackedAbis.join(', ')}")
+    }
+}
+
+tasks.register('checkRustJniLibsTrackedSet') {
+    group = 'verification'
+    description = 'Fails when only part of the tracked Android Rust JNI ABI set is changed in git.'
+    doLast {
+        def allowPartial = rustAndroidPropOrEnv(
+                'rustAllowPartialJniLibChange',
+                'RUST_ALLOW_PARTIAL_JNILIB_CHANGE',
+                'false').toBoolean()
+        if (allowPartial) {
+            logger.lifecycle('Skipping partial Android Rust JNI git-change check by request.')
+            return
+        }
+
+        def trackedPaths = rustAndroidTrackedAbis.collect {
+            "android/app/src/main/jniLibs/${it}/${rustAndroidDestLibName}"
+        }
+        def stdout = new ByteArrayOutputStream()
+        def stderr = new ByteArrayOutputStream()
+        def result = exec {
+            workingDir rustAndroidRepoRoot
+            commandLine(['git', 'status', '--porcelain', '--untracked-files=no', '--'] + trackedPaths)
+            standardOutput = stdout
+            errorOutput = stderr
+            ignoreExitValue = true
+        }
+        if (result.exitValue != 0) {
+            logger.lifecycle("Skipping Android Rust JNI git-change check because git status failed: ${stderr.toString('UTF-8').trim()}")
+            return
+        }
+
+        def changedAbis = [] as Set
+        stdout.toString('UTF-8').readLines().each { line ->
+            def changedPath = line.length() > 3 ? line.substring(3).trim().replace('\\', '/') : ''
+            rustAndroidTrackedAbis.each { abi ->
+                if (changedPath.endsWith("android/app/src/main/jniLibs/${abi}/${rustAndroidDestLibName}")) {
+                    changedAbis << abi
+                }
+            }
+        }
+
+        if (!changedAbis.isEmpty() && changedAbis.size() != rustAndroidTrackedAbis.size()) {
+            def missingAbis = rustAndroidTrackedAbis.findAll { !changedAbis.contains(it) }
+            throw new GradleException(
+                    "Partial Android Rust JNI update detected. Changed ABI(s): ${changedAbis.join(', ')}; " +
+                            "missing ABI(s): ${missingAbis.join(', ')}. " +
+                            "Run scripts/build_android_rust_jnilibs.sh or :app:syncRustJniLibs so all tracked ABIs are refreshed together.")
+        }
+        logger.lifecycle("Android Rust JNI git-change set is consistent: ${changedAbis.isEmpty() ? 'no tracked JNI lib changes' : changedAbis.join(', ')}")
+    }
+}
+
+tasks.register('verifyRustJniLibs') {
+    group = 'verification'
+    description = 'Runs ELF validation plus the git tracked-ABI consistency check for Android Rust JNI libs.'
+    dependsOn('validateRustJniLibs', 'checkRustJniLibsTrackedSet')
+}
+
+tasks.matching { it.name == 'preBuild' }.configureEach {
+    dependsOn('validateRustJniLibs')
+}
+tasks.matching { it.name ==~ /merge.*JniLibFolders/ }.configureEach {
+    dependsOn('validateRustJniLibs')
 }

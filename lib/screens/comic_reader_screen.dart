@@ -95,7 +95,8 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
             body: ContentError(
               onRefresh: () async {
                 setState(() {
-                  _chapterFuture = methods.chapter(widget.chapterId);
+                  // 阅读器可能来自在线漫画或本地下载，重试必须沿用注入的章节加载器。
+                  _chapterFuture = widget.loadChapter(widget.chapterId);
                 });
               },
               error: snapshot.error,

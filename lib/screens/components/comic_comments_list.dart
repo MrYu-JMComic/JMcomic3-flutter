@@ -193,8 +193,13 @@ Widget _buildPostComment(
           final data = await (parentId == null
               ? methods.comment(aid, text)
               : methods.childComment(aid, text, parentId));
-          if (data.status == "fail") {
-            defaultToast(context, data.msg);
+          if (!data.isSuccess) {
+            defaultToast(
+              context,
+              data.msg.isNotEmpty
+                  ? data.msg
+                  : context.l10n.tr("评论失败", en: "Comment failed"),
+            );
           } else {
             defaultToast(
                 context, context.l10n.tr("评论成功", en: "Comment posted"));

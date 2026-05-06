@@ -14,7 +14,9 @@ Future<String?> initProxy() async {
 }
 
 String currentProxyName(BuildContext context) {
-  return _currentProxy == "" ? context.l10n.tr("未设置", en: "Not set") : _currentProxy;
+  return _currentProxy == ""
+      ? context.l10n.tr("未设置", en: "Not set")
+      : _currentProxy;
 }
 
 Future<dynamic> inputProxy(BuildContext context) async {

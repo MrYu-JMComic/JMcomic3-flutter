@@ -13,7 +13,7 @@ class ComicInfoCard extends StatelessWidget {
   final ComicBasic comic;
 
   const ComicInfoCard(this.comic, {this.link = false, Key? key})
-    : super(key: key);
+      : super(key: key);
 
   @override
   Widget build(BuildContext context) {

@@ -22,8 +22,7 @@ Map<PagerViewMode, String> _nameMap(BuildContext context) {
     PagerViewMode.cover: context.l10n.tr("封面", en: "Cover"),
     PagerViewMode.info: context.l10n.tr("详情", en: "Info"),
     PagerViewMode.titleInCover: context.l10n.tr("图文1", en: "Title+Cover 1"),
-    PagerViewMode.titleAndCover:
-        context.l10n.tr("图文2", en: "Title+Cover 2"),
+    PagerViewMode.titleAndCover: context.l10n.tr("图文2", en: "Title+Cover 2"),
   };
 }
 

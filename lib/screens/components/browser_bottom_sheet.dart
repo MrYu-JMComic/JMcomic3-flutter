@@ -75,7 +75,8 @@ class _BrowserBottomSheetState extends State<_BrowserBottomSheet> {
     setState(() {
       _manualCleaning = true;
     });
-    defaultToast(context, context.l10n.tr('开始清理缓存', en: 'Start cleaning cache'));
+    defaultToast(
+        context, context.l10n.tr('开始清理缓存', en: 'Start cleaning cache'));
     final result = await cleanCache();
     if (!mounted) {
       return;
@@ -96,7 +97,8 @@ class _BrowserBottomSheetState extends State<_BrowserBottomSheet> {
     debugPrient('clean cache failed: ${result.error}');
     defaultToast(
       context,
-      context.l10n.tr('清理失败，请稍后重试', en: 'Cleanup failed, please try again later'),
+      context.l10n
+          .tr('清理失败，请稍后重试', en: 'Cleanup failed, please try again later'),
     );
   }
 
@@ -136,7 +138,8 @@ class _BrowserBottomSheetState extends State<_BrowserBottomSheet> {
             Expanded(child: Container()),
             _bottomIcon(
               icon: Icons.view_column_sharp,
-              title: context.l10n.tr('$pagerColumnNumber 列', en: '$pagerColumnNumber cols'),
+              title: context.l10n
+                  .tr('$pagerColumnNumber 列', en: '$pagerColumnNumber cols'),
               onPressed: () async {
                 await choosePagerColumnCount(context);
                 setState(() {});

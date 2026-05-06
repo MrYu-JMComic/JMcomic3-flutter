@@ -39,14 +39,7 @@ class _ContinueReadButtonState extends State<ContinueReadButton> {
               return Container();
             }
             onPressed = () {
-              if (widget.album.series.isEmpty) {
-                widget.onChoose(widget.album.id, 0);
-              } else {
-                widget.album.series.sort(
-                  (a, b) => int.parse(a.sort).compareTo(int.parse(b.sort)),
-                );
-                widget.onChoose(widget.album.series[0].id, 0);
-              }
+              widget.onChoose(widget.album.initialReadableChapterId, 0);
             };
             text = context.l10n.tr('从头开始', en: 'Start from beginning');
           } else {

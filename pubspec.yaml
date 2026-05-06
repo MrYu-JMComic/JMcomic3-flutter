@@ -3,7 +3,7 @@ description: jmcomic3 comic browser
 
 publish_to: 'none'
 
-version: 1.7.23+51
+version: 1.7.25+53
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -40,3 +40,4 @@ flutter:
   uses-material-design: true
   assets:
     - lib/assets/
+

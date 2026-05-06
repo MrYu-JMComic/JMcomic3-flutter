@@ -23,8 +23,10 @@ class FilePhotoViewScreen extends StatelessWidget {
           children: [
             GestureDetector(
               onLongPress: () async {
-                final saveToGallery = context.l10n.tr('保存图片到相册', en: 'Save image to gallery');
-                final saveToFile = context.l10n.tr('保存图片到文件', en: 'Save image to file');
+                final saveToGallery =
+                    context.l10n.tr('保存图片到相册', en: 'Save image to gallery');
+                final saveToFile =
+                    context.l10n.tr('保存图片到文件', en: 'Save image to file');
                 String? choose = await chooseListDialog(
                   context,
                   title: context.l10n.choose,

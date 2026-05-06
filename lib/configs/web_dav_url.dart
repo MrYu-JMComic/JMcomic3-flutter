@@ -16,7 +16,9 @@ Future<String?> initWebDavUrl() async {
 }
 
 String currentWebDavUrlName(BuildContext context) {
-  return _currentWebDavUrl == "" ? context.l10n.tr("未设置", en: "Not set") : _currentWebDavUrl;
+  return _currentWebDavUrl == ""
+      ? context.l10n.tr("未设置", en: "Not set")
+      : _currentWebDavUrl;
 }
 
 String get currentWebDavUrl => _currentWebDavUrl;

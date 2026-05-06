@@ -8,7 +8,8 @@ var isProEx = _permanentProExpire;
 
 bool get hasProAccess => isPro;
 
-ProInfoAf? _proInfoAf = ProInfoAf.fromJson({"is_pro": true, "expire": _permanentProExpire});
+ProInfoAf? _proInfoAf =
+    ProInfoAf.fromJson({"is_pro": true, "expire": _permanentProExpire});
 ProInfoPat? _proInfoPat = ProInfoPat.fromJson({
   "is_pro": true,
   "pat_id": "",
@@ -20,17 +21,21 @@ ProInfoPat? _proInfoPat = ProInfoPat.fromJson({
   "access_key": "",
 });
 
-ProInfoAf get proInfoAf => _proInfoAf ?? ProInfoAf.fromJson({"is_pro": true, "expire": _permanentProExpire});
-ProInfoPat get proInfoPat => _proInfoPat ?? ProInfoPat.fromJson({
-  "is_pro": true,
-  "pat_id": "",
-  "bind_uid": "",
-  "request_delete": 0,
-  "re_bind": 0,
-  "error_type": 0,
-  "error_msg": "",
-  "access_key": "",
-});
+ProInfoAf get proInfoAf =>
+    _proInfoAf ??
+    ProInfoAf.fromJson({"is_pro": true, "expire": _permanentProExpire});
+ProInfoPat get proInfoPat =>
+    _proInfoPat ??
+    ProInfoPat.fromJson({
+      "is_pro": true,
+      "pat_id": "",
+      "bind_uid": "",
+      "request_delete": 0,
+      "re_bind": 0,
+      "error_type": 0,
+      "error_msg": "",
+      "access_key": "",
+    });
 
 final proEvent = Event();
 
@@ -44,7 +49,8 @@ Future reloadIsPro() async {
 
   isPro = true;
   isProEx = _permanentProExpire;
-  _proInfoAf = ProInfoAf.fromJson({"is_pro": true, "expire": _permanentProExpire});
+  _proInfoAf =
+      ProInfoAf.fromJson({"is_pro": true, "expire": _permanentProExpire});
   _proInfoPat = ProInfoPat.fromJson({
     "is_pro": true,
     "pat_id": _proInfoPat?.patId ?? "",

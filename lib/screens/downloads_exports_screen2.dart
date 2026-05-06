@@ -70,11 +70,7 @@ class _DownloadsExportScreen2State extends State<DownloadsExportScreen2> {
             children: snapshot.requireData
                 .map((e) => GestureDetector(
                       onTap: () {
-                        if (selected.contains(e.id)) {
-                          selected.remove(e.id);
-                        } else {
-                          selected.add(e.id);
-                        }
+                        toggleSelectedDownloadId(selected, e.id);
                         setState(() {});
                       },
                       child: Stack(children: [
@@ -100,10 +96,10 @@ class _DownloadsExportScreen2State extends State<DownloadsExportScreen2> {
     );
   }
 
-  List<int> selected = [];
+  Set<int> selected = <int>{};
 
   Future<List<DownloadAlbum>> _loadDownloads() {
-    return loadDownloadAlbums((album) => album.dlStatus != 3);
+    return loadDownloadAlbums((album) => !album.isDeleting);
   }
 
   Widget _selectAllButton(List<int> exportableIds) {
@@ -145,22 +141,23 @@ class _DownloadsExportScreen2State extends State<DownloadsExportScreen2> {
             return;
           }
           if (!await androidMangeStorageRequest()) {
-            throw Exception(context.l10n.tr("申请权限被拒绝", en: "Permission denied"));
+            throw Exception(
+                context.l10n.tr("申请权限被拒绝", en: "Permission denied"));
           }
           await Navigator.of(context).push(
             MaterialPageRoute(
               builder: (context) => DownloadsExportingScreen2(
-                idList: selected,
+                idList: selected.toList(growable: false),
               ),
             ),
           );
           _downloadsFuture = _loadDownloads();
-          final pre = List<int>.from(selected);
+          final pre = Set<int>.from(selected);
           setState(() {
-            selected = [];
+            selected = <int>{};
           });
           final result = await _downloadsFuture;
-          selected = restoreSelectedIds(pre, result);
+          selected = restoreSelectedIdSet(pre, result);
           setState(() {});
         },
         child: Column(

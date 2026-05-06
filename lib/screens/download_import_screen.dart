@@ -11,6 +11,7 @@ import '../configs/import_notice.dart';
 import '../configs/is_pro.dart';
 import 'components/content_loading.dart';
 import 'components/right_click_pop.dart';
+import 'download_import_shared.dart';
 
 // 导入
 class DownloadImportScreen extends StatefulWidget {
@@ -75,56 +76,102 @@ class _DownloadImportScreenState extends State<DownloadImportScreen> {
     );
   }
 
+  Future<bool> _ensureImportAllowed() async {
+    if (!hasProAccess) {
+      defaultToast(
+        context,
+        context.l10n.tr(
+          "发电才能使用哦~",
+          en: "Pro is required for this feature",
+        ),
+      );
+      return false;
+    }
+    final permissionDeniedMessage =
+        context.l10n.tr("申请权限被拒绝", en: "Permission denied");
+    if (!await androidMangeStorageRequest()) {
+      if (!mounted) {
+        return false;
+      }
+      defaultToast(context, permissionDeniedMessage);
+      return false;
+    }
+    return true;
+  }
+
+  void _setImportState({bool? importing, String? message}) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      if (importing != null) {
+        _importing = importing;
+      }
+      if (message != null) {
+        _importMessage = message;
+      }
+    });
+  }
+
+  /// 导入会跨文件选择器和 Rust 后端执行；用户在等待时可能返回上一页。
+  /// 所有状态更新集中到这里并检查 mounted，避免异步回调更新已销毁的页面。
+  Future<void> _runImport(Future<void> Function() importTask) async {
+    final successMessage = context.l10n.tr("导入成功", en: "Import succeeded");
+    final failedPrefix = context.l10n.tr("导入失败", en: "Import failed");
+
+    _setImportState(importing: true);
+    try {
+      await importTask();
+      _setImportState(message: successMessage);
+    } catch (e) {
+      _setImportState(message: "$failedPrefix $e");
+    } finally {
+      _setImportState(importing: false);
+    }
+  }
+
+  Future<String?> _chooseImportFilePath() async {
+    if (Platform.isAndroid) {
+      return FilesystemPicker.open(
+        title: context.l10n.tr('选择文件', en: 'Select file'),
+        context: context,
+        rootDirectory: Directory("/storage/emulated/0"),
+        fsType: FilesystemType.file,
+        folderIconColor: Colors.teal,
+        allowedExtensions: ['.zip', '.jmi'],
+        fileTileSelectMode: FileTileSelectMode.wholeTile,
+      );
+    }
+
+    final files = await FilePicker.platform.pickFiles(
+      dialogTitle: context.l10n.tr('选择要导入的文件', en: 'Choose file to import'),
+      allowMultiple: false,
+      type: FileType.custom,
+      allowedExtensions: ['zip', 'jmi'],
+      allowCompression: false,
+    );
+    return files != null && files.count > 0 ? files.paths[0] : null;
+  }
+
   Widget _fileImportButton() {
     return MaterialButton(
       height: 80,
       onPressed: () async {
-        if (!hasProAccess) {
-          defaultToast(
-            context,
-            context.l10n.tr(
-              "发电才能使用哦~",
-              en: "Pro is required for this feature",
-            ),
-          );
+        if (!await _ensureImportAllowed()) {
           return;
         }
-        if (!await androidMangeStorageRequest()) {
-          defaultToast(
-            context,
-            context.l10n.tr("申请权限被拒绝", en: "Permission denied"),
-          );
+        if (!mounted) {
           return;
         }
-        String? path;
-        if (Platform.isAndroid) {
-          path = await FilesystemPicker.open(
-            title: context.l10n.tr('选择文件', en: 'Select file'),
-            context: context,
-            rootDirectory: Directory("/storage/emulated/0"),
-            fsType: FilesystemType.file,
-            folderIconColor: Colors.teal,
-            allowedExtensions: ['.zip', '.jmi'],
-            fileTileSelectMode: FileTileSelectMode.wholeTile,
-          );
-        } else {
-          var ls = await FilePicker.platform.pickFiles(
-            dialogTitle:
-                context.l10n.tr('选择要导入的文件', en: 'Choose file to import'),
-            allowMultiple: false,
-            type: FileType.custom,
-            allowedExtensions: ['zip', 'jmi'],
-            allowCompression: false,
-          );
-          path = ls != null && ls.count > 0 ? ls.paths[0] : null;
+        final path = await _chooseImportFilePath();
+        if (!mounted) {
+          return;
         }
         if (path == null) {
           return;
         }
-        final lowerPath = path.toLowerCase();
-        final isJmZip = lowerPath.endsWith(".jm.zip");
-        final isJmi = lowerPath.endsWith(".jmi");
-        if (!isJmZip && !isJmi) {
+        final kind = detectDownloadImportArchiveKind(path);
+        if (kind == null) {
           defaultToast(
             context,
             context.l10n.tr(
@@ -134,27 +181,13 @@ class _DownloadImportScreenState extends State<DownloadImportScreen> {
           );
           return;
         }
-        try {
-          setState(() {
-            _importing = true;
-          });
-          if (isJmZip) {
+        await _runImport(() async {
+          if (kind == DownloadImportArchiveKind.jmZip) {
             await methods.import_jm_zip(path);
           } else {
             await methods.import_jm_jmi(path);
           }
-          setState(() {
-            _importMessage = context.l10n.tr("导入成功", en: "Import succeeded");
-          });
-        } catch (e) {
-          setState(() {
-            _importMessage = context.l10n.tr("导入失败", en: "Import failed") + " $e";
-          });
-        } finally {
-          setState(() {
-            _importing = false;
-          });
-        }
+        });
       },
       child: Text(
         context.l10n.tr(
@@ -176,45 +209,30 @@ class _DownloadImportScreenState extends State<DownloadImportScreen> {
     return MaterialButton(
       height: 80,
       onPressed: () async {
-        if (!hasProAccess) {
-          defaultToast(
-            context,
-            context.l10n.tr(
-              "发电才能使用哦~",
-              en: "Pro is required for this feature",
-            ),
-          );
+        if (!await _ensureImportAllowed()) {
           return;
         }
-        if (!await androidMangeStorageRequest()) {
-          throw Exception(context.l10n.tr("申请权限被拒绝", en: "Permission denied"));
+        if (!mounted) {
+          return;
         }
         late String? path;
         try {
           path = await chooseFolder(context);
         } catch (e) {
+          if (!mounted) {
+            return;
+          }
           defaultToast(context, "$e");
           return;
         }
+        if (!mounted) {
+          return;
+        }
         if (path != null) {
-          try {
-            setState(() {
-              _importing = true;
-            });
-            await methods.import_jm_dir(path);
-            setState(() {
-              _importMessage = context.l10n.tr("导入成功", en: "Import succeeded");
-            });
-          } catch (e) {
-            setState(() {
-              _importMessage =
-                  context.l10n.tr("导入失败", en: "Import failed") + " $e";
-            });
-          } finally {
-            setState(() {
-              _importing = false;
-            });
-          }
+          final importPath = path;
+          await _runImport(() async {
+            await methods.import_jm_dir(importPath);
+          });
         }
       },
       child: Text(

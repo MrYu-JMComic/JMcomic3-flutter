@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/entities.dart';
@@ -23,14 +23,77 @@ class DownloadAlbumScreen extends StatefulWidget {
 }
 
 class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
+  static const _autoRefreshInterval = Duration(seconds: 2);
+
+  late DownloadAlbum _album;
   late Future<DownloadCreate?> _future;
   late Future<ViewLog?> _viewFuture;
+  Timer? _autoRefreshTimer;
+  bool _loadingAlbum = false;
+  bool _taskRemoved = false;
 
   @override
   void initState() {
-    _future = methods.downloadById(widget.album.id);
-    _viewFuture = methods.findViewLog(widget.album.id);
     super.initState();
+    _album = widget.album;
+    _future = methods.downloadById(_album.id);
+    _viewFuture = methods.findViewLog(_album.id);
+    _syncAutoRefresh();
+  }
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshAlbum() async {
+    if (_loadingAlbum) {
+      _syncAutoRefresh();
+      return;
+    }
+    _loadingAlbum = true;
+    try {
+      final album = await methods.downloadAlbumById(_album.id);
+      if (!mounted) {
+        return;
+      }
+      if (album == null) {
+        _taskRemoved = true;
+        Navigator.of(context).maybePop();
+        return;
+      }
+      setState(() {
+        _album = album;
+      });
+    } catch (_e) {
+      // 下载状态刷新失败不打断详情页阅读入口
+    } finally {
+      _loadingAlbum = false;
+      if (mounted && !_taskRemoved) {
+        _syncAutoRefresh();
+      }
+    }
+  }
+
+  void _syncAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+    if (_taskRemoved || !_album.shouldAutoRefreshStatus) {
+      return;
+    }
+    _autoRefreshTimer = Timer(_autoRefreshInterval, () {
+      _refreshAlbum();
+    });
+  }
+
+  void _reloadViewLog() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _viewFuture = methods.findViewLog(_album.id);
+    });
   }
 
   @override
@@ -41,7 +104,7 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
   Widget buildScreen(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.album.name),
+        title: Text(_album.name),
         actions: [
           IconButton(
             onPressed: () {
@@ -49,7 +112,7 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (BuildContext context) {
-                    return ComicInfoScreen(widget.album.id, null);
+                    return ComicInfoScreen(_album.id, null);
                   },
                 ),
               );
@@ -60,23 +123,41 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
       ),
       body: ListView(
         children: [
-          ComicDownloadCard(widget.album),
-          _buildTags(List.of(jsonDecode(widget.album.tags)).cast()),
-          ...widget.album.description == ""
+          ComicDownloadCard(_album),
+          _buildTags(_album.tagList),
+          ..._album.description == ""
               ? []
               : [
                   const Divider(),
                   Container(
                     padding: const EdgeInsets.all(10),
-                    child: SelectableText(widget.album.description),
+                    child: SelectableText(_album.description),
                   ),
                 ],
           ItemBuilder(
             future: _future,
-            onRefresh: () async {},
+            onRefresh: () async {
+              setState(() {
+                _future = methods.downloadById(_album.id);
+              });
+            },
             successBuilder: (BuildContext context,
                 AsyncSnapshot<DownloadCreate?> snapshot) {
-              var data = snapshot.requireData!;
+              var data = snapshot.data;
+              if (data == null) {
+                return MyFlatButton(
+                  title: context.l10n.tr(
+                    "下载任务不存在",
+                    en: "Download task not found",
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _future = methods.downloadById(_album.id);
+                    });
+                    _refreshAlbum();
+                  },
+                );
+              }
               return Column(
                 children: [
                   _buildContinueButton(data),
@@ -147,13 +228,16 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
   }
 
   Widget _buildContinueButton(DownloadCreate create) {
+    if (!create.hasChapters) {
+      return const SizedBox.shrink();
+    }
     return FutureBuilder(
       future: _viewFuture,
       builder: (BuildContext context, AsyncSnapshot<ViewLog?> snapshot) {
         if (snapshot.hasError) {
           return MyFlatButton(
             title: context.l10n.tr("出错了, 点击重试", en: "Error, tap to retry"),
-            onPressed: null,
+            onPressed: _reloadViewLog,
           );
         }
         if (snapshot.connectionState != ConnectionState.done) {
@@ -163,8 +247,7 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
           );
         }
         var log = snapshot.data;
-        if (log != null &&
-            create.chapters.map((e) => e.id).contains(log.lastViewChapterId)) {
+        if (log != null && create.containsChapterId(log.lastViewChapterId)) {
           return MyFlatButton(
             title: context.l10n.tr("继续阅读", en: "Continue reading"),
             onPressed: () {
@@ -175,7 +258,7 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
         return MyFlatButton(
           title: context.l10n.tr("从头开始", en: "Start from beginning"),
           onPressed: () {
-            _push(create, create.chapters[0].id, 0);
+            _push(create, create.initialChapterId, 0);
           },
         );
       },
@@ -187,7 +270,7 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
       return MyFlatButton(
         title: context.l10n.tr("从头开始", en: "Start from beginning"),
         onPressed: () {
-          _push(create, create.album.id, 0);
+          _push(create, create.initialChapterId, 0);
         },
       );
     }
@@ -227,9 +310,7 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
             name: create.album.name,
             image: "",
           ),
-          series: create.chapters
-              .map((e) => Series(id: e.id, name: e.name, sort: e.sort))
-              .toList(),
+          series: create.readerSeries,
           chapterId: seriesId,
           initRank: initRank,
           loadChapter: (int seriesId) {
@@ -243,19 +324,12 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
   Future<ChapterResponse> _loadChapter(
       DownloadCreate create, int seriesId) async {
     var i = await methods.dlImageByChapterId(seriesId);
-    var name = "";
-    for (var element in create.chapters) {
-      if (element.id == seriesId) {
-        name = element.name;
-      }
-    }
+    var chapter = create.chapterById(seriesId);
     return ChapterResponse(
       id: seriesId,
-      series: create.chapters
-          .map((e) => Series(id: e.id, name: e.name, sort: e.sort))
-          .toList(),
+      series: create.readerSeries,
       tags: create.album.tags.join(" / "),
-      name: name,
+      name: chapter?.name ?? "",
       images: i.map((e) => e.name).toList(),
       seriesId: create.album.id,
       isFavorite: false,

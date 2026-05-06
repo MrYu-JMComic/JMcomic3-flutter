@@ -103,7 +103,8 @@ class _SetPasswordState extends State<SetPassword> {
               ),
               TextField(
                 decoration: InputDecoration(
-                  labelText: context.l10n.tr("再次输入密码", en: "Enter password again"),
+                  labelText:
+                      context.l10n.tr("再次输入密码", en: "Enter password again"),
                 ),
                 onChanged: (value) {
                   _password2 = value;

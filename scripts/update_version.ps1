@@ -17,9 +17,9 @@ $txtVersion = "v$raw"
 function Replace-Line($path, $pattern, $replacement) {
   if (-not (Test-Path $path)) { return $false }
   $content = Get-Content $path -Raw
-  if ($content -match $pattern) {
-    $content = [regex]::Replace($content, $pattern, $replacement, 'Multiline')
-    Set-Content -Path $path -Value $content
+  $updated = [regex]::Replace($content, $pattern, $replacement, 'Multiline')
+  if ($updated -ne $content) {
+    Set-Content -Path $path -Value $updated
     return $true
   }
   return $false
@@ -42,6 +42,17 @@ if (Test-Path "ci\version.info.txt") {
   if ($lines.Length -gt 0) {
     $lines[0] = $txtVersion
     Set-Content -Path "ci\version.info.txt" -Value $lines
+  }
+}
+
+# Android local builds read versionName/versionCode from android/local.properties.
+# Keep it in sync when the local file exists.
+if (Test-Path "android\local.properties") {
+  $versionName = $raw.Split('+')[0]
+  $versionCode = if ($raw.Contains('+')) { $raw.Split('+')[1] } else { $null }
+  Replace-Line "android\local.properties" '^flutter\.versionName\s*=.*$' "flutter.versionName=$versionName" | Out-Null
+  if ($versionCode -ne $null) {
+    Replace-Line "android\local.properties" '^flutter\.versionCode\s*=.*$' "flutter.versionCode=$versionCode" | Out-Null
   }
 }
 

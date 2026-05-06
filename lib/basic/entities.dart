@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class SortBy {
   final String _value;
   final String _name;
@@ -60,6 +62,44 @@ int? _toNullableInt(dynamic value) {
     return int.tryParse(value.trim());
   }
   return null;
+}
+
+/// Rust 桥接和导入文件可能传入 Map<dynamic, dynamic>、null 或异常标量。
+/// 实体层统一收口，避免页面层在恢复下载任务时重复处理边界。
+Map<String, dynamic> _toStringDynamicMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    final result = <String, dynamic>{};
+    value.forEach((key, mapValue) {
+      if (key != null) {
+        result["$key"] = mapValue;
+      }
+    });
+    return result;
+  }
+  return <String, dynamic>{};
+}
+
+/// 旧下载导入数据可能缺失列表字段；缺失时按空列表处理。
+Iterable<dynamic> _toIterable(dynamic value) {
+  if (value is Iterable) {
+    return value;
+  }
+  return const <dynamic>[];
+}
+
+/// 下载详情页和阅读器会多次按章节 ID 恢复进度；实体层建一次索引避免重复线性扫描。
+/// 如果导入数据出现重复章节 ID，保留首个章节，和旧的顺序遍历查找语义一致。
+Map<int, DownloadCreateChapter> _indexChaptersById(
+  List<DownloadCreateChapter> chapters,
+) {
+  final result = <int, DownloadCreateChapter>{};
+  for (final chapter in chapters) {
+    result.putIfAbsent(chapter.id, () => chapter);
+  }
+  return Map.unmodifiable(result);
 }
 
 class Page<T> {
@@ -142,14 +182,14 @@ class ComicSimple extends ComicBasic {
     required this.category,
     required this.categorySub,
   }) : super(
-         id: id,
-         author: author,
-         description: description,
-         name: name,
-         image: image,
-         updateAt: updateAt,
-         addtime: addtime,
-       );
+          id: id,
+          author: author,
+          description: description,
+          name: name,
+          image: image,
+          updateAt: updateAt,
+          addtime: addtime,
+        );
 
   late final ComicSimpleCategory category;
   late final ComicSimpleCategory categorySub;
@@ -166,8 +206,8 @@ class ComicSimple extends ComicBasic {
       categorySubMap is Map<String, dynamic>
           ? categorySubMap
           : (categorySubMap is Map
-                ? Map<String, dynamic>.from(categorySubMap)
-                : {}),
+              ? Map<String, dynamic>.from(categorySubMap)
+              : {}),
     );
   }
 
@@ -318,6 +358,10 @@ class AlbumResponse {
   late final int? updateAt;
   late final int? addtime;
 
+  /// 在线阅读的“从头开始”入口按章节 sort 选择首章，但不能原地重排 series。
+  /// 章节列表还会被页面直接用于按钮展示，原地排序会让 UI 顺序和后端返回顺序意外漂移。
+  int get initialReadableChapterId => _firstSeriesBySort(series)?.id ?? id;
+
   AlbumResponse.fromJson(Map<String, dynamic> json) {
     id = json['id'];
     name = json['name'];
@@ -387,9 +431,9 @@ class Series {
   late final String sort;
 
   Series.fromJson(Map<String, dynamic> json) {
-    id = json['id'];
-    name = json['name'];
-    sort = json['sort'];
+    id = _toInt(json['id']);
+    name = "${json['name'] ?? ''}";
+    sort = "${json['sort'] ?? ''}";
   }
 
   Map<String, dynamic> toJson() {
@@ -399,6 +443,19 @@ class Series {
     _data['sort'] = sort;
     return _data;
   }
+}
+
+Series? _firstSeriesBySort(List<Series> series) {
+  Series? result;
+  var resultSort = 0x7fffffff;
+  for (final item in series) {
+    final sort = int.tryParse(item.sort.trim()) ?? 0x7fffffff;
+    if (result == null || sort < resultSort) {
+      result = item;
+      resultSort = sort;
+    }
+  }
+  return result;
 }
 
 class ComicBasic {
@@ -915,12 +972,21 @@ class CommentResponse {
   late final int cid;
   late final String spoiler;
 
+  bool get isSuccess {
+    final normalized = status.trim().toLowerCase();
+    return cid > 0 ||
+        normalized == '1' ||
+        normalized == 'true' ||
+        normalized == 'success' ||
+        normalized == 'ok';
+  }
+
   CommentResponse.fromJson(Map<String, dynamic> json) {
-    msg = json['msg'];
-    status = json['status'];
-    aid = json['aid'];
-    cid = json['cid'];
-    spoiler = json['spoiler'];
+    msg = '${json['msg'] ?? ''}';
+    status = '${json['status'] ?? ''}';
+    aid = int.tryParse('${json['aid'] ?? 0}') ?? 0;
+    cid = int.tryParse('${json['cid'] ?? 0}') ?? 0;
+    spoiler = '${json['spoiler'] ?? ''}';
   }
 
   Map<String, dynamic> toJson() {
@@ -954,13 +1020,14 @@ class ViewLog {
   late final int lastViewPage;
 
   ViewLog.fromJson(Map<String, dynamic> json) {
-    id = json['id'];
-    author = json['author'];
-    description = json['description'];
-    name = json['name'];
-    lastViewTime = json['last_view_time'];
-    lastViewChapterId = json['last_view_chapter_id'];
-    lastViewPage = json['last_view_page'];
+    // 阅读历史来自 Rust 本地存储和 WebDAV 合并结果，旧数据可能把数字写成字符串。
+    id = _toInt(json['id']);
+    author = "${json['author'] ?? ''}";
+    description = "${json['description'] ?? ''}";
+    name = "${json['name'] ?? ''}";
+    lastViewTime = _toInt(json['last_view_time']);
+    lastViewChapterId = _toInt(json['last_view_chapter_id']);
+    lastViewPage = _toInt(json['last_view_page']);
   }
 
   Map<String, dynamic> toJson() {
@@ -1106,8 +1173,9 @@ class SearchHistory {
   late final int lastSearchTime;
 
   SearchHistory.fromJson(Map<String, dynamic> json) {
-    searchQuery = json['search_query'];
-    lastSearchTime = json['last_search_time'];
+    // 搜索历史会参与本地分片存储和旧备份导入，实体层兜底可避免历史页崩溃。
+    searchQuery = "${json['search_query'] ?? ''}";
+    lastSearchTime = _toInt(json['last_search_time']);
   }
 
   Map<String, dynamic> toJson() {
@@ -1123,12 +1191,36 @@ class DownloadCreate {
 
   late final DownloadCreateAlbum album;
   late final List<DownloadCreateChapter> chapters;
+  late final Map<int, DownloadCreateChapter> _chapterByIdMap =
+      _indexChaptersById(chapters);
+  late final List<Series> _readerSeries = List.unmodifiable(
+    chapters.map((e) => Series(id: e.id, name: e.name, sort: e.sort)),
+  );
+
+  bool get hasChapters => chapters.isNotEmpty;
+
+  /// 阅读器入口使用的首个章节 ID；兼容旧下载数据中章节列表为空的情况。
+  int get initialChapterId => hasChapters ? chapters.first.id : album.id;
+
+  /// 历史阅读记录恢复前需要确认章节仍属于当前下载任务。
+  bool containsChapterId(int chapterId) =>
+      _chapterByIdMap.containsKey(chapterId);
+
+  /// 统一章节查找逻辑，避免详情页和阅读器加载时分别手写遍历并遗漏空列表边界。
+  DownloadCreateChapter? chapterById(int chapterId) =>
+      _chapterByIdMap[chapterId];
+
+  /// 阅读器只需要轻量章节索引；缓存后可被详情页入口和章节加载回调重复复用。
+  /// 返回不可变列表，防止页面层误改实体缓存后影响章节跳转和本地加载回调。
+  /// 保持下载创建时的章节顺序，避免重复 ID 的兼容策略影响阅读器左右翻页顺序。
+  List<Series> get readerSeries => _readerSeries;
 
   DownloadCreate.fromJson(Map<String, dynamic> json) {
-    album = DownloadCreateAlbum.fromJson(json['album']);
-    chapters = List.from(
-      json['chapters'],
-    ).map((e) => DownloadCreateChapter.fromJson(e)).toList();
+    album = DownloadCreateAlbum.fromJson(_toStringDynamicMap(json['album']));
+    chapters = _toIterable(json['chapters'])
+        .whereType<Map>()
+        .map((e) => DownloadCreateChapter.fromJson(_toStringDynamicMap(e)))
+        .toList();
   }
 
   Map<String, dynamic> toJson() {
@@ -1157,12 +1249,12 @@ class DownloadCreateAlbum {
   late final String description;
 
   DownloadCreateAlbum.fromJson(Map<String, dynamic> json) {
-    id = json['id'];
-    name = json['name'];
-    author = List.castFrom<dynamic, String>(json['author']);
-    tags = List.castFrom<dynamic, String>(json['tags']);
-    works = List.castFrom<dynamic, String>(json['works']);
-    description = json['description'];
+    id = _toInt(json['id']);
+    name = "${json['name'] ?? ''}";
+    author = _downloadMetadataList(json['author']);
+    tags = _downloadMetadataList(json['tags']);
+    works = _downloadMetadataList(json['works']);
+    description = "${json['description'] ?? ''}";
   }
 
   Map<String, dynamic> toJson() {
@@ -1189,9 +1281,9 @@ class DownloadCreateChapter {
   late final String sort;
 
   DownloadCreateChapter.fromJson(Map<String, dynamic> json) {
-    id = json['id'];
-    name = json['name'];
-    sort = json['sort'];
+    id = _toInt(json['id']);
+    name = "${json['name'] ?? ''}";
+    sort = "${json['sort'] ?? ''}";
   }
 
   Map<String, dynamic> toJson() {
@@ -1229,19 +1321,54 @@ class DownloadAlbum {
   late final int dlStatus;
   late final int imageCount;
   late final int dledImageCount;
+  late final List<String> _authorList =
+      List.unmodifiable(_downloadMetadataList(author));
+  late final List<String> _tagList =
+      List.unmodifiable(_downloadMetadataList(tags));
+  late final List<String> _workList =
+      List.unmodifiable(_downloadMetadataList(works));
+  late final String _authorLabel = _authorList.join(", ");
+
+  /// 下载任务状态由后端持久化并驱动列表/详情页刷新策略，前端只做只读解释。
+  bool get isQueuedOrDownloading => dlStatus == 0;
+  bool get isDownloaded => dlStatus == 1;
+  bool get isFailed => dlStatus == 2;
+  bool get isDeleting => dlStatus == 3;
+  bool get shouldAutoRefreshStatus => isQueuedOrDownloading || isDeleting;
+
+  /// 作者/标签/作品在历史库中可能是纯文本，新后端则可能返回 JSON 字符串或数组。
+  /// 列表页会频繁读取这些字段，实体内缓存一次并返回不可变视图，避免重复 JSON 解析和外部误改。
+  List<String> get authorList => _authorList;
+  List<String> get tagList => _tagList;
+  List<String> get workList => _workList;
+  String get authorLabel => _authorLabel;
+
+  double? get downloadProgress {
+    if (imageCount <= 0) {
+      return null;
+    }
+    final value = dledImageCount / imageCount;
+    if (value < 0) {
+      return 0;
+    }
+    if (value > 1) {
+      return 1;
+    }
+    return value;
+  }
 
   DownloadAlbum.fromJson(Map<String, dynamic> json) {
-    id = json['id'];
-    name = json['name'];
-    author = json['author'];
-    tags = json['tags'];
-    works = json['works'];
-    description = json['description'];
-    dlSquareCoverStatus = json['dl_square_cover_status'];
-    dl_3x4CoverStatus = json['dl_3x4_cover_status'];
-    dlStatus = json['dl_status'];
-    imageCount = json['image_count'];
-    dledImageCount = json['dled_image_count'];
+    id = _toInt(json['id']);
+    name = "${json['name'] ?? ''}";
+    author = _downloadMetadataWireValue(json['author']);
+    tags = _downloadMetadataWireValue(json['tags']);
+    works = _downloadMetadataWireValue(json['works']);
+    description = "${json['description'] ?? ''}";
+    dlSquareCoverStatus = _toInt(json['dl_square_cover_status']);
+    dl_3x4CoverStatus = _toInt(json['dl_3x4_cover_status']);
+    dlStatus = _toInt(json['dl_status']);
+    imageCount = _toInt(json['image_count']);
+    dledImageCount = _toInt(json['dled_image_count']);
   }
 
   Map<String, dynamic> toJson() {
@@ -1259,6 +1386,56 @@ class DownloadAlbum {
     _data['dled_image_count'] = dledImageCount;
     return _data;
   }
+}
+
+String _downloadMetadataWireValue(dynamic value) {
+  if (value == null) {
+    return "";
+  }
+  if (value is String) {
+    return value;
+  }
+  if (value is Iterable) {
+    return jsonEncode(_downloadMetadataList(value));
+  }
+  return "$value";
+}
+
+/// 下载元数据跨过 Rust 桥接、旧 JSON 备份和前端导入流程，可能是数组、JSON 字符串或纯文本。
+/// 这里统一过滤空项，保证卡片展示和导出逻辑拿到稳定的字符串列表。
+List<String> _downloadMetadataList(dynamic value) {
+  if (value == null) {
+    return [];
+  }
+  if (value is String) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return [];
+    }
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded == null) {
+        return [];
+      }
+      if (decoded is Iterable) {
+        return _downloadMetadataList(decoded);
+      }
+      if (decoded is String || decoded is num || decoded is bool) {
+        return _downloadMetadataList(decoded);
+      }
+    } catch (_) {
+      // 兼容旧下载库：历史版本可能直接存储纯文本作者/标签，而不是 JSON 数组。
+    }
+    return [trimmed];
+  }
+  if (value is Iterable) {
+    return value
+        .map((item) => "${item ?? ""}".trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+  }
+  final item = "$value".trim();
+  return item.isEmpty ? [] : [item];
 }
 
 class DlImage {
@@ -1283,14 +1460,15 @@ class DlImage {
   late final int height;
 
   DlImage.fromJson(Map<String, dynamic> json) {
-    albumId = json['album_id'];
-    chapterId = json['chapter_id'];
-    imageIndex = json['image_index'];
-    name = json['name'];
-    key = json['key'];
-    dlStatus = json['dl_status'];
-    width = json['width'];
-    height = json['height'];
+    // WebDAV/导入恢复可能把数字字段转成字符串；图片列表进入阅读器前先做宽松解析。
+    albumId = _toInt(json['album_id']);
+    chapterId = _toInt(json['chapter_id']);
+    imageIndex = _toInt(json['image_index']);
+    name = "${json['name'] ?? ''}";
+    key = "${json['key'] ?? ''}";
+    dlStatus = _toInt(json['dl_status']);
+    width = _toInt(json['width']);
+    height = _toInt(json['height']);
   }
 
   Map<String, dynamic> toJson() {

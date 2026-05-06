@@ -67,11 +67,7 @@ class _DownloadsExportScreenState extends State<DownloadsExportScreen> {
             children: snapshot.requireData
                 .map((e) => GestureDetector(
                       onTap: () {
-                        if (selected.contains(e.id)) {
-                          selected.remove(e.id);
-                        } else {
-                          selected.add(e.id);
-                        }
+                        toggleSelectedDownloadId(selected, e.id);
                         setState(() {});
                       },
                       child: Stack(children: [
@@ -97,10 +93,10 @@ class _DownloadsExportScreenState extends State<DownloadsExportScreen> {
     );
   }
 
-  List<int> selected = [];
+  Set<int> selected = <int>{};
 
   Future<List<DownloadAlbum>> _loadDownloads() {
-    return loadDownloadAlbums((album) => album.dlStatus == 1);
+    return loadDownloadAlbums((album) => album.isDownloaded);
   }
 
   Widget _selectAllButton(List<int> exportableIds) {
@@ -137,17 +133,17 @@ class _DownloadsExportScreenState extends State<DownloadsExportScreen> {
         await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => DownloadsExportingScreen(
-              idList: selected,
+              idList: selected.toList(growable: false),
             ),
           ),
         );
         _downloadsFuture = _loadDownloads();
-        final pre = List<int>.from(selected);
+        final pre = Set<int>.from(selected);
         setState(() {
-          selected = [];
+          selected = <int>{};
         });
         final result = await _downloadsFuture;
-        selected = restoreSelectedIds(pre, result);
+        selected = restoreSelectedIdSet(pre, result);
         setState(() {});
       },
       icon: const Icon(

@@ -113,7 +113,8 @@ Future<void> chooseAutoClean(BuildContext context) async {
       ),
     );
   } else {
-    defaultToast(context, context.l10n.tr('已关闭自动清理', en: 'Auto clean disabled'));
+    defaultToast(
+        context, context.l10n.tr('已关闭自动清理', en: 'Auto clean disabled'));
   }
 }
 
