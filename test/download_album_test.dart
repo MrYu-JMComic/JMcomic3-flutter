@@ -28,6 +28,7 @@ import 'package:jmcomic3/configs/theme.dart';
 import 'package:jmcomic3/configs/web_dav_password.dart';
 import 'package:jmcomic3/configs/web_dav_url.dart';
 import 'package:jmcomic3/configs/web_dav_username.dart';
+import 'package:jmcomic3/screens/comic_info_screen.dart';
 import 'package:jmcomic3/screens/comic_download_shared.dart';
 import 'package:jmcomic3/screens/download_import_shared.dart';
 import 'package:jmcomic3/screens/downloads_export_shared.dart';
@@ -573,6 +574,35 @@ void main() {
     expect(links.containsKey('空链接'), isFalse);
     expect(
         () => links['新链接'] = 'https://example.com/new', throwsUnsupportedError);
+  });
+
+  test('comic info ignores JM id placeholder from local view history', () {
+    final placeholder = ComicBasic(
+      id: 123,
+      author: '',
+      description: '',
+      name: 'JM123',
+      image: '',
+    );
+    final spacedPlaceholder = ComicBasic(
+      id: 123,
+      author: '',
+      description: '',
+      name: 'JM # 123',
+      image: '',
+    );
+    final real = ComicBasic(
+      id: 123,
+      author: 'author',
+      description: '',
+      name: '真实标题',
+      image: '',
+    );
+
+    // 本地浏览记录兜底名不能锁住详情页标题；有真实标题的列表入口仍直接复用 simple。
+    expect(effectiveComicInfoSimple(placeholder, 123), isNull);
+    expect(effectiveComicInfoSimple(spacedPlaceholder, 123), isNull);
+    expect(identical(effectiveComicInfoSimple(real, 123), real), isTrue);
   });
 
   test('settings parsers tolerate corrupt persisted values', () async {

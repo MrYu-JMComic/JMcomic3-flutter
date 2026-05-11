@@ -17,6 +17,23 @@ import 'components/continue_read_button.dart';
 import 'components/my_flat_button.dart';
 import 'components/right_click_pop.dart';
 
+ComicBasic? effectiveComicInfoSimple(ComicBasic? simple, int comicId) {
+  if (simple == null) {
+    return null;
+  }
+  final name = simple.name.trim();
+  if (name.isEmpty) {
+    return null;
+  }
+  final normalized = name.toUpperCase().replaceAll(RegExp(r'[\s#]+'), '');
+  // 本地浏览记录只知道漫画 ID 时会生成 `JM{id}` 占位名；详情页如果继续使用
+  // 这个 simple，就不会展示后续 album 接口拿到的真实标题和作者信息。
+  if (normalized == comicId.toString() || normalized == 'JM$comicId') {
+    return null;
+  }
+  return simple;
+}
+
 class ComicInfoScreen extends StatefulWidget {
   final int comicId;
   final ComicBasic? simple;
@@ -63,10 +80,11 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
 
   Widget buildScreen(BuildContext context) {
     final theme = Theme.of(context);
+    final simple = effectiveComicInfoSimple(widget.simple, widget.comicId);
     return Scaffold(
       appBar: AppBar(
-        title: widget.simple != null
-            ? Text(widget.simple?.name ?? "")
+        title: simple != null
+            ? Text(simple.name)
             : FutureBuilder(
                 future: _albumFuture,
                 builder: (BuildContext context,
@@ -139,9 +157,7 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
       body: ListView(
         shrinkWrap: true,
         children: [
-          widget.simple != null
-              ? ComicInfoCard(widget.simple!, link: true)
-              : Container(),
+          simple != null ? ComicInfoCard(simple, link: true) : Container(),
           ItemBuilder(
             future: _albumFuture,
             onRefresh: () async {
@@ -187,7 +203,7 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
                 mainAxisAlignment: MainAxisAlignment.start,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  widget.simple == null
+                  simple == null
                       ? ComicInfoCard(albumToSimple(album), link: true)
                       : Container(),
                   _buildTags(album.tags),
