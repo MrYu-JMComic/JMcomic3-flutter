@@ -5,12 +5,16 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'bool_property.dart';
 
 const _propertyName = "noAnimation";
 late bool _noAnimation;
 
 Future<void> initNoAnimation() async {
-  _noAnimation = (await methods.loadProperty(_propertyName)) == "true";
+  _noAnimation = parseBoolPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: false,
+  );
 }
 
 bool currentNoAnimation() {

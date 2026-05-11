@@ -1,4 +1,7 @@
+import 'dart:collection';
 import 'dart:convert';
+
+const int _maxBridgePayloadStringUnwrapDepth = 2;
 
 Map<String, dynamic> _normalizeMapEntries(Map<dynamic, dynamic> source) {
   if (source is Map<String, dynamic>) {
@@ -11,6 +14,44 @@ Map<String, dynamic> _normalizeMapEntries(Map<dynamic, dynamic> source) {
     result['$key'] = value;
   });
   return result;
+}
+
+bool _looksLikeJsonValue(String input) {
+  if (input.isEmpty) {
+    return false;
+  }
+  switch (input.codeUnitAt(0)) {
+    case 0x7B: // {
+    case 0x5B: // [
+    case 0x22: // "
+    case 0x2D: // -
+    case >= 0x30 && <= 0x39: // 0-9
+    case 0x74: // t
+    case 0x66: // f
+    case 0x6E: // n
+      return true;
+  }
+  return false;
+}
+
+dynamic _decodeBridgePayload(String rsp) {
+  dynamic decoded = jsonDecode(rsp);
+  for (var depth = 0;
+      decoded is String && depth < _maxBridgePayloadStringUnwrapDepth;
+      depth++) {
+    final nested = decoded.trim();
+    if (!_looksLikeJsonValue(nested)) {
+      return decoded;
+    }
+    try {
+      // Rust/MethodChannel 历史上出现过 response_data 被重复 JSON 编码的载荷。
+      // 只在内容本身像 JSON 值时按深度上限拆包，普通字符串仍按协议结构校验并报错。
+      decoded = jsonDecode(nested);
+    } on FormatException {
+      return decoded;
+    }
+  }
+  return decoded;
 }
 
 List<T> _decodeMappedMapListResponse<T>(
@@ -35,15 +76,20 @@ List<T> _decodeMappedMapListResponse<T>(
     }
     result.add(mapper(normalized));
   }
-  return List<T>.unmodifiable(result);
+  // 只读视图可维持“不允许外部增删改列表结构”的语义，同时避免再拷贝一份结果列表。
+  return UnmodifiableListView<T>(result);
 }
 
 /// 下载/历史等接口跨版本可能返回 `null` 表示空列表。
 /// 这里只兜底可恢复的空值，结构异常继续抛出，避免协议变更被静默吞掉。
 List<dynamic> decodeListResponse(String rsp, String method) {
-  final decoded = jsonDecode(rsp);
+  final decoded = _decodeBridgePayload(rsp);
   if (decoded == null) {
     return const <dynamic>[];
+  }
+  if (decoded is List<dynamic>) {
+    // jsonDecode 常见直接产出 List；复用原列表可避免下载列表等热路径的整表拷贝。
+    return decoded;
   }
   if (decoded is Iterable) {
     return List<dynamic>.from(decoded);
@@ -60,7 +106,7 @@ Map<String, dynamic> decodeMapResponse(
   String method, {
   bool nullAsEmpty = false,
 }) {
-  final decoded = jsonDecode(rsp);
+  final decoded = _decodeBridgePayload(rsp);
   if (decoded == null) {
     if (nullAsEmpty) {
       return <String, dynamic>{};
@@ -75,10 +121,30 @@ Map<String, dynamic> decodeMapResponse(
   );
 }
 
+/// 单对象接口常见“对象响应 + 直接转实体”模式。
+/// 这里集中做结构校验，避免调用方遗漏 `null`/非对象边界判断。
+T decodeEntityResponse<T>(
+  String rsp,
+  String method,
+  T Function(Map<String, dynamic>) mapper, {
+  bool immutableItem = false,
+  bool nullAsEmpty = false,
+}) {
+  final map = decodeMapResponse(
+    rsp,
+    method,
+    nullAsEmpty: nullAsEmpty,
+  );
+  if (immutableItem) {
+    return mapper(Map<String, dynamic>.unmodifiable(map));
+  }
+  return mapper(map);
+}
+
 /// MethodChannel/JSON 解码后常见 Map<dynamic, dynamic>，这里统一转成实体层需要的键类型。
 /// `null` 仅表示后端明确返回空对象，例如 `download_by_id` 未命中。
 Map<String, dynamic>? decodeNullableMapResponse(String rsp, String method) {
-  final decoded = jsonDecode(rsp);
+  final decoded = _decodeBridgePayload(rsp);
   if (decoded == null) {
     return null;
   }
@@ -121,6 +187,24 @@ List<T> decodeEntityListResponse<T>(
   );
 }
 
+/// 单对象接口常见“可空对象 + 直接转实体”模式。
+/// 这里统一处理 null 与结构校验，避免调用方重复判空和 Map 中间变量。
+T? decodeNullableEntityResponse<T>(
+  String rsp,
+  String method,
+  T Function(Map<String, dynamic>) mapper, {
+  bool immutableItem = false,
+}) {
+  final map = decodeNullableMapResponse(rsp, method);
+  if (map == null) {
+    return null;
+  }
+  if (immutableItem) {
+    return mapper(Map<String, dynamic>.unmodifiable(map));
+  }
+  return mapper(map);
+}
+
 /// 某些后端列表接口历史上混入过 `null`、空白或重复值。
 /// 这里统一做最小归一化，避免 UI 层出现空项或重复项；默认保持原顺序。
 List<String> decodeStringListResponse(
@@ -145,7 +229,7 @@ List<String> decodeStringListResponse(
     }
     result.add(normalized);
   }
-  return List<String>.unmodifiable(result);
+  return UnmodifiableListView<String>(result);
 }
 
 /// 对象响应统一转成字符串键值，常用于 `config_links` 这类展示配置。
@@ -156,5 +240,6 @@ Map<String, String> decodeStringMapResponse(String rsp, String method) {
   map.forEach((key, value) {
     result[key] = value == null ? "" : "$value";
   });
-  return result;
+  // 配置映射在 UI 层只读消费；只读视图比二次拷贝更省内存，且仍能阻止误写。
+  return UnmodifiableMapView<String, String>(result);
 }

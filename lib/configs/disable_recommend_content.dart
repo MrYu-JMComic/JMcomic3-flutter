@@ -4,6 +4,7 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'bool_property.dart';
 import 'is_pro.dart';
 
 const _propertyName = "disableRecommendContent";
@@ -11,8 +12,10 @@ late bool _disableRecommendContent;
 final disableRecommendContentEvent = Event();
 
 Future<void> initDisableRecommendContent() async {
-  _disableRecommendContent =
-      (await methods.loadProperty(_propertyName)) == "true";
+  _disableRecommendContent = parseBoolPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: false,
+  );
   if (!hasProAccess) {
     _disableRecommendContent = false;
   }

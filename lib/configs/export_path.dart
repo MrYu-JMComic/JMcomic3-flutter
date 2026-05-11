@@ -7,12 +7,16 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'string_property.dart';
 
 const String _propertyKey = "export_path";
 late String _currentExportPath;
 
 Future<String?> initExportPath() async {
-  _currentExportPath = await methods.loadProperty(_propertyKey);
+  _currentExportPath = parseStringPropertyValue(
+    await methods.loadProperty(_propertyKey),
+    trim: true,
+  );
   if (_currentExportPath.isEmpty) {
     if (Platform.isAndroid) {
       try {
@@ -43,8 +47,9 @@ String showExportPath(BuildContext context) {
 }
 
 Future _setExportPath(String folder) async {
-  await methods.saveProperty(_propertyKey, folder);
-  _currentExportPath = folder;
+  final value = parseStringPropertyValue(folder, trim: true);
+  await methods.saveProperty(_propertyKey, value);
+  _currentExportPath = value;
 }
 
 Widget displayExportPathInfo() {

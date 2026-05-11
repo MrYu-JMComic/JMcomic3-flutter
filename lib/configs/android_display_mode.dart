@@ -8,6 +8,7 @@ import 'package:jmcomic3/configs/android_version.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
+import 'string_property.dart';
 
 const _propertyName = "androidDisplayMode";
 List<String> _modes = [];
@@ -15,10 +16,22 @@ String _androidDisplayMode = "";
 
 Future initAndroidDisplayMode() async {
   if (Platform.isAndroid) {
-    _androidDisplayMode = await methods.loadProperty(_propertyName);
     _modes = await methods.loadAndroidModes();
+    _androidDisplayMode = normalizeAndroidDisplayModeValue(
+      await methods.loadProperty(_propertyName),
+      _modes,
+    );
     await _changeMode();
   }
+}
+
+String normalizeAndroidDisplayModeValue(String raw, Iterable<String> modes) {
+  final value = parseStringPropertyValue(raw, trim: true);
+  if (value.isEmpty) {
+    return "";
+  }
+  // 刷新率配置最终会传给平台层；只接受当前设备枚举出的模式，旧缓存/手工迁移的脏值回退默认模式。
+  return modes.contains(value) ? value : "";
 }
 
 Future _changeMode() async {
@@ -35,8 +48,9 @@ Future<void> _chooseAndroidDisplayMode(BuildContext context) async {
       values: list,
     );
     if (result != null) {
-      await methods.saveProperty(_propertyName, result);
-      _androidDisplayMode = result;
+      final value = normalizeAndroidDisplayModeValue(result, _modes);
+      await methods.saveProperty(_propertyName, value);
+      _androidDisplayMode = value;
       await _changeMode();
     }
   }

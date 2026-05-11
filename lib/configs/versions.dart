@@ -9,6 +9,7 @@ import 'package:jmcomic3/basic/http_client.dart';
 import 'package:jmcomic3/basic/log.dart';
 import 'package:jmcomic3/basic/methods.dart';
 
+import 'int_property.dart';
 import 'ignore_upgrade_pop.dart';
 
 const _repoOwner = "MrYu-JMComic";
@@ -72,11 +73,9 @@ Future initVersion() async {
   if (_latestVersionName == null && _versionExp.hasMatch(_version)) {
     _latestVersionName = _version;
   }
-  var vStr = await methods.loadProperty(_propertyName);
-  if (vStr == "") {
-    vStr = "0";
-  }
-  _period = int.parse(vStr);
+  final vStr = await methods.loadProperty(_propertyName);
+  // 升级检查周期属于启动路径配置；旧缓存损坏时回退 0，避免版本页初始化直接抛异常。
+  _period = parseBoundedIntPropertyValue(vStr, fallback: 0, min: 0);
   if (_period > 0) {
     if (DateTime.now().millisecondsSinceEpoch > _period) {
       await methods.saveProperty(_propertyName, "0");

@@ -3,13 +3,17 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'bool_property.dart';
 import 'is_pro.dart';
 
 const _propertyName = "webDavSyncSwitch";
 late bool _webDavSyncSwitch;
 
 Future<void> initWebDavSyncSwitch() async {
-  _webDavSyncSwitch = (await methods.loadProperty(_propertyName)) == "true";
+  _webDavSyncSwitch = parseBoolPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: false,
+  );
 }
 
 bool currentWebDavSyncSwitch() {

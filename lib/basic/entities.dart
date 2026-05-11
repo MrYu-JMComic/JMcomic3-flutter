@@ -90,6 +90,24 @@ Iterable<dynamic> _toIterable(dynamic value) {
   return const <dynamic>[];
 }
 
+bool _looksLikeJsonValue(String input) {
+  if (input.isEmpty) {
+    return false;
+  }
+  switch (input.codeUnitAt(0)) {
+    case 0x7B: // {
+    case 0x5B: // [
+    case 0x22: // "
+    case 0x2D: // -
+    case >= 0x30 && <= 0x39: // 0-9
+    case 0x74: // t
+    case 0x66: // f
+    case 0x6E: // n
+      return true;
+  }
+  return false;
+}
+
 /// 下载详情页和阅读器会多次按章节 ID 恢复进度；实体层建一次索引避免重复线性扫描。
 /// 如果导入数据出现重复章节 ID，保留首个章节，和旧的顺序遍历查找语义一致。
 Map<int, DownloadCreateChapter> _indexChaptersById(
@@ -1403,7 +1421,7 @@ String _downloadMetadataWireValue(dynamic value) {
 
 /// 下载元数据跨过 Rust 桥接、旧 JSON 备份和前端导入流程，可能是数组、JSON 字符串或纯文本。
 /// 这里统一过滤空项，保证卡片展示和导出逻辑拿到稳定的字符串列表。
-List<String> _downloadMetadataList(dynamic value) {
+List<String> _downloadMetadataList(dynamic value, {int depth = 0}) {
   if (value == null) {
     return [];
   }
@@ -1412,19 +1430,21 @@ List<String> _downloadMetadataList(dynamic value) {
     if (trimmed.isEmpty) {
       return [];
     }
-    try {
-      final decoded = jsonDecode(trimmed);
-      if (decoded == null) {
-        return [];
+    if (_looksLikeJsonValue(trimmed) && depth < 2) {
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded == null) {
+          return [];
+        }
+        if (decoded is Iterable) {
+          return _downloadMetadataList(decoded, depth: depth + 1);
+        }
+        if (decoded is String || decoded is num || decoded is bool) {
+          return _downloadMetadataList(decoded, depth: depth + 1);
+        }
+      } catch (_) {
+        // 兼容旧下载库：历史版本可能直接存储纯文本作者/标签，而不是 JSON 数组。
       }
-      if (decoded is Iterable) {
-        return _downloadMetadataList(decoded);
-      }
-      if (decoded is String || decoded is num || decoded is bool) {
-        return _downloadMetadataList(decoded);
-      }
-    } catch (_) {
-      // 兼容旧下载库：历史版本可能直接存储纯文本作者/标签，而不是 JSON 数组。
     }
     return [trimmed];
   }

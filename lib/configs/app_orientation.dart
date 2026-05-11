@@ -6,6 +6,7 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'enum_property.dart';
 
 enum AppOrientation {
   normal,
@@ -33,12 +34,11 @@ Future initAppOrientation() async {
 }
 
 AppOrientation _fromString(String valueForm) {
-  for (var value in AppOrientation.values) {
-    if (value.toString() == valueForm) {
-      return value;
-    }
-  }
-  return AppOrientation.values.first;
+  return parseEnumPropertyValue(
+    valueForm,
+    AppOrientation.values,
+    AppOrientation.normal,
+  );
 }
 
 AppOrientation get currentAppOrientation => _appOrientation;

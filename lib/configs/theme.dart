@@ -5,6 +5,7 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'string_property.dart';
 
 const _seedColor = Color(0xFFECEFF2);
 
@@ -28,6 +29,28 @@ ThemeData get darkTheme => theme != "1" ? _darkTheme : _lightTheme;
 
 const _propertyName = "theme";
 late String theme = "0";
+
+/// 归一化本地持久化的主题配置。
+///
+/// 旧缓存和手工脚本可能保存 `auto/light/dark`、大小写混合文本或 JSON 字符串包装；
+/// 初始化时统一收敛到现有协议的 `0/1/2`，避免设置页显示 `-` 或状态栏颜色误判。
+String normalizeThemeCode(String raw) {
+  final value = parseStringPropertyValue(raw, trim: true).toLowerCase();
+  switch (value) {
+    case "0":
+    case "auto":
+    case "system":
+      return "0";
+    case "1":
+    case "light":
+      return "1";
+    case "2":
+    case "dark":
+      return "2";
+    default:
+      return "0";
+  }
+}
 
 Map<String, String> _nameMap(BuildContext context) {
   return {
@@ -295,10 +318,7 @@ Future initTheme() async {
     SystemUiMode.edgeToEdge,
     overlays: SystemUiOverlay.values,
   );
-  theme = await methods.loadProperty(_propertyName);
-  if (theme == "") {
-    theme = "0";
-  }
+  theme = normalizeThemeCode(await methods.loadProperty(_propertyName));
   themeEvent.broadcast();
   _reloadBarColor();
 }

@@ -33,7 +33,9 @@ class _RecommendLinksPanelState extends State<RecommendLinksPanel> {
   }
 
   void _setState(_) {
-    setState(() {});
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override

@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/methods.dart';
+import 'package:jmcomic3/configs/enum_property.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 enum ReaderControllerType {
@@ -48,12 +49,11 @@ Future<void> initReaderControllerType() async {
 ReaderControllerType get currentReaderControllerType => _readerControllerType;
 
 ReaderControllerType _readerControllerTypeFromString(String string) {
-  for (var value in ReaderControllerType.values) {
-    if (string == value.toString()) {
-      return value;
-    }
-  }
-  return _defaultController;
+  return parseEnumPropertyValue(
+    string,
+    ReaderControllerType.values,
+    _defaultController,
+  );
 }
 
 String currentReaderControllerTypeName(BuildContext context) {

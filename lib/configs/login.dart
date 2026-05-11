@@ -4,6 +4,7 @@ import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/log.dart';
 import 'package:jmcomic3/basic/methods.dart';
+import 'package:jmcomic3/configs/bool_property.dart';
 import 'package:jmcomic3/configs/is_pro.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
@@ -41,7 +42,10 @@ set _loginState(LoginStatus value) {
 
 Future initLogin(BuildContext context) async {
   try {
-    _guestMode = (await methods.loadProperty(_guestModePropertyName)) == "true";
+    _guestMode = parseBoolPropertyValue(
+      await methods.loadProperty(_guestModePropertyName),
+      fallback: false,
+    );
     _loginState = LoginStatus.logging;
     final preLogin = await methods.preLogin();
     _loginMessage = preLogin.message ?? "";

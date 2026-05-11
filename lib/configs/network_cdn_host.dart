@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/methods.dart';
+import 'package:jmcomic3/configs/network_host.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 const _defaultCdnHost = "cdn-msp3.jmapiproxy1.cc";
@@ -30,20 +31,16 @@ List<String> _cdnList = [];
 
 Future<void> initCdnHost() async {
   _cdnList = [];
-  final merged = <String>{_defaultCdnHost};
-  for (var i = 0; i < _base64List.length; i++) {
-    final host = utf8.decode(base64.decode(_base64List[i])).trim();
-    if (host.isNotEmpty) {
-      merged.add(host);
-    }
-  }
-  _cdnList = merged.toList();
-  final loaded = (await methods.loadCdnHost()).trim();
-  _cdnHost = loaded.isNotEmpty ? loaded : _defaultCdnHost;
-  if (!_cdnList.contains(_cdnHost)) {
-    _cdnList.insert(0, _cdnHost);
-  }
-  if (loaded != _cdnHost) {
+  _mergeCdnList([
+    _defaultCdnHost,
+    for (final encoded in _base64List) utf8.decode(base64.decode(encoded)),
+  ]);
+  final rawLoaded = await methods.loadCdnHost();
+  final loaded =
+      normalizeNetworkHostCandidate(rawLoaded, fallback: _defaultCdnHost);
+  _cdnHost = loaded;
+  _mergeCdnList([_cdnHost]);
+  if (rawLoaded.trim() != _cdnHost) {
     await methods.saveCdnHost(_cdnHost);
   }
 }
@@ -51,13 +48,28 @@ Future<void> initCdnHost() async {
 Future chooseCdnHost(BuildContext context) async {
   final choose = await chooseCdnDialog(context);
   if (choose != null) {
-    final value = "$choose".trim();
-    _cdnHost = value.isNotEmpty ? value : _defaultCdnHost;
+    _cdnHost = normalizeNetworkHostCandidate(choose, fallback: _defaultCdnHost);
     await methods.saveCdnHost(_cdnHost);
-    if (!_cdnList.contains(_cdnHost)) {
-      _cdnList.insert(0, _cdnHost);
+    _mergeCdnList([_cdnHost]);
+  }
+}
+
+void _mergeCdnList(Iterable<String> items) {
+  final merged = <String, String>{};
+  for (final raw in _cdnList) {
+    final value = normalizeNetworkHostCandidate(raw);
+    if (value.isNotEmpty) {
+      merged.putIfAbsent(value.toLowerCase(), () => value);
     }
   }
+  for (final raw in items) {
+    final value = normalizeNetworkHostCandidate(raw);
+    if (value.isNotEmpty) {
+      // CDN 域名同样大小写不敏感；保留首次展示文本，避免旧缓存大小写差异制造重复项。
+      merged.putIfAbsent(value.toLowerCase(), () => value);
+    }
+  }
+  _cdnList = List<String>.unmodifiable(merged.values);
 }
 
 Widget cdnHostSetting() {

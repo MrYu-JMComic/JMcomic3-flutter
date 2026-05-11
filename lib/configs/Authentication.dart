@@ -7,13 +7,17 @@ import '../basic/commons.dart';
 import '../basic/methods.dart';
 import 'DesktopAuthenticationScreen.dart';
 import 'android_version.dart';
+import 'bool_property.dart';
 
 const _propertyName = "authentication";
 late bool _authentication;
 
 Future<void> initAuthentication() async {
   if (Platform.isIOS || androidVersion >= 29) {
-    _authentication = (await methods.loadProperty(_propertyName)) == "true";
+    _authentication = parseBoolPropertyValue(
+      await methods.loadProperty(_propertyName),
+      fallback: false,
+    );
   } else if (Platform.isAndroid) {
     _authentication = false;
   } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {

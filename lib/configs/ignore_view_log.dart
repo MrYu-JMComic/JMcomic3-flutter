@@ -4,12 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/methods.dart';
+import 'bool_property.dart';
 
 const _propertyName = "ignoreVewLog";
 late bool _ignoreVewLog;
 
 Future<void> initIgnoreVewLog() async {
-  _ignoreVewLog = (await methods.loadProperty(_propertyName)) == "true";
+  _ignoreVewLog = parseBoolPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: false,
+  );
 }
 
 bool currentIgnoreVewLog() {

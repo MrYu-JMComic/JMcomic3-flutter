@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/methods.dart';
+import 'package:jmcomic3/configs/enum_property.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 enum TwoPageDirection {
@@ -16,12 +17,11 @@ Future initTwoPageDirection() async {
 }
 
 TwoPageDirection _fromString(String valueForm) {
-  for (var value in TwoPageDirection.values) {
-    if (value.toString() == valueForm) {
-      return value;
-    }
-  }
-  return TwoPageDirection.values.first;
+  return parseEnumPropertyValue(
+    valueForm,
+    TwoPageDirection.values,
+    TwoPageDirection.leftToRight,
+  );
 }
 
 TwoPageDirection get currentTwoPageDirection => _twoPageDirection;

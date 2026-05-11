@@ -5,16 +5,16 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'bool_property.dart';
 
 const _propertyName = "displayJmcode";
 late bool _displayJmcode;
 
 Future<void> initDisplayJmcode() async {
-  var str = await methods.loadProperty(_propertyName);
-  if (str == "") {
-    str = "true";
-  }
-  _displayJmcode = str == "true";
+  _displayJmcode = parseBoolPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: true,
+  );
 }
 
 bool currentDisplayJmcode() {

@@ -5,16 +5,16 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'bool_property.dart';
 
 const _propertyName = "searchTitleWords";
 late bool _searchTitleWords;
 
 Future<void> initSearchTitleWords() async {
-  var str = await methods.loadProperty(_propertyName);
-  if (str == "") {
-    str = "false";
-  }
-  _searchTitleWords = str == "true";
+  _searchTitleWords = parseBoolPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: false,
+  );
 }
 
 bool currentSearchTitleWords() {

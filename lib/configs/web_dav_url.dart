@@ -3,15 +3,18 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'string_property.dart';
 
 late String _currentWebDavUrl;
 const _propertyName = "WebDavUrl";
+const _defaultWebDavUrl = "http://server/.jmtt2mic.history";
 
 Future<String?> initWebDavUrl() async {
-  _currentWebDavUrl = await methods.loadProperty(_propertyName);
-  if (_currentWebDavUrl == "") {
-    _currentWebDavUrl = "http://server/.jmtt2mic.history";
-  }
+  _currentWebDavUrl = parseStringPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: _defaultWebDavUrl,
+    trim: true,
+  );
   return null;
 }
 
@@ -35,8 +38,9 @@ Future<dynamic> inputWebDavUrl(BuildContext context) async {
     ),
   );
   if (input != null) {
-    await methods.saveProperty(_propertyName, input);
-    _currentWebDavUrl = input;
+    final value = parseStringPropertyValue(input, trim: true);
+    await methods.saveProperty(_propertyName, value);
+    _currentWebDavUrl = value;
   }
 }
 

@@ -35,6 +35,8 @@ class Methods {
   static const Duration _coverCacheTtl = Duration(minutes: 30);
   static const String _defaultCategoriesCacheKey = "__default__";
   static const int _maxSearchHistoryCountHint = 200;
+  static const int _downloadThreadMin = 1;
+  static const int _downloadThreadMax = 5;
 
   static final Map<String, _CacheEntry<String>> _categoriesCache = {};
   static final Map<String, _CacheEntry<String>> _comicsCache = {};
@@ -67,6 +69,7 @@ class Methods {
     required Map<String, _CacheEntry<String>> cache,
     required Map<String, Future<String>> inflight,
     required Future<String> Function() loader,
+    bool allowStaleOnError = false,
     String? debugName,
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -91,11 +94,26 @@ class Methods {
     inflight[cacheKey] = future;
     try {
       final value = await future;
-      cache[cacheKey] = _CacheEntry(value, nowMs);
+      cache[cacheKey] =
+          _CacheEntry(value, DateTime.now().millisecondsSinceEpoch);
       if (debugName != null) {
         debugPrient("[api-cache-store] method=$debugName key=$cacheKey");
       }
       return value;
+    } catch (e) {
+      if (allowStaleOnError && current != null) {
+        // 类别/封面等展示型接口在网络抖动时允许回退陈旧缓存，避免页面直接报错闪退。
+        // 回退成功后刷新缓存时间戳，避免离线期间每次进入页面都立即重试并重复报错。
+        cache[cacheKey] =
+            _CacheEntry(current.value, DateTime.now().millisecondsSinceEpoch);
+        if (debugName != null) {
+          debugPrient(
+            "[api-cache-stale-fallback] method=$debugName key=$cacheKey error=$e",
+          );
+        }
+        return current.value;
+      }
+      rethrow;
     } finally {
       inflight.remove(cacheKey);
       if (cache.length > 600) {
@@ -182,8 +200,149 @@ class Methods {
     return "${raw.substring(0, 320)}...";
   }
 
-  Map<String, dynamic>? _decodeNullableMapResponse(String rsp, String method) {
-    return decodeNullableMapResponse(rsp, method);
+  /// 后端整数响应历史上偶发过空串/非数字脏值；这里集中兜底，
+  /// 避免调用点散落 `int.parse` 导致页面因单个字段异常直接抛错。
+  int _parseBackendInt(
+    String raw,
+    String method, {
+    required int fallback,
+  }) {
+    final trimmed = raw.trim();
+    final parsed = int.tryParse(trimmed);
+    if (parsed != null) {
+      return parsed;
+    }
+    // 兼容历史桥接中偶发的双层 JSON 字符串（如 "\"3\""）或数值类型响应。
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is int) {
+        return decoded;
+      }
+      if (decoded is String) {
+        final decodedTrimmed = decoded.trim();
+        final nestedParsed = int.tryParse(decodedTrimmed);
+        if (nestedParsed != null) {
+          return nestedParsed;
+        }
+        final nestedNum = num.tryParse(decodedTrimmed);
+        if (nestedNum != null &&
+            nestedNum.isFinite &&
+            nestedNum == nestedNum.truncateToDouble()) {
+          return nestedNum.toInt();
+        }
+      }
+      if (decoded is num &&
+          decoded.isFinite &&
+          decoded == decoded.truncateToDouble()) {
+        return decoded.toInt();
+      }
+    } on FormatException {
+      // 非 JSON 形态继续走统一回退分支。
+    }
+    debugPrient(
+      "[method-parse-int-fallback] method=$method raw=${_brief(raw)} fallback=$fallback",
+    );
+    return fallback;
+  }
+
+  /// 下载线程配置来自跨版本桥接与本地缓存，解析成功后仍需做边界归一化。
+  /// 这样即使旧版本返回越界值，也不会把异常并发数直接传给 UI/调用链。
+  int _normalizeDownloadThreadCount(int value, String method) {
+    final normalized = value.clamp(_downloadThreadMin, _downloadThreadMax);
+    if (normalized != value) {
+      debugPrient(
+        "[method-download-thread-clamp] method=$method raw=$value normalized=$normalized",
+      );
+    }
+    return normalized;
+  }
+
+  /// 平台通道返回类型在不同设备/插件版本上可能是 List、单值、JSON 字符串或 null。
+  /// 这里统一归一化为“去空白 + 去重”的字符串列表，避免设置页因返回形态差异崩溃。
+  List<String> _normalizePlatformStringList(
+    dynamic raw,
+    String method, {
+    bool dedupe = true,
+  }) {
+    dynamic source = raw;
+    if (source == null) {
+      return const <String>[];
+    }
+    if (source is String) {
+      final trimmed = source.trim();
+      if (trimmed.isEmpty) {
+        return const <String>[];
+      }
+      try {
+        final decoded = jsonDecode(trimmed);
+        source = decoded;
+      } on FormatException {
+        source = <dynamic>[source];
+      }
+    }
+    if (source is Map) {
+      // 部分机型/插件版本返回对象壳（如 {"modes":[...] }），这里优先提取常见列表字段。
+      const listKeys = <String>[
+        "modes",
+        "mode_list",
+        "modeList",
+        "items",
+        "data"
+      ];
+      dynamic listPayload;
+      for (final key in listKeys) {
+        if (!source.containsKey(key)) {
+          continue;
+        }
+        listPayload = source[key];
+        break;
+      }
+      if (listPayload is String) {
+        final trimmed = listPayload.trim();
+        if (trimmed.isNotEmpty) {
+          try {
+            listPayload = jsonDecode(trimmed);
+          } on FormatException {
+            listPayload = <dynamic>[listPayload];
+          }
+        } else {
+          listPayload = const <dynamic>[];
+        }
+      }
+      if (listPayload is Iterable) {
+        source = listPayload;
+      } else if (listPayload != null) {
+        source = <dynamic>[listPayload];
+      } else {
+        // 未命中约定字段时退化为值列表，避免把整张 Map 字符串化成单条脏数据。
+        source = source.values;
+      }
+    }
+    if (source is! Iterable) {
+      source = <dynamic>[source];
+    }
+
+    final result = <String>[];
+    final seen = dedupe ? <String>{} : null;
+    for (final item in source) {
+      if (item == null) {
+        continue;
+      }
+      final normalized = "$item".trim();
+      if (normalized.isEmpty) {
+        continue;
+      }
+      if (seen != null && !seen.add(normalized)) {
+        continue;
+      }
+      result.add(normalized);
+    }
+    if (result.isEmpty && raw != null) {
+      debugPrient(
+        "[method-platform-list-empty] method=$method raw=${_brief(raw)}",
+      );
+    }
+    return List<String>.unmodifiable(result);
   }
 
   Map<String, dynamic> _decodeMapResponse(
@@ -194,15 +353,19 @@ class Methods {
     return decodeMapResponse(rsp, method, nullAsEmpty: nullAsEmpty);
   }
 
-  List<Map<String, dynamic>> _decodeMapListResponse(
+  T _decodeEntityResponse<T>(
     String rsp,
-    String method, {
-    bool immutableItems = true,
+    String method,
+    T Function(Map<String, dynamic>) mapper, {
+    bool immutableItem = false,
+    bool nullAsEmpty = false,
   }) {
-    return decodeMapListResponse(
+    return decodeEntityResponse(
       rsp,
       method,
-      immutableItems: immutableItems,
+      mapper,
+      immutableItem: immutableItem,
+      nullAsEmpty: nullAsEmpty,
     );
   }
 
@@ -217,6 +380,20 @@ class Methods {
       method,
       mapper,
       immutableItems: immutableItems,
+    );
+  }
+
+  T? _decodeNullableEntityResponse<T>(
+    String rsp,
+    String method,
+    T Function(Map<String, dynamic>) mapper, {
+    bool immutableItem = false,
+  }) {
+    return decodeNullableEntityResponse(
+      rsp,
+      method,
+      mapper,
+      immutableItem: immutableItem,
     );
   }
 
@@ -268,9 +445,10 @@ class Methods {
         "sort_by": sortBy.value,
         "page": page,
       }),
+      allowStaleOnError: true,
       debugName: "comics",
     );
-    return ComicsResponse.fromJson(jsonDecode(rsp));
+    return _decodeEntityResponse(rsp, "comics", ComicsResponse.fromJson);
   }
 
   Future<ComicsResponse> comicSearch(
@@ -283,12 +461,12 @@ class Methods {
       "sort_by": sortBy.value,
       "page": page,
     });
-    return ComicsResponse.fromJson(jsonDecode(rsp));
+    return _decodeEntityResponse(rsp, "comic_search", ComicsResponse.fromJson);
   }
 
   Future<ComicsResponse> pageViewLog(int page) async {
     final rsp = await _invoke("page_view_log", page);
-    return ComicsResponse.fromJson(jsonDecode(rsp));
+    return _decodeEntityResponse(rsp, "page_view_log", ComicsResponse.fromJson);
   }
 
   Future<dynamic> deleteViewLogByComicId(int comicId) async {
@@ -303,9 +481,11 @@ class Methods {
       cache: _categoriesCache,
       inflight: _categoriesInflight,
       loader: () => _invoke("categories", ""),
+      allowStaleOnError: true,
       debugName: "categories",
     );
-    return CategoriesResponse.fromJson(jsonDecode(rsp));
+    return _decodeEntityResponse(
+        rsp, "categories", CategoriesResponse.fromJson);
   }
 
   Future saveImageFileToGallery(String path) {
@@ -327,44 +507,57 @@ class Methods {
         "id": id,
         "ignore_view_log": ignoreViewLog,
       }),
+      allowStaleOnError: true,
       debugName: "album",
     );
-    return AlbumResponse.fromJson(jsonDecode(rsp));
+    return _decodeEntityResponse(rsp, "album", AlbumResponse.fromJson);
   }
 
   Future<ChapterResponse> chapter(int id) async {
-    return ChapterResponse.fromJson(jsonDecode(await _invoke("chapter", id)));
+    return _decodeEntityResponse(
+      await _invoke("chapter", id),
+      "chapter",
+      ChapterResponse.fromJson,
+    );
   }
 
   Future<CommentPage> forum(String? mode, int? aid, int? uid, int page) async {
-    return CommentPage.fromJson(jsonDecode(await _invoke("forum", {
-      "mode": mode,
-      "aid": aid,
-      "uid": uid,
-      "page": page,
-    })));
+    return _decodeEntityResponse(
+      await _invoke("forum", {
+        "mode": mode,
+        "aid": aid,
+        "uid": uid,
+        "page": page,
+      }),
+      "forum",
+      CommentPage.fromJson,
+    );
   }
 
   Future<Favorite> favorites(int folderId, int page, String o) async {
-    return Favorite.fromJson(
-      jsonDecode(await _invoke("favorites", {
+    return _decodeEntityResponse(
+      await _invoke("favorites", {
         "folder_id": folderId,
         "page": page,
         "o": o,
-      })),
+      }),
+      "favorites",
+      Favorite.fromJson,
     );
   }
 
   Future<Favorite> favorite() async {
-    return Favorite.fromJson(
-      jsonDecode(await _invoke("favorite", "")),
+    return _decodeEntityResponse(
+      await _invoke("favorite", ""),
+      "favorite",
+      Favorite.fromJson,
     );
   }
 
   Future<ActionResponse> setFavorite(int aid) async {
     final rsp = await _invoke("set_favorite", aid);
     _evictAlbumCache(aid);
-    return ActionResponse.fromJson(jsonDecode(rsp));
+    return _decodeEntityResponse(rsp, "set_favorite", ActionResponse.fromJson);
   }
 
   Future createFavoriteFolder(String name) async {
@@ -384,8 +577,10 @@ class Methods {
   }
 
   Future<GamePage> games(int page) async {
-    return GamePage.fromJson(
-      jsonDecode(await _invoke("games", page)),
+    return _decodeEntityResponse(
+      await _invoke("games", page),
+      "games",
+      GamePage.fromJson,
     );
   }
 
@@ -398,14 +593,11 @@ class Methods {
   }
 
   Future<ViewLog?> findViewLog(int id) async {
-    final map = _decodeNullableMapResponse(
+    return _decodeNullableEntityResponse(
       await _invoke("find_view_log", id),
       "find_view_log",
+      ViewLog.fromJson,
     );
-    if (map == null) {
-      return null;
-    }
-    return ViewLog.fromJson(map);
   }
 
   Future cleanAllCache() async {
@@ -421,6 +613,7 @@ class Methods {
       cache: _coverCache,
       inflight: _coverInflight,
       loader: () => _invoke("jm_3x4_cover", comicId),
+      allowStaleOnError: true,
       debugName: "jm_3x4_cover",
     );
   }
@@ -432,6 +625,7 @@ class Methods {
       cache: _coverCache,
       inflight: _coverInflight,
       loader: () => _invoke("jm_square_cover", comicId),
+      allowStaleOnError: true,
       debugName: "jm_square_cover",
     );
   }
@@ -445,7 +639,11 @@ class Methods {
   }
 
   Future<ImageSize> imageSize(String path) async {
-    return ImageSize.fromJson(jsonDecode(await _invoke("image_size", path)));
+    return _decodeEntityResponse(
+      await _invoke("image_size", path),
+      "image_size",
+      ImageSize.fromJson,
+    );
   }
 
   Future httpGet(String versionUrl) {
@@ -487,8 +685,10 @@ class Methods {
   }
 
   Future<PreLoginResponse> preLogin() async {
-    return PreLoginResponse.fromJson(
-      jsonDecode(await _invoke("pre_login", "")),
+    return _decodeEntityResponse(
+      await _invoke("pre_login", ""),
+      "pre_login",
+      PreLoginResponse.fromJson,
     );
   }
 
@@ -498,7 +698,7 @@ class Methods {
       "password": password,
     });
     _clearResponseCaches();
-    return SelfInfo.fromJson(jsonDecode(rsp));
+    return _decodeEntityResponse(rsp, "login", SelfInfo.fromJson);
   }
 
   Future logout() async {
@@ -507,17 +707,25 @@ class Methods {
   }
 
   Future<CommentResponse> commentResponse(int aid, String comment) async {
-    return CommentResponse.fromJson(jsonDecode(await _invoke("comment", {
-      "aid": aid,
-      "comment": comment,
-    })));
+    return _decodeEntityResponse(
+      await _invoke("comment", {
+        "aid": aid,
+        "comment": comment,
+      }),
+      "comment",
+      CommentResponse.fromJson,
+    );
   }
 
   Future<CommentResponse> comment(int aid, String comment) async {
-    return CommentResponse.fromJson(jsonDecode(await _invoke("comment", {
-      "aid": aid,
-      "comment": comment,
-    })));
+    return _decodeEntityResponse(
+      await _invoke("comment", {
+        "aid": aid,
+        "comment": comment,
+      }),
+      "comment",
+      CommentResponse.fromJson,
+    );
   }
 
   Future<CommentResponse> childComment(
@@ -525,11 +733,15 @@ class Methods {
     String comment,
     int? commentId,
   ) async {
-    return CommentResponse.fromJson(jsonDecode(await _invoke("child_comment", {
-      "aid": aid,
-      "comment": comment,
-      "comment_id": commentId,
-    })));
+    return _decodeEntityResponse(
+      await _invoke("child_comment", {
+        "aid": aid,
+        "comment": comment,
+        "comment_id": commentId,
+      }),
+      "child_comment",
+      CommentResponse.fromJson,
+    );
   }
 
   Future<String> loadUsername() {
@@ -573,27 +785,21 @@ class Methods {
   }
 
   Future<DownloadAlbum?> downloadAlbumById(int id) async {
-    final map = _decodeNullableMapResponse(
+    // 下载详情页轮询只需要摘要字段；后端单项接口复用 all_downloads 的 wire 形状。
+    return _decodeNullableEntityResponse(
       await _invoke("download_album_by_id", "$id"),
       "download_album_by_id",
+      DownloadAlbum.fromJson,
     );
-    if (map == null) {
-      return null;
-    }
-    // 下载详情页轮询只需要摘要字段；后端单项接口复用 all_downloads 的 wire 形状。
-    return DownloadAlbum.fromJson(map);
   }
 
   /// Find download item
   Future<DownloadCreate?> downloadById(int id) async {
-    final map = _decodeNullableMapResponse(
+    return _decodeNullableEntityResponse(
       await _invoke("download_by_id", "$id"),
       "download_by_id",
+      DownloadCreate.fromJson,
     );
-    if (map == null) {
-      return null;
-    }
-    return DownloadCreate.fromJson(map);
   }
 
   /// Create download task
@@ -620,15 +826,20 @@ class Methods {
 
   /// Get Android refresh modes
   Future<List<String>> loadAndroidModes() async {
-    return List.of(await _channel.invokeMethod("androidGetModes"))
-        .map((e) => "$e")
-        .toList();
+    try {
+      final raw = await _channel.invokeMethod("androidGetModes");
+      return _normalizePlatformStringList(raw, "androidGetModes");
+    } on PlatformException catch (e, s) {
+      // 刷新率模式只影响设置页展示；通道异常时降级为空列表，避免应用初始化被阻断。
+      debugPrient("androidGetModes fallback []: $e\n$s");
+      return const <String>[];
+    }
   }
 
   /// Set Android refresh mode
   Future setAndroidMode(String androidDisplayMode) {
-    return _channel
-        .invokeMethod("androidSetMode", {"mode": androidDisplayMode});
+    final normalizedMode = androidDisplayMode.trim();
+    return _channel.invokeMethod("androidSetMode", {"mode": normalizedMode});
   }
 
   /// Get Android SDK version
@@ -753,11 +964,19 @@ class Methods {
   }
 
   Future<IsPro> isPro() async {
-    return IsPro.fromJson(jsonDecode(await _invoke("is_pro", "")));
+    return _decodeEntityResponse(
+      await _invoke("is_pro", ""),
+      "is_pro",
+      IsPro.fromJson,
+    );
   }
 
   Future<ProInfoAll> proInfoAll() async {
-    return ProInfoAll.fromJson(jsonDecode(await _invoke("pro_info_all", "")));
+    return _decodeEntityResponse(
+      await _invoke("pro_info_all", ""),
+      "pro_info_all",
+      ProInfoAll.fromJson,
+    );
   }
 
   Future reloadPro() {
@@ -790,11 +1009,19 @@ class Methods {
   }
 
   Future<int> load_download_thread() async {
-    return int.parse(await _invoke("load_download_thread", ""));
+    final parsed = _parseBackendInt(
+      await _invoke("load_download_thread", ""),
+      "load_download_thread",
+      fallback: _downloadThreadMin,
+    );
+    return _normalizeDownloadThreadCount(parsed, "load_download_thread");
   }
 
   Future set_download_thread(int count) {
-    return _invoke("set_download_thread", "${count}");
+    // 与后端线程约束保持一致，避免无效值反复跨桥接往返。
+    final normalized =
+        _normalizeDownloadThreadCount(count, "set_download_thread");
+    return _invoke("set_download_thread", "$normalized");
   }
 
   Future clearAllSearchLog() {
@@ -840,12 +1067,20 @@ class Methods {
 
   Future<int> ping(String idx) async {
     debugPrient("PING API $idx");
-    return int.parse(await _invoke("ping_server", idx));
+    return _parseBackendInt(
+      await _invoke("ping_server", idx),
+      "ping_server",
+      fallback: 0,
+    );
   }
 
   Future<int> pingCdn(String idx) async {
     debugPrient("PING CDN $idx");
-    return int.parse(await _invoke("ping_cdn", idx));
+    return _parseBackendInt(
+      await _invoke("ping_cdn", idx),
+      "ping_cdn",
+      fallback: 0,
+    );
   }
 
   Future mkdirs(String path) {
@@ -900,28 +1135,55 @@ class Methods {
   }
 
   Future<WeekData> week(int page) async {
-    return WeekData.fromJson(jsonDecode(await _invoke("week", {
-      "page": page,
-    })));
+    return _decodeEntityResponse(
+      await _invoke("week", {
+        "page": page,
+      }),
+      "week",
+      WeekData.fromJson,
+    );
   }
 
   Future<WeekFilterResponse> weekFilter(
       String categoryId, String typeId, int page) async {
-    return WeekFilterResponse.fromJson(jsonDecode(await _invoke("week_filter", {
-      "category_id": categoryId,
-      "type_id": typeId,
-      "page": page,
-    })));
+    return _decodeEntityResponse(
+      await _invoke("week_filter", {
+        "category_id": categoryId,
+        "type_id": typeId,
+        "page": page,
+      }),
+      "week_filter",
+      WeekFilterResponse.fromJson,
+    );
   }
 }
 
 class _Response {
-  late String errorMessage;
-  late String responseData;
+  final String errorMessage;
+  final String responseData;
 
-  _Response.fromJson(Map json) {
-    errorMessage = json["error_message"];
-    responseData = json["response_data"];
+  const _Response({
+    required this.errorMessage,
+    required this.responseData,
+  });
+
+  factory _Response.fromJson(dynamic json) {
+    if (json is! Map) {
+      throw FormatException(
+        "Unexpected invoke response shape: ${json.runtimeType}",
+      );
+    }
+    final errorMessage = json["error_message"];
+    final responseData = json["response_data"];
+    if (errorMessage is! String || responseData is! String) {
+      throw const FormatException(
+        "Unexpected invoke response payload: expect string fields",
+      );
+    }
+    return _Response(
+      errorMessage: errorMessage,
+      responseData: responseData,
+    );
   }
 }
 

@@ -1,8 +1,7 @@
-import 'dart:collection';
-
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/basic/log.dart';
+import 'package:jmcomic3/configs/network_host.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 const _defaultApiHost = "www.cdngwc.club";
@@ -26,25 +25,45 @@ Future<void> initApiHost() async {
     debugPrient("initApiHost loadApiHostList failed: $e");
     // Keep local fallback list when backend list is unavailable.
   }
-  final loaded = (await methods.loadApiHost()).trim();
-  _apiHost = loaded.isNotEmpty ? loaded : _defaultApiHost;
+  final rawLoaded = await methods.loadApiHost();
+  final loaded =
+      normalizeApiHostCandidate(rawLoaded, fallback: _defaultApiHost);
+  _apiHost = loaded;
   _mergeApiList([_apiHost]);
-  if (loaded != _apiHost) {
+  if (rawLoaded.trim() != _apiHost) {
     await methods.saveApiHost(_apiHost);
   }
 }
 
 String get currentApiHostName => (_apiHost);
 
+/// API 分流地址只接受 host[:port] 形态，设置页和旧缓存可能传入完整 URL。
+///
+/// 前端先做一次归一化，可避免手动输入 `https://host/path` 后当前会话显示/测速
+/// 仍使用完整 URL；后端保存路径会再次清洗，形成双层防护。
+String normalizeApiHostCandidate(
+  Object? raw, {
+  String fallback = "",
+}) {
+  return normalizeNetworkHostCandidate(raw, fallback: fallback);
+}
+
 void _mergeApiList(Iterable<String> items) {
-  final merged = LinkedHashSet<String>.from(_apiList);
-  for (final raw in items) {
-    final value = raw.trim();
+  final merged = <String, String>{};
+  for (final raw in _apiList) {
+    final value = normalizeApiHostCandidate(raw);
     if (value.isNotEmpty) {
-      merged.add(value);
+      merged.putIfAbsent(value.toLowerCase(), () => value);
     }
   }
-  _apiList = merged.toList();
+  for (final raw in items) {
+    final value = normalizeApiHostCandidate(raw);
+    if (value.isNotEmpty) {
+      // 域名大小写不敏感；保留首次出现的展示文本，后续大小写差异只参与去重。
+      merged.putIfAbsent(value.toLowerCase(), () => value);
+    }
+  }
+  _apiList = List<String>.unmodifiable(merged.values);
 }
 
 Future<T?> chooseApiDialog<T>(BuildContext buildContext) async {
@@ -248,8 +267,7 @@ class PingStatus extends StatelessWidget {
 Future chooseApiHost(BuildContext context) async {
   final choose = await chooseApiDialog(context);
   if (choose != null) {
-    final value = "$choose".trim();
-    _apiHost = value.isNotEmpty ? value : _defaultApiHost;
+    _apiHost = normalizeApiHostCandidate(choose, fallback: _defaultApiHost);
     await methods.saveApiHost(_apiHost);
     _mergeApiList([_apiHost]);
   }

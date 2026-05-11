@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/methods.dart';
+import 'package:jmcomic3/configs/enum_property.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 enum ReaderSliderPosition {
@@ -19,10 +20,11 @@ Future initReaderSliderPosition() async {
 }
 
 ReaderSliderPosition _readerSliderPositionFromString(String str) {
-  for (var value in ReaderSliderPosition.values) {
-    if (str == value.toString()) return value;
-  }
-  return ReaderSliderPosition.bottom;
+  return parseEnumPropertyValue(
+    str,
+    ReaderSliderPosition.values,
+    ReaderSliderPosition.bottom,
+  );
 }
 
 ReaderSliderPosition get currentReaderSliderPosition => _readerSliderPosition;

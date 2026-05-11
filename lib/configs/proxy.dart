@@ -5,11 +5,13 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'string_property.dart';
 
 late String _currentProxy;
 
 Future<String?> initProxy() async {
-  _currentProxy = await methods.getProxy();
+  _currentProxy =
+      parseStringPropertyValue(await methods.getProxy(), trim: true);
   return null;
 }
 
@@ -31,8 +33,9 @@ Future<dynamic> inputProxy(BuildContext context) async {
     ),
   );
   if (input != null) {
-    await methods.setProxy(input);
-    _currentProxy = input;
+    final value = parseStringPropertyValue(input, trim: true);
+    await methods.setProxy(value);
+    _currentProxy = value;
   }
 }
 

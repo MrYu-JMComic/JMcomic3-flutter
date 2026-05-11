@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/methods.dart';
+import 'bool_property.dart';
 import 'is_pro.dart';
 
 const _propertyName = "ignoreUpgradePop";
 late bool _ignoreUpgradePop;
 
 Future<void> initIgnoreUpgradePop() async {
-  _ignoreUpgradePop = (await methods.loadProperty(_propertyName)) == "true";
+  _ignoreUpgradePop = parseBoolPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: false,
+  );
   if (!hasProAccess) {
     _ignoreUpgradePop = false;
   }

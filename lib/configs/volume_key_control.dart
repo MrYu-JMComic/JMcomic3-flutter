@@ -7,12 +7,16 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'bool_property.dart';
 
 const _propertyName = "volumeKeyControl";
 late bool _volumeKeyControl;
 
 Future<void> initVolumeKeyControl() async {
-  _volumeKeyControl = (await methods.loadProperty(_propertyName)) == "true";
+  _volumeKeyControl = parseBoolPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: false,
+  );
 }
 
 bool currentVolumeKeyControl() {

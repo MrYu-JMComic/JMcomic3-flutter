@@ -6,29 +6,12 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/components/content_error.dart';
 
 import '../basic/methods.dart';
+import 'property_json.dart';
 
-List<int> _categoriesSort = [];
+List<int> _categoriesSort = const <int>[];
 
 sortCategories(List<Categories> categories) {
-  List<int> ids = [];
-  for (var value in categories) {
-    ids.add(value.id);
-  }
-  categories.sort((a, b) {
-    var aIndex = _categoriesSort.indexOf(a.id);
-    var bIndex = _categoriesSort.indexOf(b.id);
-    if (aIndex == bIndex) {
-      aIndex = ids.indexOf(a.id);
-      bIndex = ids.indexOf(b.id);
-    }
-    if (aIndex == -1) {
-      return 1;
-    } else if (bIndex == -1) {
-      return -1;
-    } else {
-      return aIndex - bIndex;
-    }
-  });
+  _sortCategoriesByOrder(categories, _categoriesSort);
 }
 
 List<int> getCategoriesSort() {
@@ -38,20 +21,119 @@ List<int> getCategoriesSort() {
 const _propertyName = "categoriesSort";
 
 Future initCategoriesSort() async {
-  var _sort = await methods.loadProperty(_propertyName);
-  if (_sort == "") {
-    _sort = "[]";
-  }
-  _categoriesSort = List<int>.from(jsonDecode(_sort));
+  final raw = await methods.loadProperty(_propertyName);
+  _categoriesSort = _decodeCategoriesSort(raw);
 }
 
 get categoriesSort => _categoriesSort;
 var categoriesSortEvent = Event();
 
 Future<dynamic> saveCategoriesSort(List<int> categories) async {
-  _categoriesSort = categories;
-  await methods.saveProperty(_propertyName, jsonEncode(categories));
+  // 排序配置会被写入本地属性和 WebDAV 快照；保存前统一去重/过滤，避免脏值长期传播。
+  final normalized = _normalizeCategoriesSortValues(categories);
+  _categoriesSort = List<int>.unmodifiable(normalized);
+  await methods.saveProperty(_propertyName, jsonEncode(normalized));
   categoriesSortEvent.broadcast();
+}
+
+List<int> _decodeCategoriesSort(String raw) {
+  var candidate = raw;
+  for (var depth = 0; depth <= 2; depth++) {
+    final trimmed = candidate.trim();
+    if (trimmed.isEmpty || !looksLikeJsonPropertyValue(trimmed)) {
+      return const <int>[];
+    }
+    final decoded = tryDecodeJsonPropertyValue(trimmed);
+    if (decoded is Iterable) {
+      // 旧版本或手工编辑的排序配置可能包含重复、空值、字符串数字或非法项；
+      // 初始化时只保留有效正整数 ID，避免首页分类排序因本地脏数据失败。
+      return List<int>.unmodifiable(_normalizeCategoriesSortValues(decoded));
+    }
+    if (decoded is String && depth < 2) {
+      // WebDAV/脚本迁移可能把排序数组再 JSON 编码；最多拆两层字符串包装，
+      // 与其他配置项保持一致，同时避免损坏值导致无界递归。
+      candidate = decoded;
+      continue;
+    }
+    return const <int>[];
+  }
+  return const <int>[];
+}
+
+List<int> _normalizeCategoriesSortValues(
+  Iterable<dynamic> values, {
+  Set<int>? allowedIds,
+}) {
+  final result = <int>[];
+  final seen = <int>{};
+  for (final item in values) {
+    final id = _parsePositiveCategoryId(item);
+    if (id == null || !seen.add(id)) {
+      continue;
+    }
+    if (allowedIds != null && !allowedIds.contains(id)) {
+      continue;
+    }
+    result.add(id);
+  }
+  return result;
+}
+
+/// 分类排序面板只应带入当前仍存在的分类 ID。
+/// 旧缓存或远端同步过来的排序可能包含已下线分类；进入编辑页时过滤它们，保存后自然收敛。
+List<int> restoreCategoriesSortSelection(
+  List<int> savedSort,
+  Iterable<Categories> categories,
+) {
+  final liveIds = categories.map((category) => category.id).toSet();
+  return _normalizeCategoriesSortValues(savedSort, allowedIds: liveIds);
+}
+
+int? _parsePositiveCategoryId(dynamic raw) {
+  int? parsed;
+  if (raw is int) {
+    parsed = raw;
+  } else if (raw is num && raw.isFinite && raw == raw.truncateToDouble()) {
+    parsed = raw.toInt();
+  } else if (raw is String) {
+    final trimmed = raw.trim();
+    parsed = int.tryParse(trimmed);
+    if (parsed == null) {
+      final numeric = num.tryParse(trimmed);
+      if (numeric != null &&
+          numeric.isFinite &&
+          numeric == numeric.truncateToDouble()) {
+        parsed = numeric.toInt();
+      }
+    }
+  }
+  return parsed != null && parsed > 0 ? parsed : null;
+}
+
+void _sortCategoriesByOrder(List<Categories> categories, List<int> sort) {
+  final originalIndex = <int, int>{};
+  for (var index = 0; index < categories.length; index++) {
+    originalIndex.putIfAbsent(categories[index].id, () => index);
+  }
+  final sortIndex = <int, int>{};
+  for (var index = 0; index < sort.length; index++) {
+    sortIndex.putIfAbsent(sort[index], () => index);
+  }
+
+  categories.sort((a, b) {
+    final aIndex = sortIndex[a.id];
+    final bIndex = sortIndex[b.id];
+    if (aIndex == null && bIndex == null) {
+      return (originalIndex[a.id] ?? 0).compareTo(originalIndex[b.id] ?? 0);
+    }
+    if (aIndex == null) {
+      return 1;
+    }
+    if (bIndex == null) {
+      return -1;
+    }
+    return aIndex.compareTo(bIndex);
+  });
 }
 
 Widget categoriesSortSetting(BuildContext context) {
@@ -135,16 +217,21 @@ class CategoriesSortPanel extends StatefulWidget {
 }
 
 class _CategoriesSortPanelState extends State<CategoriesSortPanel> {
-  final List<int> _categoriesSort = [];
+  late final List<int> _categoriesSort;
+
+  @override
+  void initState() {
+    super.initState();
+    _categoriesSort =
+        restoreCategoriesSortSelection(getCategoriesSort(), widget.categories);
+  }
 
   _switch(int value) {
-    setState(() {
-      if (_categoriesSort.contains(value)) {
-        _categoriesSort.remove(value);
-      } else {
-        _categoriesSort.add(value);
-      }
-    });
+    if (_categoriesSort.contains(value)) {
+      _categoriesSort.remove(value);
+    } else {
+      _categoriesSort.add(value);
+    }
   }
 
   @override
@@ -158,26 +245,7 @@ class _CategoriesSortPanelState extends State<CategoriesSortPanel> {
     blockSize = (min ~/ 3).floorToDouble();
     imageSize = blockSize - 15;
     imageRs = imageSize / 10;
-    var sort = getCategoriesSort();
-    List<int> ids = [];
-    for (var value in widget.categories) {
-      ids.add(value.id);
-    }
-    widget.categories.sort((a, b) {
-      var aIndex = sort.indexOf(a.id);
-      var bIndex = sort.indexOf(b.id);
-      if (aIndex == bIndex) {
-        aIndex = ids.indexOf(a.id);
-        bIndex = ids.indexOf(b.id);
-      }
-      if (aIndex == -1) {
-        return 1;
-      } else if (bIndex == -1) {
-        return -1;
-      } else {
-        return aIndex - bIndex;
-      }
-    });
+    _sortCategoriesByOrder(widget.categories, getCategoriesSort());
     List<Widget> wrapItems = _wrapItems(blockSize, imageRs, imageSize);
     //
     return Scaffold(
@@ -207,8 +275,19 @@ class _CategoriesSortPanelState extends State<CategoriesSortPanel> {
     double imageSize,
   ) {
     List<Widget> list = [];
+    final selectedIndexById = <int, int>{};
+    for (var index = 0; index < _categoriesSort.length; index++) {
+      selectedIndexById.putIfAbsent(_categoriesSort[index], () => index);
+    }
 
-    append(Widget widget, int id, String title, Function() onTap) {
+    append(
+      Widget widget,
+      int id,
+      String title,
+      int? selectedIndex,
+      Function() onTap,
+    ) {
+      final selected = selectedIndex != null;
       list.add(
         GestureDetector(
           onTap: onTap,
@@ -233,26 +312,26 @@ class _CategoriesSortPanelState extends State<CategoriesSortPanel> {
                             BorderRadius.all(Radius.circular(imageRs)),
                       ),
                     ),
-                    if (!_categoriesSort.contains(id))
+                    if (!selected)
                       Container(
                         width: imageSize,
                         height: imageSize,
                         color: Colors.black.withOpacity(.6),
                         margin: const EdgeInsets.all(4.0),
                       ),
-                    if (_categoriesSort.contains(id))
+                    if (selected)
                       Container(
                         width: imageSize,
                         height: imageSize,
                         color: Colors.black.withOpacity(.2),
                         margin: const EdgeInsets.all(4.0),
                       ),
-                    if (_categoriesSort.contains(id))
+                    if (selected)
                       Container(
                         color: Colors.black.withOpacity(.2),
                         padding: const EdgeInsets.all(10),
                         child: Text(
-                          "${_categoriesSort.indexOf(id) + 1}",
+                          "${selectedIndex + 1}",
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 22,
@@ -292,6 +371,7 @@ class _CategoriesSortPanelState extends State<CategoriesSortPanel> {
         ),
         value.id,
         value.name,
+        selectedIndexById[id],
         () {
           setState(() {
             _switch(id);

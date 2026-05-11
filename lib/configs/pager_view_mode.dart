@@ -2,6 +2,7 @@ import 'package:event/event.dart';
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/methods.dart';
+import 'package:jmcomic3/configs/enum_property.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 const _propertyKey = "pager_view_mode";
@@ -42,12 +43,11 @@ Future choosePagerViewMode(BuildContext context) async {
 }
 
 PagerViewMode _parse(String string) {
-  for (var value in PagerViewMode.values) {
-    if ("$value" == string) {
-      return value;
-    }
-  }
-  return PagerViewMode.cover;
+  return parseEnumPropertyValue(
+    string,
+    PagerViewMode.values,
+    PagerViewMode.cover,
+  );
 }
 
 Future initPagerViewMode() async {

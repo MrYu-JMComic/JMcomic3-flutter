@@ -3,6 +3,7 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'string_property.dart';
 
 late String _currentWebDavPassword;
 const _propertyName = "WebDavPassword";
@@ -10,7 +11,9 @@ const _propertyName = "WebDavPassword";
 String get currentWebDavPassword => _currentWebDavPassword;
 
 Future<String?> initWebDavPassword() async {
-  _currentWebDavPassword = await methods.loadProperty(_propertyName);
+  _currentWebDavPassword = parseStringPropertyValue(
+    await methods.loadProperty(_propertyName),
+  );
   return null;
 }
 
@@ -28,8 +31,9 @@ Future<dynamic> inputWebDavPassword(BuildContext context) async {
     hint: context.l10n.tr('请输入WebDAV密码', en: 'Enter WebDAV password'),
   );
   if (input != null) {
-    await methods.saveProperty(_propertyName, input);
-    _currentWebDavPassword = input;
+    final value = parseStringPropertyValue(input);
+    await methods.saveProperty(_propertyName, value);
+    _currentWebDavPassword = value;
   }
 }
 

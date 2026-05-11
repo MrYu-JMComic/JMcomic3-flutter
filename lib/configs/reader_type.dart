@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/methods.dart';
+import 'package:jmcomic3/configs/enum_property.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 enum ReaderType {
@@ -18,12 +19,11 @@ Future initReaderType() async {
 }
 
 ReaderType _fromString(String valueForm) {
-  for (var value in ReaderType.values) {
-    if (value.toString() == valueForm) {
-      return value;
-    }
-  }
-  return ReaderType.values.first;
+  return parseEnumPropertyValue(
+    valueForm,
+    ReaderType.values,
+    ReaderType.webtoon,
+  );
 }
 
 ReaderType get currentReaderType => _readerType;

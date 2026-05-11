@@ -4,18 +4,30 @@ import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
+import 'int_property.dart';
+
 const _propertyName = "pager_column_number";
+const int _defaultPagerColumnNumber = 4;
+const int _pagerColumnMin = 1;
+const int _pagerColumnMax = 10;
 late int _pagerColumnNumber;
 
 int get pagerColumnNumber => _pagerColumnNumber;
 final pageColumnEvent = Event();
 
 Future initPagerColumnCount() async {
-  String numStr = await methods.loadProperty(_propertyName);
-  if (numStr == "") {
-    numStr = "4";
-  }
-  _pagerColumnNumber = int.parse(numStr);
+  final raw = await methods.loadProperty(_propertyName);
+  _pagerColumnNumber = _parsePagerColumnNumber(raw);
+}
+
+int _parsePagerColumnNumber(String raw) {
+  // 分页列数是启动期配置；旧缓存损坏时回退默认值，不阻断首页初始化。
+  return parseBoundedIntPropertyValue(
+    raw,
+    fallback: _defaultPagerColumnNumber,
+    min: _pagerColumnMin,
+    max: _pagerColumnMax,
+  );
 }
 
 Future choosePagerColumnCount(BuildContext context) async {

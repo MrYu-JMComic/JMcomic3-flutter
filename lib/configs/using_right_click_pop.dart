@@ -6,12 +6,16 @@ import 'package:flutter/material.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/methods.dart';
+import 'bool_property.dart';
 
 const _propertyName = "usingRightClickPop";
 bool _usingRightClickPop = false;
 
 Future<void> initUsingRightClickPop() async {
-  _usingRightClickPop = (await methods.loadProperty(_propertyName)) == "true";
+  _usingRightClickPop = parseBoolPropertyValue(
+    await methods.loadProperty(_propertyName),
+    fallback: false,
+  );
 }
 
 bool currentUsingRightClickPop() {

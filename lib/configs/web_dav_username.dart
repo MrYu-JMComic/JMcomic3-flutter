@@ -3,6 +3,7 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
 import '../basic/methods.dart';
+import 'string_property.dart';
 
 late String _currentWebDavUserName;
 const _propertyName = "WebDavUserName";
@@ -10,7 +11,10 @@ const _propertyName = "WebDavUserName";
 String get currentWebUserName => _currentWebDavUserName;
 
 Future<String?> initWebDavUserName() async {
-  _currentWebDavUserName = await methods.loadProperty(_propertyName);
+  _currentWebDavUserName = parseStringPropertyValue(
+    await methods.loadProperty(_propertyName),
+    trim: true,
+  );
   return null;
 }
 
@@ -28,8 +32,9 @@ Future<dynamic> inputWebDavUserName(BuildContext context) async {
     hint: context.l10n.tr('请输入WebDAV用户名', en: 'Enter WebDAV username'),
   );
   if (input != null) {
-    await methods.saveProperty(_propertyName, input);
-    _currentWebDavUserName = input;
+    final value = parseStringPropertyValue(input, trim: true);
+    await methods.saveProperty(_propertyName, value);
+    _currentWebDavUserName = value;
   }
 }
 

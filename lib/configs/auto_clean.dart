@@ -5,6 +5,8 @@ import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/components/images.dart';
 
+import 'int_property.dart';
+
 const _propertyName = 'auto_clean';
 const _lastCleanPropertyName = 'auto_clean_last_clean_ts';
 const _defaultAutoCleanSeconds = 3600 * 24 * 7;
@@ -39,15 +41,29 @@ class CacheCleanResult {
 bool get cacheCleaningInProgress => _cleaning;
 
 Future<void> initAutoClean() async {
-  autoClean = await methods.loadProperty(_propertyName);
-  if (!_nameMap.containsKey(autoClean)) {
-    autoClean = _defaultAutoCleanSeconds.toString();
+  final raw = await methods.loadProperty(_propertyName);
+  autoClean = normalizeAutoCleanValue(raw);
+  if (autoClean != raw) {
     await methods.saveProperty(_propertyName, autoClean);
   }
   final lastCleanTs = await _loadLastCleanTs();
   if (lastCleanTs <= 0) {
     await _saveLastCleanTs(_nowSeconds());
   }
+}
+
+String normalizeAutoCleanValue(String raw) {
+  // 自动清理周期只允许 UI 暴露的固定档位；旧缓存可兼容 JSON 包装和整数形态小数，
+  // 但负数、未知秒数或损坏文本仍回退默认值，避免误把异常配置当成“关闭清理”。
+  final seconds = parseBoundedIntPropertyValue(
+    raw,
+    fallback: _defaultAutoCleanSeconds,
+  );
+  final normalized = seconds.toString();
+  if (seconds >= 0 && _nameMap.containsKey(normalized)) {
+    return normalized;
+  }
+  return _defaultAutoCleanSeconds.toString();
 }
 
 String autoCleanName() {
@@ -58,7 +74,7 @@ String autoCleanNameOf(BuildContext context) {
   final raw = _nameMap[autoClean];
   if (raw == null) {
     final seconds = _autoCleanSeconds();
-    return context.l10n.tr('${seconds}秒', en: '${seconds}s');
+    return context.l10n.tr('$seconds秒', en: '${seconds}s');
   }
   return _autoCleanLabel(context, raw);
 }
@@ -187,9 +203,6 @@ Future<void> _saveLastCleanTs(int value) async {
 }
 
 int _parseInt(String value, {required int fallback}) {
-  final parsed = int.tryParse(value);
-  if (parsed == null || parsed < 0) {
-    return fallback;
-  }
-  return parsed;
+  // 时间戳/秒数来自本地属性和同步快照；负数视为损坏值，避免清理任务反复异常触发。
+  return parseBoundedIntPropertyValue(value, fallback: fallback, min: 0);
 }
