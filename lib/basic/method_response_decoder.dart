@@ -9,6 +9,7 @@ const List<String> _listPayloadKeys = <String>[
   'list',
   'results',
   'hosts',
+  'servers',
   'server',
   'Server',
 ];

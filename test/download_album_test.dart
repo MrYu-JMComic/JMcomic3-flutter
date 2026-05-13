@@ -987,11 +987,17 @@ void main() {
       'load_api_host_list',
       dedupe: true,
     );
+    final pluralShell = decodeStringListResponse(
+      '{"servers":[" api-a.example.com ","api-b.example.com"]}',
+      'load_api_host_list',
+      dedupe: true,
+    );
 
     // 域名列表等配置接口未来若包一层对象壳，前端仍能复用统一列表解码，
     // 字符串列表允许可信对象壳里的单值，未命中约定字段的对象不会被误当作列表。
     expect(list, ['api.example.com/path', 'cdn.example.com']);
     expect(single, ['single.example.com']);
+    expect(pluralShell, ['api-a.example.com', 'api-b.example.com']);
     expect(
       () => decodeStringListResponse('{"unexpected":["x"]}', 'list_method'),
       throwsFormatException,
