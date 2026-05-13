@@ -1121,6 +1121,18 @@ void main() {
       ),
       ['cdn-a.example.com', 'cdn-b.example.com:9443'],
     );
+    expect(
+      normalizeNetworkHostCandidateList(
+        'https://cdn-query.example.com/path?mirror=bad-a.example.com,bad-b.example.com; cdn-ok.example.com',
+      ),
+      ['cdn-query.example.com', 'cdn-ok.example.com'],
+    );
+    expect(
+      normalizeNetworkHostCandidateList(
+        'https://cdn-one.example.com/path?x=1, https://cdn-two.example.com/path',
+      ),
+      ['cdn-one.example.com', 'cdn-two.example.com'],
+    );
   });
 
   test('download export selection toggles and restores by live ids', () {

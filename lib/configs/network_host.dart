@@ -1,8 +1,10 @@
 import 'string_property.dart';
 
-final RegExp _networkHostCandidateSeparator = RegExp(
-  r'[\r\n;]+|,\s*(?=(?:https?:)?//|[A-Za-z0-9.-]+\.[A-Za-z])',
+final RegExp _networkHostCandidateStart = RegExp(
+  r'^(?:(?:https?:)?//|[A-Za-z0-9.-]+\.[A-Za-z])',
+  caseSensitive: false,
 );
+final RegExp _networkHostHardSeparator = RegExp(r'[\r\n;]+');
 
 /// 将 API/CDN 分流输入归一化为后端实际需要的 `host[:port]`。
 ///
@@ -40,8 +42,9 @@ String normalizeNetworkHostCandidate(
 /// 将源站/缓存里的“候选 host 文本”收敛为可展示和测速的 host 列表。
 ///
 /// 手工迁移或远端配置偶尔会把多条 API/CDN 分流地址拼在一个字符串里；这里只按
-/// 换行、分号和“后面明显还是 URL/域名”的逗号拆分，避免把 URL query 里的普通
-/// 逗号误当成列表分隔符。返回值保留首次出现的大小写展示文本，并按 host 小写去重。
+/// 换行、分号和“后面明显还是 URL/域名”的逗号拆分；逗号若落在 query/fragment
+/// 内部则保守保留，避免把参数值误当成新的测速 host。返回值保留首次出现的大小写
+/// 展示文本，并按 host 小写去重。
 List<String> normalizeNetworkHostCandidateList(Object? raw) {
   final value = parseStringPropertyValue("${raw ?? ""}", trim: true);
   if (value.isEmpty) {
@@ -49,7 +52,7 @@ List<String> normalizeNetworkHostCandidateList(Object? raw) {
   }
   final result = <String>[];
   final seen = <String>{};
-  for (final part in value.split(_networkHostCandidateSeparator)) {
+  for (final part in _networkHostCandidateParts(value)) {
     final normalized = normalizeNetworkHostCandidate(part);
     if (normalized.isEmpty) {
       continue;
@@ -59,4 +62,46 @@ List<String> normalizeNetworkHostCandidateList(Object? raw) {
     }
   }
   return List<String>.unmodifiable(result);
+}
+
+Iterable<String> _networkHostCandidateParts(String value) sync* {
+  for (final chunk in value.split(_networkHostHardSeparator)) {
+    var start = 0;
+    for (var index = 0; index < chunk.length; index++) {
+      if (chunk.codeUnitAt(index) != 0x2c) {
+        continue;
+      }
+      final current = chunk.substring(start, index);
+      final rest = chunk.substring(index + 1);
+      if (!_shouldSplitNetworkHostComma(current, rest)) {
+        continue;
+      }
+      yield current;
+      start = index + 1;
+    }
+    yield chunk.substring(start);
+  }
+}
+
+bool _shouldSplitNetworkHostComma(String current, String rest) {
+  final next = rest.trimLeft();
+  if (current.trim().isEmpty ||
+      next.isEmpty ||
+      !_networkHostCandidateStart.hasMatch(next)) {
+    return false;
+  }
+  if (!current.contains('?') && !current.contains('#')) {
+    return true;
+  }
+  // query/fragment 里的逗号常见于远端跳转或镜像参数；只有用户明显输入
+  // `...?x=1, https://next.example.com` 这种带空白的完整 URL 列表时才拆。
+  final lowerNext = next.toLowerCase();
+  return _startsWithWhitespace(rest) &&
+      (lowerNext.startsWith('http://') ||
+          lowerNext.startsWith('https://') ||
+          lowerNext.startsWith('//'));
+}
+
+bool _startsWithWhitespace(String value) {
+  return value.isNotEmpty && value.codeUnitAt(0) <= 0x20;
 }
