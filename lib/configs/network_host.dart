@@ -1,3 +1,5 @@
+import 'string_property.dart';
+
 /// 将 API/CDN 分流输入归一化为后端实际需要的 `host[:port]`。
 ///
 /// 设置页、旧缓存和手工脚本可能保存完整 URL、协议相对 URL 或带 userinfo 的
@@ -7,7 +9,9 @@ String normalizeNetworkHostCandidate(
   Object? raw, {
   String fallback = "",
 }) {
-  var value = "${raw ?? ""}".trim();
+  // WebDAV/旧桥接可能把 host 配置再 JSON 编码一到两层；先拆字符串壳，
+  // 再进入 URL authority 清洗，避免设置页展示带引号的脏 host。
+  var value = parseStringPropertyValue("${raw ?? ""}", trim: true);
   if (value.isEmpty) {
     return fallback;
   }

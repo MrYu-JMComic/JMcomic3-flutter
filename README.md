@@ -82,11 +82,16 @@ Notes:
 - Locale and theme settings normalize common legacy aliases such as `en_US`, `zh-Hans-CN`, `auto`, `light`, and `dark` into the current app protocol values before startup applies them.
 - Homepage category order accepts JSON arrays and up to two JSON string layers, then filters duplicate, non-positive, or invalid category IDs while preserving the saved order.
 - Auto-clean interval settings accept JSON-wrapped integer-like values only when they match the supported UI intervals; unknown or negative values fall back to the default weekly cleanup instead of silently disabling cleanup.
-- API/CDN routing settings normalize URL-like input into `host[:port]` before displaying, pinging, or saving; full URLs, protocol-relative URLs, and accidentally pasted userinfo are stripped to the actual host authority.
+- API/CDN routing settings normalize URL-like input into `host[:port]` before displaying, pinging, or saving; full URLs, protocol-relative URLs, accidentally pasted userinfo, and up to two JSON string layers are stripped to the actual host authority.
 - Android refresh-rate mode unpacks old JSON-wrapped cache values but only keeps modes reported by the current device, so stale values fall back to the system default mode.
 - Recommended links from `config_links` are trimmed, empty labels/URLs are dropped, the legacy follow-channel entry is forced to the current channel URL, and the displayed map is immutable so UI code cannot mutate global config state.
 - Download metadata fields such as author, tags, and works tolerate plain text, arrays, JSON string arrays, and one extra JSON string layer while filtering empty items.
 - Backend list/map responses are decoded through shared helpers; if older Rust/MethodChannel bridges wrap `response_data` as JSON strings containing a list or object, the Flutter side unwraps up to two extra layers before validating the expected shape.
+- Reader image true-size lookups cache the in-flight backend `image_size` future per page image, so dual-page rendering and preloading share the same bridge request. String numeric width/height values are still accepted for old bridge/test responses.
+
+## Runtime behavior
+
+- 下载列表页使用惰性 `ListView.builder` 构建可见卡片，并在导入、导出、删除和详情页返回后检查页面仍挂载再刷新，避免大量下载记录时进入页面一次性创建所有卡片。
 
 ## Please follow the rules
 

@@ -111,6 +111,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           IconButton(
             onPressed: () async {
               await methods.renewAllDownloads();
+              if (!mounted) {
+                return;
+              }
               _load(showLoading: _downloads.isEmpty);
             },
             icon: const Icon(Icons.autorenew),
@@ -130,34 +133,52 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   }
 
   Widget _listView() {
-    return ListView(
-      children: _downloads
-          .map((e) => GestureDetector(
-                key: Key("DOWNLOAD:${e.id}"),
-                onTap: () async {
-                  if (e.dlStatus == 3) {
-                    return;
-                  }
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(builder: (BuildContext context) {
-                      return DownloadAlbumScreen(e);
-                    }),
-                  );
-                  _load();
-                },
-                onLongPress: () async {
-                  String? action = await chooseListDialog(context,
-                      values: [context.l10n.delete],
-                      title: context.l10n.choose);
-                  if (action != null && action == context.l10n.delete) {
-                    await methods.deleteDownload(e.id);
-                    _load(showLoading: _downloads.isEmpty);
-                  }
-                },
-                child: ComicDownloadCard(e),
-              ))
-          .toList(),
+    // 下载记录可能长期累积；列表页只构建可见卡片，避免进入页面时一次性创建全部 Widget。
+    return ListView.builder(
+      itemCount: _downloads.length,
+      itemBuilder: (context, index) {
+        final download = _downloads[index];
+        return GestureDetector(
+          key: Key("DOWNLOAD:${download.id}"),
+          onTap: () => _openDownload(download),
+          onLongPress: () => _confirmDelete(download),
+          child: ComicDownloadCard(download),
+        );
+      },
     );
+  }
+
+  Future<void> _openDownload(DownloadAlbum download) async {
+    if (download.dlStatus == 3) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (BuildContext context) {
+        return DownloadAlbumScreen(download);
+      }),
+    );
+    if (!mounted) {
+      return;
+    }
+    _load();
+  }
+
+  Future<void> _confirmDelete(DownloadAlbum download) async {
+    final deleteLabel = context.l10n.delete;
+    final chooseTitle = context.l10n.choose;
+    final action = await chooseListDialog(
+      context,
+      values: [deleteLabel],
+      title: chooseTitle,
+    );
+    if (!mounted || action != deleteLabel) {
+      return;
+    }
+    await methods.deleteDownload(download.id);
+    if (!mounted) {
+      return;
+    }
+    _load(showLoading: _downloads.isEmpty);
   }
 
   Widget importButton() {
@@ -169,6 +190,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
             builder: (context) => const DownloadImportScreen(),
           ),
         );
+        if (!mounted) {
+          return;
+        }
         _load(showLoading: _downloads.isEmpty);
       },
       icon: const Icon(
@@ -186,6 +210,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
             builder: (context) => const DownloadsExportScreen(),
           ),
         );
+        if (!mounted) {
+          return;
+        }
         _load(showLoading: _downloads.isEmpty);
       },
       icon: const Icon(

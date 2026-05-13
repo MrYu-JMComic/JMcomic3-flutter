@@ -171,7 +171,7 @@ final Map<int, Future<String>> _jm3x4CoverPathFutureCache = {};
 final Map<int, Future<String>> _jmSquareCoverPathFutureCache = {};
 final Map<String, Future<String>> _photoPathFutureCache = {};
 final Map<String, Future<String>> _pageImagePathFutureCache = {};
-final Map<String, Size> _pageImageTrueSizeCache = {};
+final Map<String, Future<Size>> _pageImageTrueSizeFutureCache = {};
 
 String _pageImageCacheKey(int id, String imageName) => "$id/$imageName";
 
@@ -288,32 +288,51 @@ Future<Size> _cachedPageImageTrueSize(
 }) async {
   final key = _pageImageCacheKey(id, imageName);
   if (forceRefresh) {
-    _pageImageTrueSizeCache.remove(key);
+    _pageImageTrueSizeFutureCache.remove(key);
   }
-  final cached = _pageImageTrueSizeCache[key];
+  final cached = _pageImageTrueSizeFutureCache[key];
   if (cached != null) {
     return cached;
   }
-  final imageSize = await methods.imageSize(path);
-  final size = Size(imageSize.w.toDouble(), imageSize.h.toDouble());
-  _putCacheWithLimit(
-    _pageImageTrueSizeCache,
+  final future = methods.imageSize(path).then((imageSize) {
+    return Size(imageSize.w.toDouble(), imageSize.h.toDouble());
+  }).catchError((Object error, StackTrace stackTrace) {
+    _pageImageTrueSizeFutureCache.remove(key);
+    Error.throwWithStackTrace(error, stackTrace);
+  });
+  // 阅读器同一页可能被预加载、当前页和双页模式同时请求尺寸；缓存 Future 可以合并并发桥接调用。
+  return _putCacheWithLimit(
+    _pageImageTrueSizeFutureCache,
     key,
-    size,
+    future,
     _pageImageTrueSizeCacheLimit,
   );
-  return size;
 }
 
 void _evictPageImageCache(int id, String imageName) {
   final key = _pageImageCacheKey(id, imageName);
   _pageImagePathFutureCache.remove(key);
-  _pageImageTrueSizeCache.remove(key);
+  _pageImageTrueSizeFutureCache.remove(key);
 }
 
 /// Evict one page image's in-memory path and size cache.
 void evictPageImageMemoryCache(int id, String imageName) {
   _evictPageImageCache(id, imageName);
+}
+
+@visibleForTesting
+Future<Size> cachedPageImageTrueSizeForTest(
+  int id,
+  String imageName,
+  String path, {
+  bool forceRefresh = false,
+}) {
+  return _cachedPageImageTrueSize(
+    id,
+    imageName,
+    path,
+    forceRefresh: forceRefresh,
+  );
 }
 
 /// Clear all in-memory image path and size caches.
@@ -322,7 +341,7 @@ void clearAllImageMemoryCaches() {
   _jmSquareCoverPathFutureCache.clear();
   _photoPathFutureCache.clear();
   _pageImagePathFutureCache.clear();
-  _pageImageTrueSizeCache.clear();
+  _pageImageTrueSizeFutureCache.clear();
 }
 
 // 远端图片

@@ -32,6 +32,7 @@ import 'package:jmcomic3/screens/comic_info_screen.dart';
 import 'package:jmcomic3/screens/comic_download_shared.dart';
 import 'package:jmcomic3/screens/download_import_shared.dart';
 import 'package:jmcomic3/screens/downloads_export_shared.dart';
+import 'package:jmcomic3/screens/components/images.dart';
 import 'package:jmcomic3/screens/components/search_history_shared.dart';
 
 DownloadAlbum _downloadAlbumForTest(int id, {int status = 1}) {
@@ -313,6 +314,65 @@ void main() {
     expect(image.dlStatus, 1);
     expect(image.width, 800);
     expect(image.height, 0);
+  });
+
+  test('ImageSize tolerates string numbers from bridge responses', () {
+    final size = ImageSize.fromJson({'w': '800', 'h': '1200'});
+
+    expect(size.w, 800);
+    expect(size.h, 1200);
+  });
+
+  test('page image true size cache shares in-flight bridge request', () async {
+    const channel = MethodChannel('methods');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var imageSizeCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'invoke') {
+        return null;
+      }
+      final payload = jsonDecode(call.arguments as String);
+      if (payload['method'] == 'image_size') {
+        imageSizeCalls++;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        return jsonEncode({
+          'error_message': '',
+          'response_data': jsonEncode({'w': 800, 'h': 1200}),
+        });
+      }
+      return '{"error_message":"","response_data":""}';
+    });
+    addTearDown(() {
+      clearAllImageMemoryCaches();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    clearAllImageMemoryCaches();
+
+    final sizes = await Future.wait([
+      cachedPageImageTrueSizeForTest(20, '001.jpg', r'D:\cache\001.jpg'),
+      cachedPageImageTrueSizeForTest(20, '001.jpg', r'D:\cache\001.jpg'),
+    ]);
+
+    // 双页/预加载可能并发询问同一图片尺寸；缓存 Future 后只需一次跨端调用。
+    expect(sizes.map((size) => [size.width, size.height]), [
+      [800.0, 1200.0],
+      [800.0, 1200.0],
+    ]);
+    expect(imageSizeCalls, 1);
+
+    final cached = await cachedPageImageTrueSizeForTest(
+        20, '001.jpg', r'D:\cache\001.jpg');
+    expect(cached.width, 800);
+    expect(imageSizeCalls, 1);
+
+    await cachedPageImageTrueSizeForTest(
+      20,
+      '001.jpg',
+      r'D:\cache\001.jpg',
+      forceRefresh: true,
+    );
+    expect(imageSizeCalls, 2);
   });
 
   test('ViewLog and SearchHistory tolerate legacy loose JSON fields', () {
@@ -940,7 +1000,8 @@ void main() {
         case 'load_api_host':
           return jsonEncode({
             'error_message': '',
-            'response_data': ' https://API.example.com/path?from=legacy ',
+            'response_data':
+                jsonEncode(' https://API.example.com/path?from=legacy '),
           });
         case 'save_api_host':
           savedHosts.add(payload['params'] as String);
@@ -962,6 +1023,12 @@ void main() {
     expect(
       normalizeApiHostCandidate(' //user:pass@api.example.com:9443/a '),
       'api.example.com:9443',
+    );
+    expect(
+      normalizeApiHostCandidate(
+        jsonEncode(jsonEncode(' https://wrapped.example.com/a ')),
+      ),
+      'wrapped.example.com',
     );
     expect(normalizeApiHostCandidate(' /empty ', fallback: 'fallback'),
         'fallback');
@@ -999,6 +1066,10 @@ void main() {
     expect(
       normalizeNetworkHostCandidate('https://user:pass@[::1]:9443/ping'),
       '[::1]:9443',
+    );
+    expect(
+      normalizeNetworkHostCandidate(jsonEncode(' //cdn-wrap.example.com/a ')),
+      'cdn-wrap.example.com',
     );
   });
 

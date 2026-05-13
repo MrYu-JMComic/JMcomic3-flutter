@@ -571,8 +571,9 @@ class ImageSize {
   late final int w;
 
   ImageSize.fromJson(Map<String, dynamic> json) {
-    h = json['h'];
-    w = json['w'];
+    // image_size 由 Rust 返回；测试桩、旧桥接或手工脚本可能给字符串数字，实体层统一兜底。
+    h = _toInt(json['h']);
+    w = _toInt(json['w']);
   }
 
   Map<String, dynamic> toJson() {
