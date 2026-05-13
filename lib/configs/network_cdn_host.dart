@@ -57,14 +57,12 @@ Future chooseCdnHost(BuildContext context) async {
 void _mergeCdnList(Iterable<String> items) {
   final merged = <String, String>{};
   for (final raw in _cdnList) {
-    final value = normalizeNetworkHostCandidate(raw);
-    if (value.isNotEmpty) {
+    for (final value in normalizeNetworkHostCandidateList(raw)) {
       merged.putIfAbsent(value.toLowerCase(), () => value);
     }
   }
   for (final raw in items) {
-    final value = normalizeNetworkHostCandidate(raw);
-    if (value.isNotEmpty) {
+    for (final value in normalizeNetworkHostCandidateList(raw)) {
       // CDN 域名同样大小写不敏感；保留首次展示文本，避免旧缓存大小写差异制造重复项。
       merged.putIfAbsent(value.toLowerCase(), () => value);
     }

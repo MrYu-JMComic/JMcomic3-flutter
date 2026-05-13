@@ -1113,6 +1113,14 @@ void main() {
       normalizeNetworkHostCandidate(jsonEncode(' //cdn-wrap.example.com/a ')),
       'cdn-wrap.example.com',
     );
+    expect(
+      normalizeNetworkHostCandidateList(
+        jsonEncode(
+          ' https://cdn-a.example.com/a, //cdn-b.example.com:9443/b\nCDN-A.example.com ',
+        ),
+      ),
+      ['cdn-a.example.com', 'cdn-b.example.com:9443'],
+    );
   });
 
   test('download export selection toggles and restores by live ids', () {

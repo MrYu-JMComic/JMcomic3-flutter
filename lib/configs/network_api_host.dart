@@ -51,14 +51,12 @@ String normalizeApiHostCandidate(
 void _mergeApiList(Iterable<String> items) {
   final merged = <String, String>{};
   for (final raw in _apiList) {
-    final value = normalizeApiHostCandidate(raw);
-    if (value.isNotEmpty) {
+    for (final value in normalizeNetworkHostCandidateList(raw)) {
       merged.putIfAbsent(value.toLowerCase(), () => value);
     }
   }
   for (final raw in items) {
-    final value = normalizeApiHostCandidate(raw);
-    if (value.isNotEmpty) {
+    for (final value in normalizeNetworkHostCandidateList(raw)) {
       // 域名大小写不敏感；保留首次出现的展示文本，后续大小写差异只参与去重。
       merged.putIfAbsent(value.toLowerCase(), () => value);
     }

@@ -1,5 +1,9 @@
 import 'string_property.dart';
 
+final RegExp _networkHostCandidateSeparator = RegExp(
+  r'[\r\n;]+|,\s*(?=(?:https?:)?//|[A-Za-z0-9.-]+\.[A-Za-z])',
+);
+
 /// 将 API/CDN 分流输入归一化为后端实际需要的 `host[:port]`。
 ///
 /// 设置页、旧缓存和手工脚本可能保存完整 URL、协议相对 URL 或带 userinfo 的
@@ -31,4 +35,28 @@ String normalizeNetworkHostCandidate(
   }
   value = value.trim();
   return value.isEmpty ? fallback : value;
+}
+
+/// 将源站/缓存里的“候选 host 文本”收敛为可展示和测速的 host 列表。
+///
+/// 手工迁移或远端配置偶尔会把多条 API/CDN 分流地址拼在一个字符串里；这里只按
+/// 换行、分号和“后面明显还是 URL/域名”的逗号拆分，避免把 URL query 里的普通
+/// 逗号误当成列表分隔符。返回值保留首次出现的大小写展示文本，并按 host 小写去重。
+List<String> normalizeNetworkHostCandidateList(Object? raw) {
+  final value = parseStringPropertyValue("${raw ?? ""}", trim: true);
+  if (value.isEmpty) {
+    return const <String>[];
+  }
+  final result = <String>[];
+  final seen = <String>{};
+  for (final part in value.split(_networkHostCandidateSeparator)) {
+    final normalized = normalizeNetworkHostCandidate(part);
+    if (normalized.isEmpty) {
+      continue;
+    }
+    if (seen.add(normalized.toLowerCase())) {
+      result.add(normalized);
+    }
+  }
+  return List<String>.unmodifiable(result);
 }
