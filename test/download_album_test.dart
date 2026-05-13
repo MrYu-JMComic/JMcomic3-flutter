@@ -478,6 +478,14 @@ void main() {
     expect(list, isEmpty);
   });
 
+  test('method response decoder treats known null object list as empty', () {
+    final list =
+        decodeMapListResponse('{"data":null}', 'last_search_histories');
+
+    // 旧桥接有时用 data:null 表示空列表；只在命中约定列表字段时按空列表处理。
+    expect(list, isEmpty);
+  });
+
   test('method response decoder unwraps nested JSON list payloads', () {
     final list = decodeMapListResponse(
       jsonEncode('[{"id":"8","name":"nested"}]'),
@@ -966,6 +974,28 @@ void main() {
 
     expect(list, ['host-a', 'host-b', '3']);
     expect(() => list.add('x'), throwsUnsupportedError);
+  });
+
+  test('method response decoder unwraps object list payloads', () {
+    final list = decodeStringListResponse(
+      '{"data":{"hosts":"[\\" api.example.com/path \\", \\"cdn.example.com\\"]"}}',
+      'load_api_host_list',
+      dedupe: true,
+    );
+    final single = decodeStringListResponse(
+      '{"hosts":" single.example.com "}',
+      'load_api_host_list',
+      dedupe: true,
+    );
+
+    // 域名列表等配置接口未来若包一层对象壳，前端仍能复用统一列表解码，
+    // 字符串列表允许可信对象壳里的单值，未命中约定字段的对象不会被误当作列表。
+    expect(list, ['api.example.com/path', 'cdn.example.com']);
+    expect(single, ['single.example.com']);
+    expect(
+      () => decodeStringListResponse('{"unexpected":["x"]}', 'list_method'),
+      throwsFormatException,
+    );
   });
 
   test('method response decoder keeps duplicates when dedupe disabled', () {

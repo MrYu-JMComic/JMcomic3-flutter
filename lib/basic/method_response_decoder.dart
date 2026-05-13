@@ -2,6 +2,18 @@ import 'dart:collection';
 import 'dart:convert';
 
 const int _maxBridgePayloadStringUnwrapDepth = 2;
+const int _maxListPayloadMapUnwrapDepth = 3;
+const List<String> _listPayloadKeys = <String>[
+  'data',
+  'items',
+  'list',
+  'results',
+  'hosts',
+  'server',
+  'Server',
+];
+
+final Object _missingListPayload = Object();
 
 Map<String, dynamic> _normalizeMapEntries(Map<dynamic, dynamic> source) {
   if (source is Map<String, dynamic>) {
@@ -54,6 +66,53 @@ dynamic _decodeBridgePayload(String rsp) {
   return decoded;
 }
 
+dynamic _decodeNestedPayloadString(String payload) {
+  final nested = payload.trim();
+  if (_looksLikeJsonValue(nested)) {
+    try {
+      return _decodeBridgePayload(nested);
+    } on FormatException {
+      // 像 JSON 但损坏的字符串仍交给外层按原始标量处理，方便调用方决定是否允许单值。
+    }
+  }
+  return payload;
+}
+
+dynamic _extractListPayloadFromMap(
+  Map<dynamic, dynamic> source, {
+  int depth = 0,
+}) {
+  for (final key in _listPayloadKeys) {
+    if (!source.containsKey(key)) {
+      continue;
+    }
+    var payload = source[key];
+    if (payload is String) {
+      payload = _decodeNestedPayloadString(payload);
+    }
+    if (payload is Map && depth < _maxListPayloadMapUnwrapDepth) {
+      final nested = _extractListPayloadFromMap(payload, depth: depth + 1);
+      if (!identical(nested, _missingListPayload)) {
+        return nested;
+      }
+    }
+    return payload;
+  }
+  return _missingListPayload;
+}
+
+dynamic _unwrapListPayload(dynamic decoded) {
+  if (decoded is Map) {
+    // 后端、MethodChannel 或手工迁移脚本可能给列表加 data/items/hosts 等对象壳。
+    // 递归只拆约定字段且有层数上限，未知对象仍会在调用点按结构异常暴露。
+    final payload = _extractListPayloadFromMap(decoded);
+    if (!identical(payload, _missingListPayload)) {
+      return payload;
+    }
+  }
+  return decoded;
+}
+
 List<T> _decodeMappedMapListResponse<T>(
   String rsp,
   String method, {
@@ -83,7 +142,7 @@ List<T> _decodeMappedMapListResponse<T>(
 /// 下载/历史等接口跨版本可能返回 `null` 表示空列表。
 /// 这里只兜底可恢复的空值，结构异常继续抛出，避免协议变更被静默吞掉。
 List<dynamic> decodeListResponse(String rsp, String method) {
-  final decoded = _decodeBridgePayload(rsp);
+  var decoded = _unwrapListPayload(_decodeBridgePayload(rsp));
   if (decoded == null) {
     return const <dynamic>[];
   }
@@ -212,7 +271,23 @@ List<String> decodeStringListResponse(
   String method, {
   bool dedupe = false,
 }) {
-  final list = decodeListResponse(rsp, method);
+  final decoded = _unwrapListPayload(_decodeBridgePayload(rsp));
+  final Iterable<dynamic> list;
+  if (decoded == null) {
+    list = const <dynamic>[];
+  } else if (decoded is List<dynamic>) {
+    list = decoded;
+  } else if (decoded is Iterable && decoded is! String) {
+    list = decoded;
+  } else if (decoded is Map) {
+    throw FormatException(
+      "Unexpected $method response shape: ${decoded.runtimeType}",
+    );
+  } else {
+    // 字符串列表接口兼容对象壳中的单值（例如 {"hosts":"api.example.com"}），
+    // 但普通列表解码仍保持严格，避免实体列表把标量误当合法结构。
+    list = <dynamic>[decoded];
+  }
   final result = <String>[];
   final seen = dedupe ? <String>{} : null;
   for (var index = 0; index < list.length; index++) {
