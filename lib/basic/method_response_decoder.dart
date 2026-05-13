@@ -84,10 +84,10 @@ dynamic _extractListPayloadFromMap(
   int depth = 0,
 }) {
   for (final key in _listPayloadKeys) {
-    if (!source.containsKey(key)) {
+    var payload = source[key];
+    if (payload == null && !source.containsKey(key)) {
       continue;
     }
-    var payload = source[key];
     if (payload is String) {
       payload = _decodeNestedPayloadString(payload);
     }
