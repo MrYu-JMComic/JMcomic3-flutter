@@ -1133,6 +1133,18 @@ void main() {
       ),
       ['cdn-one.example.com', 'cdn-two.example.com'],
     );
+    expect(
+      normalizeNetworkHostCandidateList(
+        'http://127.0.0.1:3000/a, localhost:4000; [::1]:9443, //[2001:db8::1]:9443/path',
+      ),
+      ['127.0.0.1:3000', 'localhost:4000', '[::1]:9443', '[2001:db8::1]:9443'],
+    );
+    expect(
+      normalizeNetworkHostCandidateList(
+        'https://cdn-query.example.com/path?mirror=127.0.0.1,127.0.0.2, https://cdn-next.example.com/path',
+      ),
+      ['cdn-query.example.com', 'cdn-next.example.com'],
+    );
   });
 
   test('download export selection toggles and restores by live ids', () {

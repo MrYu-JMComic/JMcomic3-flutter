@@ -1,7 +1,7 @@
 import 'string_property.dart';
 
 final RegExp _networkHostCandidateStart = RegExp(
-  r'^(?:(?:https?:)?//|[A-Za-z0-9.-]+\.[A-Za-z])',
+  r'^(?:(?:https?:)?//|\[[0-9A-Fa-f:.]+\](?::\d+)?|localhost(?::\d+)?(?:[/?#]|$)|(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:[/?#]|$)|[A-Za-z0-9.-]+\.[A-Za-z])',
   caseSensitive: false,
 );
 final RegExp _networkHostHardSeparator = RegExp(r'[\r\n;]+');
@@ -42,9 +42,9 @@ String normalizeNetworkHostCandidate(
 /// 将源站/缓存里的“候选 host 文本”收敛为可展示和测速的 host 列表。
 ///
 /// 手工迁移或远端配置偶尔会把多条 API/CDN 分流地址拼在一个字符串里；这里只按
-/// 换行、分号和“后面明显还是 URL/域名”的逗号拆分；逗号若落在 query/fragment
-/// 内部则保守保留，避免把参数值误当成新的测速 host。返回值保留首次出现的大小写
-/// 展示文本，并按 host 小写去重。
+/// 换行、分号和“后面明显还是 URL/域名/IP/localhost”的逗号拆分；逗号若落在
+/// query/fragment 内部则保守保留，避免把参数值误当成新的测速 host。返回值保留
+/// 首次出现的大小写展示文本，并按 host 小写去重。
 List<String> normalizeNetworkHostCandidateList(Object? raw) {
   final value = parseStringPropertyValue("${raw ?? ""}", trim: true);
   if (value.isEmpty) {
