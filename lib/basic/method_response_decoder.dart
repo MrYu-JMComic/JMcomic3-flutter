@@ -290,8 +290,7 @@ List<String> decodeStringListResponse(
   }
   final result = <String>[];
   final seen = dedupe ? <String>{} : null;
-  for (var index = 0; index < list.length; index++) {
-    final item = list[index];
+  for (final item in list) {
     if (item == null) {
       continue;
     }
