@@ -61,6 +61,8 @@ flutter build apk --release --target-platform android-arm,android-arm64 --split-
 .\scripts\build_android_release_split.ps1 -ApkOnly
 # only AAB:
 .\scripts\build_android_release_split.ps1 -AabOnly
+# optional extra Dart AOT name shrinking:
+.\scripts\build_android_release_split.ps1 -Obfuscate
 ```
 
 4. Build App Bundle (`.aab`) for store delivery:
@@ -71,6 +73,7 @@ flutter build appbundle --release --target-platform android-arm,android-arm64
 
 Notes:
 - `release` already enables `minifyEnabled true` + `shrinkResources true`.
+- The helper script builds ABI split APKs and enables `--split-debug-info=build/symbols/android` by default, keeping Dart symbols outside the APK/AAB. Keep the symbols directory with each release if crash stack traces need deobfuscation.
 - Use `--target-platform android-arm,android-arm64` to avoid packaging unnecessary ABI outputs.
 - `scripts/sign-apk-github-actions.sh` now signs all `*-release.apk` outputs (including split APKs).
 

@@ -2,7 +2,9 @@ param(
     [string[]]$Abi = @("arm64-v8a", "armeabi-v7a"),
     [switch]$ApkOnly,
     [switch]$AabOnly,
-    [switch]$NoPubGet
+    [switch]$NoPubGet,
+    [string]$SplitDebugInfoDir = "build/symbols/android",
+    [switch]$Obfuscate
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,6 +50,16 @@ foreach ($abi in $normalizedAbi) {
 }
 
 $targetPlatforms = $targetPlatformList -join ","
+$sizeArgs = @()
+if (-not [string]::IsNullOrWhiteSpace($SplitDebugInfoDir)) {
+    $sizeArgs += "--split-debug-info=$SplitDebugInfoDir"
+}
+if ($Obfuscate) {
+    if ([string]::IsNullOrWhiteSpace($SplitDebugInfoDir)) {
+        throw "-Obfuscate requires -SplitDebugInfoDir so Dart symbols can be archived separately."
+    }
+    $sizeArgs += "--obfuscate"
+}
 
 Push-Location $repoRoot
 try {
@@ -57,12 +69,12 @@ try {
 
     # Split APK per ABI to reduce single-package size.
     if (-not $AabOnly) {
-        flutter build apk --release --target-platform $targetPlatforms --split-per-abi
+        flutter build apk --release --target-platform $targetPlatforms --split-per-abi @sizeArgs
     }
 
     # AAB for app store distribution.
     if (-not $ApkOnly) {
-        flutter build appbundle --release --target-platform $targetPlatforms
+        flutter build appbundle --release --target-platform $targetPlatforms @sizeArgs
     }
 }
 finally {
@@ -70,3 +82,6 @@ finally {
 }
 
 Write-Host "Done. ABI: $($normalizedAbi -join ', '), target-platform: $targetPlatforms"
+if (-not [string]::IsNullOrWhiteSpace($SplitDebugInfoDir)) {
+    Write-Host "Dart debug symbols: $SplitDebugInfoDir"
+}
