@@ -88,6 +88,7 @@ Notes:
 - Download metadata fields such as author, tags, and works tolerate plain text, arrays, JSON string arrays, and one extra JSON string layer while filtering empty items.
 - Backend list/map responses are decoded through shared helpers; if older Rust/MethodChannel bridges wrap `response_data` as JSON strings containing a list or object, the Flutter side unwraps up to two extra layers before validating the expected shape. List responses can also unwrap nested known object payload keys such as `data`, `items`, `list`, `hosts`, and `servers` with a bounded object depth; string-list APIs additionally accept a single scalar inside those trusted shells, and a matched `data:null` remains an explicit empty list instead of falling through to later keys.
 - Reader image true-size lookups cache the in-flight backend `image_size` future per page image, so dual-page rendering and preloading share the same bridge request. String numeric width/height values are still accepted for old bridge/test responses.
+- Game category entities retain normalized `name`/`slug` fields from backend payloads, including legacy `title`/`id` aliases, so games, hot games, and category filters can share the same local parsing fixture.
 
 ## Runtime behavior
 

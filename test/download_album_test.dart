@@ -80,6 +80,66 @@ Categories _categoryForTest(int id) {
   );
 }
 
+Map<String, dynamic> _comicSimpleFixture(int id) => {
+      'id': id,
+      'author': '作者',
+      'description': '简介',
+      'name': '漫画 $id',
+      'image': '$id.jpg',
+      'category': {'id': '1', 'title': '同人'},
+      'category_sub': {'id': '2', 'title': '汉化'},
+      'update_at': 1775974304,
+      'addtime': 1775974305,
+    };
+
+Map<String, dynamic> _expInfoFixture(int uid) => {
+      'level_name': 'L3',
+      'level': 3,
+      'nextLevelExp': 100,
+      'exp': '66',
+      'expPercent': 66.6,
+      'uid': uid,
+      'badges': [
+        {'content': 'gold', 'name': 'VIP', 'id': 'vip'}
+      ],
+    };
+
+Map<String, dynamic> _commentFixture({int cid = 456, int uid = 789}) => {
+      'AID': 123,
+      'CID': cid,
+      'UID': uid,
+      'username': 'alice',
+      'nickname': 'alice',
+      'likes': 3,
+      'gender': 'F',
+      'update_at': '1775974304',
+      'addtime': '2026-04-12',
+      'parent_CID': 0,
+      'expinfo': _expInfoFixture(uid),
+      'name': 'comic',
+      'content': 'root',
+      'photo': 'avatar.jpg',
+      'spoiler': 0,
+      'replys': <Map<String, dynamic>>[],
+    };
+
+Map<String, dynamic> _gameFixture(int id) => {
+      'gid': id,
+      'title': '游戏 $id',
+      'description': '说明',
+      'tags': 'tag',
+      'link': 'https://game.example/$id',
+      'link_title': '开始',
+      'photo': '$id.jpg',
+      'type': <String>['h5'],
+      'categories': {'name': '热门', 'slug': 'hot'},
+      'update_at': 1775974304,
+      'total_clicks': 22,
+      'order_rank': 7,
+      'status': 1,
+      'show_lang': <String>['zh'],
+    };
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -321,6 +381,155 @@ void main() {
 
     expect(size.w, 800);
     expect(size.h, 1200);
+  });
+
+  test('page entity fixtures decode current backend shapes', () {
+    final categories = decodeEntityResponse(
+      jsonEncode({
+        'categories': [
+          {'id': 1, 'name': '分类', 'slug': 'category', 'total_albums': 12}
+        ],
+        'blocks': [
+          {
+            'title': '首页',
+            'content': ['category']
+          }
+        ],
+      }),
+      'categories',
+      CategoriesResponse.fromJson,
+    );
+    final comics = decodeEntityResponse(
+      jsonEncode({
+        'search_query': '姐姐',
+        'total': 1,
+        'redirect_aid': null,
+        'content': [_comicSimpleFixture(100)],
+      }),
+      'comics',
+      ComicsResponse.fromJson,
+    );
+    final album = decodeEntityResponse(
+      jsonEncode({
+        'id': 100,
+        'name': '漫画 100',
+        'author': ['作者'],
+        'images': ['cover.jpg'],
+        'description': '简介',
+        'total_views': 99,
+        'likes': 7,
+        'series': [
+          {'id': 101, 'name': '第 1 话', 'sort': '1'}
+        ],
+        'series_id': 101,
+        'comment_total': 11,
+        'tags': ['tag'],
+        'works': ['work'],
+        'related_list': [_comicSimpleFixture(102)],
+        'liked': true,
+        'is_favorite': false,
+      }),
+      'album',
+      AlbumResponse.fromJson,
+    );
+    final chapter = decodeEntityResponse(
+      jsonEncode({
+        'id': 101,
+        'series': [
+          {'id': 101, 'name': '第 1 话', 'sort': '1'}
+        ],
+        'tags': 'tag',
+        'name': '第 1 话',
+        'images': ['001.jpg'],
+        'series_id': 101,
+        'is_favorite': false,
+        'liked': true,
+      }),
+      'chapter',
+      ChapterResponse.fromJson,
+    );
+    final forum = decodeEntityResponse(
+      jsonEncode({
+        'list': [_commentFixture()],
+        'total': 1,
+      }),
+      'forum',
+      CommentPage.fromJson,
+    );
+    final favorite = decodeEntityResponse(
+      jsonEncode({
+        'list': [_comicSimpleFixture(100)],
+        'folder_list': [
+          {'FID': 0, 'UID': 789, 'name': '默认'}
+        ],
+        'total': 1,
+        'count': 1,
+      }),
+      'favorite',
+      Favorite.fromJson,
+    );
+    final games = decodeEntityResponse(
+      jsonEncode({
+        'games': [_gameFixture(10)],
+        'games_total': '1',
+        'categories': [
+          {'name': '热门', 'slug': 'hot'}
+        ],
+        'hot_games': [_gameFixture(11)],
+      }),
+      'games',
+      GamePage.fromJson,
+    );
+    final week = decodeEntityResponse(
+      jsonEncode({
+        'categories': [
+          {'id': '1', 'time': '04-13 ~ 04-20', 'title': '第1期'}
+        ],
+        'type': [
+          {'id': '0', 'title': '全部'}
+        ],
+      }),
+      'week',
+      WeekData.fromJson,
+    );
+    final weekFilter = decodeEntityResponse(
+      jsonEncode({
+        'list': [_comicSimpleFixture(100)],
+        'total': 1,
+      }),
+      'week_filter',
+      WeekFilterResponse.fromJson,
+    );
+
+    // 本地样本覆盖首页/分类、列表、搜索、详情、章节图片、论坛、收藏、游戏和周榜实体路径。
+    expect(categories.categories.single.slug, 'category');
+    expect(comics.content.single.category.title, '同人');
+    expect(album.initialReadableChapterId, 101);
+    expect(chapter.images, ['001.jpg']);
+    expect(ImageSize.fromJson({'w': 800, 'h': 1200}).h, 1200);
+    expect(forum.list.single.expinfo.badges.single.name, 'VIP');
+    expect(favorite.folderList.single.name, '默认');
+    expect(games.categories.single.name, '热门');
+    expect(games.games.single.categories.slug, 'hot');
+    expect(week.categories.single.title, '第1期');
+    expect(weekFilter.list.single.id, 100);
+    expect(
+        ViewLog.fromJson({
+          'id': 100,
+          'author': '作者',
+          'description': '简介',
+          'name': '漫画 100',
+          'last_view_time': 1775974304,
+          'last_view_chapter_id': 101,
+          'last_view_page': 3,
+        }).lastViewPage,
+        3);
+    expect(
+        SearchHistory.fromJson({
+          'search_query': '姐姐',
+          'last_search_time': 1775974304,
+        }).searchQuery,
+        '姐姐');
   });
 
   test('page image true size cache shares in-flight bridge request', () async {

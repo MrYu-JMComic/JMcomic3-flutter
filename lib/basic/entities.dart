@@ -1173,8 +1173,18 @@ class GameCategory {
   late final String? slug;
 
   GameCategory.fromJson(Map<String, dynamic> json) {
-    name = null;
-    slug = null;
+    // 游戏页分类由后端归一化为 name/slug；旧接口可能仍给 title/id。
+    // 前端实体保留这两个字段，方便分类筛选、热门游戏卡片和本地解析回归复用同一形状。
+    final nameValue = json['name'] ?? json['title'];
+    final slugValue = json['slug'] ?? json['id'];
+    final normalizedName = nameValue == null ? null : "$nameValue".trim();
+    final normalizedSlug = slugValue == null ? null : "$slugValue".trim();
+    name = (normalizedName == null || normalizedName.isEmpty)
+        ? null
+        : normalizedName;
+    slug = (normalizedSlug == null || normalizedSlug.isEmpty)
+        ? null
+        : normalizedSlug;
   }
 
   Map<String, dynamic> toJson() {
