@@ -4,13 +4,18 @@ param(
     [switch]$AabOnly,
     [switch]$NoPubGet,
     [string]$SplitDebugInfoDir = "build/symbols/android",
-    [switch]$Obfuscate
+    [switch]$Obfuscate,
+    [switch]$NoObfuscate
 )
 
 $ErrorActionPreference = "Stop"
 
 if ($ApkOnly -and $AabOnly) {
     throw "-ApkOnly and -AabOnly cannot be used together."
+}
+
+if ($Obfuscate -and $NoObfuscate) {
+    throw "-Obfuscate and -NoObfuscate cannot be used together."
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -54,10 +59,15 @@ $sizeArgs = @()
 if (-not [string]::IsNullOrWhiteSpace($SplitDebugInfoDir)) {
     $sizeArgs += "--split-debug-info=$SplitDebugInfoDir"
 }
+$shouldObfuscate = -not $NoObfuscate
 if ($Obfuscate) {
+    $shouldObfuscate = $true
+}
+if ($shouldObfuscate) {
     if ([string]::IsNullOrWhiteSpace($SplitDebugInfoDir)) {
-        throw "-Obfuscate requires -SplitDebugInfoDir so Dart symbols can be archived separately."
+        throw "Dart obfuscation requires -SplitDebugInfoDir so symbols can be archived separately."
     }
+    # 默认混淆 Dart AOT 名称，进一步缩小 libapp.so；符号目录必须随版本保存用于崩溃还原。
     $sizeArgs += "--obfuscate"
 }
 
@@ -85,3 +95,4 @@ Write-Host "Done. ABI: $($normalizedAbi -join ', '), target-platform: $targetPla
 if (-not [string]::IsNullOrWhiteSpace($SplitDebugInfoDir)) {
     Write-Host "Dart debug symbols: $SplitDebugInfoDir"
 }
+Write-Host "Dart obfuscation: $shouldObfuscate"
