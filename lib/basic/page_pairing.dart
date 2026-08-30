@@ -5,6 +5,13 @@ class PagePair {
   final int? right;
   const PagePair(this.slot, {this.left, this.right});
   List<int> get pages => [if (left != null) left!, if (right != null) right!];
+
+  /// Source page represented by the leading reading position in this slot.
+  /// For an RTL pair the lower source index is rendered on the right and is
+  /// therefore the page the reader reaches first; callers can use this to
+  /// keep progress/view-log semantics independent from visual left/right.
+  int primaryPage({bool rtl = false}) =>
+      (rtl ? (right ?? left) : (left ?? right)) ?? -1;
 }
 
 /// Builds visual slots without changing source page indices.
