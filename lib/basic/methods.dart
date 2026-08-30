@@ -6,6 +6,7 @@ import 'package:jmcomic3/basic/log.dart';
 
 import 'method_response_decoder.dart';
 import 'entities.dart';
+import 'page_image_batch.dart';
 
 export 'entities.dart';
 
@@ -632,6 +633,39 @@ class Methods {
 
   Future<String> jmPageImage(int id, String imageName) {
     return _invoke("jm_page_image", {"id": id, "image_name": imageName});
+  }
+
+  /// Batch page fetch adapter. Backend support is opt-in; failed/malformed
+  /// batches transparently fall back to the existing single-page API.
+  Future<List<JmPageImageBatchItem>> jmPageImageBatch(
+    List<JmPageImageRequest> pages, {
+    bool enabled = false,
+  }) async {
+    Future<List<JmPageImageBatchItem>> fallback() async => Future.wait(
+          pages.map((p) async {
+            try {
+              return JmPageImageBatchItem(
+                id: p.id,
+                path: await jmPageImage(p.id, p.imageName),
+              );
+            } catch (e) {
+              return JmPageImageBatchItem(id: p.id, error: e.toString());
+            }
+          }),
+        );
+    if (!enabled || pages.isEmpty || pages.length > 16) return fallback();
+    try {
+      final raw = await _invoke(
+        "jm_page_image_batch",
+        {"pages": pages.map((p) => p.toJson()).toList()},
+      );
+      final decoded = jsonDecode(raw);
+      final items = decoded is Map ? decoded["items"] : null;
+      if (items is! List) return fallback();
+      return items.whereType<Map>().map(JmPageImageBatchItem.fromJson).toList();
+    } catch (_) {
+      return fallback();
+    }
   }
 
   Future<String> jmPhotoImage(String imageName) {
