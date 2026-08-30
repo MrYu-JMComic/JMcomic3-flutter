@@ -54,8 +54,12 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
   late ReaderType _readerType;
   late ReaderDirection _readerDirection;
   late Future<ChapterResponse> _chapterFuture;
+  bool _navigationInFlight = false;
 
   void _load() {
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _readerType = currentReaderType;
       _readerDirection = currentReaderDirection;
@@ -63,8 +67,44 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
     });
   }
 
+  Future<void> _replaceReaderRoute({
+    required int chapterId,
+    required int initRank,
+    required bool fullScreen,
+  }) async {
+    if (!mounted || _navigationInFlight) {
+      return;
+    }
+    _navigationInFlight = true;
+    try {
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (BuildContext context) {
+          return ComicReaderScreen(
+            comic: widget.comic,
+            series: widget.series,
+            chapterId: chapterId,
+            initRank: initRank,
+            loadChapter: widget.loadChapter,
+            fullScreenOnInit: fullScreen,
+          );
+        }),
+      );
+    } catch (error, stackTrace) {
+      // A route can disappear while a control callback is waiting. Keep the
+      // old reader usable when Navigator rejects the replacement instead of
+      // leaving the single-flight guard permanently locked.
+      debugPrient("reader navigation failed: $error\n$stackTrace");
+    } finally {
+      _navigationInFlight = false;
+    }
+  }
+
   @override
   void initState() {
+    super.initState();
+    _readerType = currentReaderType;
+    _readerDirection = currentReaderDirection;
+    _chapterFuture = widget.loadChapter(widget.chapterId);
     if (currentIgnoreVewLog()) {
       late Future<AlbumResponse> _albumFuture = methods.album(
         widget.comic.id,
@@ -76,8 +116,20 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
     } else {
       methods.updateViewLog(widget.comic.id, widget.chapterId, widget.initRank);
     }
-    _load();
-    super.initState();
+  }
+
+  @override
+  void didUpdateWidget(covariant ComicReaderScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.chapterId != widget.chapterId ||
+        oldWidget.comic.id != widget.comic.id) {
+      // A parent may reuse this State instead of pushing a replacement route.
+      // Replace the chapter Future synchronously so FutureBuilder cannot keep
+      // rendering the previous chapter after the identity changes.
+      _readerType = currentReaderType;
+      _readerDirection = currentReaderDirection;
+      _chapterFuture = widget.loadChapter(widget.chapterId);
+    }
   }
 
   @override
@@ -94,10 +146,11 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
             appBar: AppBar(),
             body: ContentError(
               onRefresh: () async {
-                setState(() {
-                  // 阅读器可能来自在线漫画或本地下载，重试必须沿用注入的章节加载器。
-                  _chapterFuture = widget.loadChapter(widget.chapterId);
-                });
+                if (!mounted) {
+                  return;
+                }
+                // 阅读器可能来自在线漫画或本地下载，重试必须沿用注入的章节加载器。
+                _load();
               },
               error: snapshot.error,
               stackTrace: snapshot.stackTrace,
@@ -111,40 +164,49 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
           );
         }
         final chapter = snapshot.requireData;
+        final imageCount = chapter.images.length;
+        if (imageCount == 0) {
+          // Do not construct any reader implementation for an empty chapter:
+          // Gallery/PhotoView controllers may assert on an empty page list,
+          // while list readers have no meaningful page to restore.
+          return Scaffold(
+            appBar: AppBar(),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(context.l10n.noContentAvailable),
+                  TextButton(
+                    onPressed: _load,
+                    child: Text(context.l10n.tr('重试', en: 'Retry')),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        final safeStartIndex = widget.initRank.clamp(0, imageCount - 1).toInt();
         final screen = Scaffold(
           backgroundColor: Colors.black,
           body: _ComicReader(
             comicId: widget.comic.id,
             chapter: chapter,
-            startIndex: widget.initRank,
-            reload: (int index, bool fullScreen) async {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (BuildContext context) {
-                  return ComicReaderScreen(
-                    comic: widget.comic,
-                    series: widget.series,
-                    chapterId: widget.chapterId,
-                    initRank: index,
-                    loadChapter: widget.loadChapter,
-                    fullScreenOnInit: fullScreen,
-                  );
-                }),
-              );
-            },
-            onChangeEp: (int id, bool fullScreen) async {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (BuildContext context) {
-                  return ComicReaderScreen(
-                    comic: widget.comic,
-                    series: widget.series,
-                    chapterId: id,
-                    initRank: 0,
-                    loadChapter: widget.loadChapter,
-                    fullScreenOnInit: fullScreen,
-                  );
-                }),
-              );
-            },
+            startIndex: safeStartIndex,
+            key: ValueKey(
+              'reader_${widget.comic.id}_${chapter.id}_$_readerType'
+              '_$_readerDirection_${widget.fullScreenOnInit}_$safeStartIndex'
+              '_${identityHashCode(chapter)}',
+            ),
+            reload: (int index, bool fullScreen) => _replaceReaderRoute(
+              chapterId: widget.chapterId,
+              initRank: index,
+              fullScreen: fullScreen,
+            ),
+            onChangeEp: (int id, bool fullScreen) => _replaceReaderRoute(
+              chapterId: id,
+              initRank: 0,
+              fullScreen: fullScreen,
+            ),
             readerType: _readerType,
             readerDirection: _readerDirection,
             fullScreenOnInit: widget.fullScreenOnInit,
@@ -173,6 +235,9 @@ EventChannel volumeButtonChannel = const EventChannel("volume_button");
 StreamSubscription? volumeS;
 
 void addVolumeListen() {
+  if (!Platform.isAndroid) {
+    return;
+  }
   _volumeListenCount++;
   if (_volumeListenCount == 1) {
     volumeS =
@@ -181,17 +246,53 @@ void addVolumeListen() {
 }
 
 void delVolumeListen() {
+  if (!Platform.isAndroid || _volumeListenCount <= 0) {
+    return;
+  }
   _volumeListenCount--;
   if (_volumeListenCount == 0) {
-    volumeS?.cancel();
+    final subscription = volumeS;
+    volumeS = null;
+    subscription?.cancel();
   }
 }
 
 Widget readerKeyboardHolder(Widget widget) {
   if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-    widget = RawKeyboardListener(
-      focusNode: FocusNode(),
-      child: widget,
+    return _ReaderKeyboardHolder(child: widget);
+  }
+  return widget;
+}
+
+class _ReaderKeyboardHolder extends StatefulWidget {
+  final Widget child;
+
+  const _ReaderKeyboardHolder({required this.child, Key? key}) : super(key: key);
+
+  @override
+  State<_ReaderKeyboardHolder> createState() => _ReaderKeyboardHolderState();
+}
+
+class _ReaderKeyboardHolderState extends State<_ReaderKeyboardHolder> {
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode(debugLabel: 'comic-reader-keyboard');
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RawKeyboardListener(
+      focusNode: _focusNode,
+      child: widget.child,
       autofocus: true,
       onKey: (event) {
         if (event is RawKeyDownEvent) {
@@ -206,13 +307,39 @@ Widget readerKeyboardHolder(Widget widget) {
       },
     );
   }
-  return widget;
 }
 
 ////////////////////////////////
 
 Event<_ReaderControllerEventArgs> _readerControllerEvent =
     Event<_ReaderControllerEventArgs>();
+
+List<Series> _sortReaderSeries(Iterable<Series> source) {
+  final indexed = source.toList().asMap().entries.toList();
+  indexed.sort((a, b) {
+    final aSort = int.tryParse(a.value.sort.trim());
+    final bSort = int.tryParse(b.value.sort.trim());
+    if (aSort != null && bSort != null) {
+      final result = aSort.compareTo(bSort);
+      if (result != 0) {
+        return result;
+      }
+    } else if (aSort != null) {
+      return -1;
+    } else if (bSort != null) {
+      return 1;
+    } else {
+      final result = a.value.sort.trim().compareTo(b.value.sort.trim());
+      if (result != 0) {
+        return result;
+      }
+    }
+    // Keep duplicate/invalid sort values deterministic without changing the
+    // server-provided order unnecessarily.
+    return a.key.compareTo(b.key);
+  });
+  return indexed.map((entry) => entry.value).toList(growable: false);
+}
 
 class _ReaderControllerEventArgs extends EventArgs {
   final String key;
@@ -275,6 +402,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   Timer? _viewLogDebounce;
   int? _pendingViewLogPage;
   int _lastUiSyncMs = 0;
+  bool _didAddVolumeListen = false;
 
   void _persistViewLog(int index) {
     methods
@@ -312,10 +440,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       _nextEpId = null;
       return;
     }
-    final entries = [...widget.chapter.series];
-    entries.sort(
-      (a, b) => int.parse(a.sort).compareTo(int.parse(b.sort)),
-    );
+    final entries = _sortReaderSeries(widget.chapter.series);
     _sortedSeriesIds = entries.map((e) => e.id).toList(growable: false);
     final index = _sortedSeriesIds.indexOf(widget.chapter.id);
     if (index >= 0 && index < _sortedSeriesIds.length - 1) {
@@ -326,6 +451,9 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   }
 
   Future _onFullScreenChange(bool fullScreen) async {
+    if (!mounted) {
+      return;
+    }
     setState(() {
       if (Platform.isAndroid || Platform.isIOS) {
         if (fullScreen) {
@@ -345,17 +473,18 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   }
 
   void _onCurrentChange(int index, {bool forceUiSync = false}) {
-    if (index == _current) {
+    if (!mounted || widget.chapter.images.isEmpty) {
       return;
     }
-    _current = index;
-    _slider = index;
-    _schedulePersistViewLog(index);
-    if (!mounted) {
+    final safeIndex = index.clamp(0, widget.chapter.images.length - 1).toInt();
+    if (safeIndex == _current) {
       return;
     }
+    _current = safeIndex;
+    _slider = safeIndex;
+    _schedulePersistViewLog(safeIndex);
     final now = DateTime.now().millisecondsSinceEpoch;
-    final isEdge = index <= 0 || index >= widget.chapter.images.length - 1;
+    final isEdge = safeIndex <= 0 || safeIndex >= widget.chapter.images.length - 1;
     if (forceUiSync || isEdge || now - _lastUiSyncMs >= _uiSyncMinIntervalMs) {
       _lastUiSyncMs = now;
       setState(() {});
@@ -364,6 +493,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
 
   @override
   void initState() {
+    super.initState();
     _fullScreen = widget.fullScreenOnInit;
     if (_fullScreen) {
       if (Platform.isAndroid || Platform.isIOS) {
@@ -373,14 +503,18 @@ abstract class _ComicReaderState extends State<_ComicReader> {
         );
       }
     }
-    _current = widget.startIndex;
-    _slider = widget.startIndex;
+    final imageCount = widget.chapter.images.length;
+    final safeStartIndex = imageCount == 0
+        ? 0
+        : widget.startIndex.clamp(0, imageCount - 1).toInt();
+    _current = safeStartIndex;
+    _slider = safeStartIndex;
     _readerControllerEvent.subscribe(_onPageControl);
-    if (currentVolumeKeyControl()) {
+    if (Platform.isAndroid && currentVolumeKeyControl()) {
       addVolumeListen();
+      _didAddVolumeListen = true;
     }
     _rebuildSeriesCache();
-    super.initState();
   }
 
   @override
@@ -396,8 +530,9 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     _viewLogDebounce?.cancel();
     _flushViewLogPersist();
     _readerControllerEvent.unsubscribe(_onPageControl);
-    if (currentVolumeKeyControl()) {
+    if (_didAddVolumeListen) {
       delVolumeListen();
+      _didAddVolumeListen = false;
     }
     if (Platform.isAndroid || Platform.isIOS) {
       SystemChrome.setEnabledSystemUIMode(
@@ -901,6 +1036,9 @@ abstract class _ComicReaderState extends State<_ComicReader> {
         );
       },
     );
+    if (!mounted) {
+      return;
+    }
     if (widget.readerDirection != currentReaderDirection ||
         widget.readerType != currentReaderType) {
       widget.reload(_current, _fullScreen);
@@ -972,10 +1110,7 @@ class _EpChooserState extends State<_EpChooser> {
       );
     }
 
-    var entries = [...widget.chapter.series];
-    entries.sort(
-      (a, b) => int.parse(a.sort).compareTo(int.parse(b.sort)),
-    );
+    var entries = _sortReaderSeries(widget.chapter.series);
     var widgets = [
       Container(height: 20),
       ...entries.map((e) {
