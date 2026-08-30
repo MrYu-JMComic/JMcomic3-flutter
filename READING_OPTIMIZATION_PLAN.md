@@ -6,6 +6,94 @@
 >
 > 当前状态：方案审查完成；M1 可回滚子集已完成本地静态/测试验证，平台构建继续使用 `D:\Cat\jm3\build` 下的隔离输出目录。M2 目标尺寸解码和 Rust 解扰失败语义仍未开启。
 
+## 0. 固定工作上下文（压缩/换代理后先读）
+
+> 本节是工作区、构建和安全约束的持久记录，不是新的产品需求。若用户后来给出明确的新指令，以最新指令为准；否则不要凭记忆改变下面的路径、分支或能力开关。每次继续任务时，先读本节和“变更记录”，完成验证后再追加证据。
+
+### 0.1 路径与版本控制快照
+
+| 字段 | 固定值/当前记录（2026-08-30） |
+|---|---|
+| 功能代码工作区 | `D:\Cat\jmcomic3` |
+| 本地构建/工具链根 | `D:\Cat\jm3` |
+| 所有平台构建输出根 | `D:\Cat\jm3\build` |
+| 环境入口脚本 | `D:\Cat\jm3\scripts\enter_build_env.ps1` |
+| 环境自检脚本 | `D:\Cat\jm3\scripts\verify_build_env.ps1` |
+| 当前功能分支 | `MrYu/reader-optimization-m1` |
+| 本次快照 HEAD | `3fbe800`（后续提交后以 `git rev-parse --short HEAD` 刷新） |
+| 远端同步 | 本地当时领先 `origin/MrYu/reader-optimization-m1` 5 个提交，尚未 push |
+| Draft PR | GitHub PR #2，保持 Draft；GitHub 只作代码评审，不作本地构建验收 |
+| 恢复点 | `reader-optimization-m1-checkpoint-*` 标签；禁止改写已有提交历史 |
+| 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
+| 构建 checkout | `D:\Cat\jm3` 有独立且可能 dirty 的工作树；不要假定它自动等于功能分支，构建前先核对 commit/diff |
+| 未跟踪生成物 | `D:\Cat\jmcomic3\windows\rust.h`；保留并先确认来源，不要擅自删除或提交 |
+| 忘记清理的临时目录 | `D:\Cat\jm3\worktrees\build`、`D:\Cat\jm3\worktrees\reader-optimization-m1` 可能只含本轮生成物；清理前必须逐项确认绝对路径，不能递归误删整个 `D:\Cat\jm3` |
+
+### 0.2 构建边界与固定命令
+
+- **禁止走 GitHub 构建**：`.github/workflows/CI.yml` 仅保留手动诊断触发；本轮验收以本地命令和 `D:\Cat\jm3\build` 产物为准。
+- 新 PowerShell 窗口不会自动继承项目工具链 PATH；每次构建前执行：
+
+  ```powershell
+  Set-Location D:\Cat\jm3
+  . .\scripts\enter_build_env.ps1
+  . .\scripts\verify_build_env.ps1
+  ```
+
+- 环境加载脚本只修改当前 PowerShell 进程，故意不污染系统 PATH；不要在未加载环境时用系统同名工具替代它们。
+- Android/Windows 构建脚本位于 `D:\Cat\jm3\scripts`。构建前确认源代码 checkout 与目标分支一致；不要因方便而在 dirty checkout 上执行 reset、clean 或覆盖用户文件。
+- 产物必须落在 `D:\Cat\jm3\build` 的隔离子目录，例如：
+  - Windows：`D:\Cat\jm3\build\reader-optimization-m1\windows\x64\runner\Release`
+  - Android：`D:\Cat\jm3\build\reader-optimization-m1-android\app\outputs\flutter-apk`
+- 清理只允许针对已核实的本轮隔离子目录；先列出绝对路径和文件清单，再执行可恢复的移动/删除。不得清空仓库 `build`、offline 下载目录或 Rust 用户工作树。
+- 编辑使用增量补丁；禁止 `git reset --hard`、无确认的 `git checkout`、强制覆盖或改写历史。每个阶段先提交独立 checkpoint，再进行下一阶段。
+
+### 0.3 已冻结的工具链矩阵
+
+| 工具 | 版本/路径 | 状态 |
+|---|---|---|
+| Flutter / Dart | 3.41.2 / 3.11.0，`D:\Cat\jm3\_flutter\flutter` | 已通过 `flutter doctor -v` |
+| Rust / cargo / rustfmt | 1.98.0，`D:\Cat\jm3\toolchains\cargo` | 已通过版本检查与后端测试 |
+| cargo-ndk / FRB codegen | 4.1.2 / 2.11.1 | 已验证 |
+| Android SDK | platforms 32/35/36，Build Tools 28.0.3/30.0.2/35.0.0 | 已验证，licenses 已接受 |
+| Android NDK | 25.2.9519653 | 项目显式固定；本地构建成功 |
+| JDK | 21.0.6，`C:\Program Files\Java\jdk-21` | 已验证 |
+| Windows C++ | VS Build Tools 2022、MSVC 14.44、Windows SDK 10.0.26100.0 | 已验证 |
+| CMake / Ninja | 4.4.3 / 1.13.2 | 已验证 |
+
+已知边界：部分 Flutter 插件声明 NDK 27.0.12077973，而当前 Rust/项目矩阵使用 NDK 25.2；25.2 在本机 smoke build 成功，但在决定安装/切换 NDK 27 并重新跑双 ABI 前，不得声称跨机器发布兼容。Android 尚无正式签名 keystore/`key.properties`，当前 APK 不能当作正式发布包。
+
+### 0.4 阶段状态与不可破坏不变量
+
+- M0：工具链和本地构建门禁已验证；真机性能基线仍未采集。
+- M1：低风险 reader 生命周期/缓存竞态子集已实现；Flutter test 69/69 通过，analyzer 为 0 error（既有 info/deprecation 仍使命令返回 1）。
+- M2：**保持关闭**。目标尺寸只允许作用于 Rust 已完整解扰后的 canonical 文件；绝不在解扰前缩放、裁剪、压缩，也不能把解扰失败的原始 bytes 写入 `decoded_v1`。
+- M3–M7：尚未开始；不要把方案、测试夹具或构建成功误写成已发布功能。
+- 离线文件必须与普通 reader cache 隔离；`dl_status=1` 不等于本机文件可读；普通清理不得删除 offline assets。
+- 当前页优先于预取；旧 Future/旧章节结果不得写入新 generation；任何新能力必须可独立关闭和回退。
+
+### 0.5 最近验证证据与未完成项
+
+| 检查 | 结果/产物 |
+|---|---|
+| `D:\Cat\jm3\scripts\verify_build_env.ps1` | 全部工具/SDK 检查通过；`flutter doctor -v` 为 `No issues found!` |
+| Flutter tests | `flutter test --no-pub`：69/69 通过 |
+| Flutter analyze | 0 error；137 条既有 info/deprecation，不作为本轮编译失败 |
+| Rust | 120 个单元测试及 doc/smoke 测试通过（外部 target/cache） |
+| Windows Release | `D:\Cat\jm3\build\reader-optimization-m1\windows\x64\runner\Release\jmcomic3.exe` 已生成 |
+| Android Release | arm64-v8a 与 armeabi-v7a APK 已生成，均核对包含对应 ABI 的 `librust.so` 并记录 SHA-256 |
+| Android 真机 | 当前未连接（`adb devices` 无设备）；reader 真实回归/性能基线待做 |
+| 正式签名 | 未配置 `android/key.properties` 或 keystore；待用户提供发布签名材料 |
+| symlink 权限 | 新环境若 `pub get` 失败，先检查 Windows Developer Mode/权限；已有验证使用固定环境和 `--no-pub` |
+
+### 0.6 继续任务的最小流程
+
+1. 读取本节、`### 当前任务状态` 和最新变更记录。
+2. 只读确认 `git status --short --branch`、当前 HEAD、Rust 外部工作树 dirty 状态和 `D:\Cat\jm3\build` 目标目录。
+3. 若要改代码，先在当前分支创建/确认独立 checkpoint；先补测试，再实现，再跑本地门禁。
+4. 若要构建，加载并验证环境，明确隔离输出目录，构建后核对 ABI/manifest/`librust.so`/SHA-256。
+5. 将命令、时间、结果、产物、未验证项追加到本文档；没有运行的检查保持“待执行”，不要推断为通过。
+
 ## 1. 目标与边界
 
 ### 目标
@@ -602,6 +690,8 @@ Rust 仓库已有用户未提交修改，至少包括：
 
 ### 2026-08-30
 
+- 增加“固定工作上下文”章节，持久记录源代码工作区与独立构建根、环境加载命令、分支/PR/恢复点、禁止事项、M1/M2 状态、构建产物路径和未验证风险，供上下文压缩或换代理后恢复。
+- 2026-08-30 23:26（+08:00）再次执行 `D:\Cat\jm3\scripts\verify_build_env.ps1`：工具链、SDK、MSVC、Rust metadata 和 `flutter doctor -v` 全部通过；本次仅做只读核验，未触发 GitHub 构建、未改动外部 Rust 工作树。
 - 创建本文档，记录阅读链路和初版优化方案。
 - 完成前端、Rust 后端、质量/交付三路只读审查。
 - 将“目标尺寸解码”明确为“解扰后的 Flutter codec 下采样”，禁止解扰前缩放。
