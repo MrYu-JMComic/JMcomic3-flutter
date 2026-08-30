@@ -1,8 +1,56 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jmcomic3/basic/entities.dart';
+import 'package:jmcomic3/configs/ignore_view_log.dart';
+import 'package:jmcomic3/configs/no_animation.dart';
+import 'package:jmcomic3/configs/reader_controller_type.dart';
+import 'package:jmcomic3/configs/reader_direction.dart';
+import 'package:jmcomic3/configs/reader_slider_position.dart';
+import 'package:jmcomic3/configs/reader_type.dart';
+import 'package:jmcomic3/configs/two_page_direction.dart';
+import 'package:jmcomic3/configs/volume_key_control.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/comic_reader_screen.dart';
+
+const _methodsChannel = MethodChannel('methods');
+
+Future<void> _initReaderConfigForTest() async {
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  messenger.setMockMethodCallHandler(_methodsChannel, (call) async {
+    if (call.method != 'invoke') {
+      return null;
+    }
+    final request =
+        jsonDecode(call.arguments as String) as Map<String, dynamic>;
+    final method = request['method'];
+    var responseData = '';
+    if (method == 'jm_page_image') {
+      responseData = 'images/ic.png';
+    } else if (method == 'image_size') {
+      responseData = jsonEncode({'w': 1, 'h': 1});
+    }
+    return jsonEncode({
+      'error_message': '',
+      'response_data': responseData,
+    });
+  });
+
+  // These preferences are normally loaded by InitScreen before a reader is
+  // reachable. Widget tests mount the reader directly, so initialize the same
+  // defaults through the public config loaders instead of mutating internals.
+  await initReaderType();
+  await initReaderDirection();
+  await initReaderControllerType();
+  await initReaderSliderPosition();
+  await initTwoPageDirection();
+  await initVolumeKeyControl();
+  await initNoAnimation();
+  await initIgnoreVewLog();
+}
 
 ComicBasic _comic() => ComicBasic(
       id: 1,
@@ -23,7 +71,8 @@ ChapterResponse _chapter({List<String> images = const []}) => ChapterResponse(
       liked: false,
     );
 
-Widget _reader(Future<ChapterResponse> Function(int) loader, {int initRank = 0}) {
+Widget _reader(Future<ChapterResponse> Function(int) loader,
+    {int initRank = 0}) {
   return MaterialApp(
     locale: const Locale('en'),
     localizationsDelegates: const [AppLocalizations.delegate],
@@ -39,6 +88,12 @@ Widget _reader(Future<ChapterResponse> Function(int) loader, {int initRank = 0})
 }
 
 void main() {
+  setUpAll(_initReaderConfigForTest);
+  tearDownAll(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_methodsChannel, null);
+  });
+
   testWidgets('Basic widget smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(
       const MaterialApp(
@@ -59,7 +114,8 @@ void main() {
     expect(find.text('Retry'), findsOneWidget);
   });
 
-  testWidgets('chapter loader errors render content error state', (tester) async {
+  testWidgets('chapter loader errors render content error state',
+      (tester) async {
     await tester.pumpWidget(_reader((_) async => throw StateError('offline')));
     await tester.pumpAndSettle();
 
@@ -67,8 +123,12 @@ void main() {
     expect(find.textContaining('offline'), findsOneWidget);
   });
 
-  testWidgets('initial rank outside chapter bounds does not crash reader', (tester) async {
-    await tester.pumpWidget(_reader((_) async => _chapter(images: const ['https://example.invalid/page.jpg']), initRank: 99));
+  testWidgets('initial rank outside chapter bounds does not crash reader',
+      (tester) async {
+    await tester.pumpWidget(_reader(
+        (_) async =>
+            _chapter(images: const ['https://example.invalid/page.jpg']),
+        initRank: 99));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
