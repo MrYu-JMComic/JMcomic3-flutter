@@ -720,6 +720,13 @@ Rust 仓库已有用户未提交修改，至少包括：
 
 ## 13. 后续更新规则
 
+### 2026-08-31 继续执行前置审查（checkpoint）
+
+- 继续执行前先复核：主仓库分支 `MrYu/reader-optimization-m1`，HEAD `6e0dae7`；已创建本地恢复标签 `reader-optimization-continue-checkpoint-20260831-0020`。当前未提交改动来自 M3/M4/M5 兼容补强和既有 Windows 生成文件，不能用 reset/checkout 清理。
+- 外部 Rust 工作树 `D:\Cat\jmcomic3-rust-backend` 分支 `MrYu/m5-page-batch-contract` 保留用户 dirty 的 `rust/README.md`；批量尺寸字段修复提交 `96f6a6c` 已独立记录，后续构建需固定该 SHA 或明确使用旧兼容行为。
+- 本轮新增的硬门禁：M5 Dart 批量响应必须校验版本、数量和顺序，任一异常整体回退旧单页；M4 去重条目完成后必须可重新调度，关闭后不得启动新任务；M3/M6 在没有后端 `local_path` 之前不得猜造离线路径。
+- 未运行的设备、真实 scrambled fixture、Rust 解扰失败缓存隔离、Android 双 ABI 和正式签名检查继续标记为待执行/阻塞，不因模型测试通过而宣称完成。
+
 ### 2026-08-31 M3 增量
 
 - 在 `_ComicReaderState` 增加 `ReaderPageRepository.fromOnline` 兼容转换，维护
