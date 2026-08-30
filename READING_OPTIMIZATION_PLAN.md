@@ -736,6 +736,14 @@ Rust 仓库已有用户未提交修改，至少包括：
 - 验证：`flutter test test/reader_pages_test.dart` 及 reader session tests；未启用新
   元数据驱动渲染，故无行为变化。
 
+### 2026-08-31 00:59 继续执行审计 checkpoint
+
+- 在开始本轮代码审查前，保留当前 dirty 工作区不变，并创建恢复分支
+  `MrYu/reader-optimization-audit-20260831-005916` 与标签
+  `reader-optimization-preaudit-20260831-005916`；当前工作仍在
+  `MrYu/reader-optimization-m1`，不改写既有提交历史。
+- 本轮先处理 M5 Dart 批量测试夹具和 reader 生命周期/双页边界审查；未通过的检查继续标为待执行，不把已有模型测试当作阶段完成证据。
+
 每次继续工作时，按以下顺序更新本文档：
 
 1. 在“任务状态”或“变更记录”中写明本轮做了什么。
