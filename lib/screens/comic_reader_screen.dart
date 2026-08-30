@@ -537,8 +537,13 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     if (_fullScreen) {
       if (Platform.isAndroid || Platform.isIOS) {
         SystemChrome.setEnabledSystemUIMode(
-          SystemUiMode.edgeToEdge,
-          overlays: SystemUiOverlay.values,
+          // Keep the initial state consistent with the interactive toggle:
+          // fullscreen must hide system overlays.  The previous
+          // edge-to-edge call left status/navigation bars visible on mobile,
+          // so a route opened with fullScreenOnInit was not actually full
+          // screen.
+          SystemUiMode.manual,
+          overlays: const <SystemUiOverlay>[],
         );
       }
     }
