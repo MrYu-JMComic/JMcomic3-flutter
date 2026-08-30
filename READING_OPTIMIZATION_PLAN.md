@@ -2,9 +2,9 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-08-30（二次逻辑/后果审查）
+> 最后更新：2026-08-30（本地 Flutter 验证与构建门禁）
 >
-> 当前状态：方案审查完成；M1 已提交一个可回滚子集，正在进行提交后的静态复核。Flutter/Dart/Rust 运行时验证仍待工具链准备，所有后续任务继续按阶段门禁执行。
+> 当前状态：方案审查完成；M1 可回滚子集已完成本地静态/测试验证，平台构建继续使用 `D:\Cat\jm3\build` 下的隔离输出目录。M2 目标尺寸解码和 Rust 解扰失败语义仍未开启。
 
 ## 1. 目标与边界
 
@@ -155,8 +155,8 @@
 | 任务 | 状态 | 下一动作 | 进入条件/阻塞 |
 |---|---|---|---|
 | 二次逻辑/边界审查 | 已完成（本轮） | 将新增风险和发布门禁纳入本文档 | 只读审查；未修改业务代码 |
-| M0 基线与工具链冻结 | 部分完成（分支/PR） | 准备目标 Flutter/Rust 工具链，采集三类设备基线 | 分支 `MrYu/reader-optimization-m1`、Draft PR #2 和基线 tag 已建立；2026-08-30 检查仍未找到 `flutter`、`dart`、`cargo`、`fvm`、`rustup` |
-| M1 低风险稳定性修复 | 已实现子集（待运行时验证） | 安装/锁定工具链后补 widget 回归；再决定是否继续 M1 全屏状态恢复 | 已提交生命周期/缓存竞态子集及异步错误/索引防护补强；本环境无法运行 Flutter 测试，target-size/离线 owner 未混入 |
+| M0 基线与工具链冻结 | 部分完成（分支/PR/本地环境） | 采集三类设备基线并固定产物命名 | 分支 `MrYu/reader-optimization-m1`、Draft PR #2、基线 tag 和 `D:\Cat\jm3` 工具链已建立；设备基线仍待采集 |
+| M1 低风险稳定性修复 | 已实现子集（本地验证通过） | 补同一 State 切章/快速 pop 的专项 widget 回归；再决定是否继续全屏状态恢复 | Flutter 3.41.2 analyzer 无 error（仅既有 lint/deprecation 信息），全量 Flutter test 通过；target-size/离线 owner 未混入 |
 | M2 目标尺寸解码 | 待验证 | 用 known scrambled fixture 检查 codec 实际输出尺寸 | 必须证明 target 不会在 provider 内被忽略 |
 | M3 PageDescriptor/Repository | 待开始 | 先增加兼容转换，不改变现有 UI | 需要确认在线 chapter 响应的旧/新格式 |
 | M4 ReaderSession/generation 与预取调度器 | 待开始 | 先定义 chapter identity、取消/丢弃语义，再只在在线 Gallery 实验 | 需要 M2、M3 的页面 key/尺寸语义；不得与双页重构同批发布 |
@@ -165,17 +165,20 @@
 | M7 双页窗口化 | 待开始 | 先固定封面、奇偶和 RTL/LTR 配对规则 | 需要独立 widget/golden 回归 |
 | M7 垂直精确进度 | 待开始 | 定义可见页规则和远跳二次校正算法 | 需要 PageDescriptor 尺寸或可靠 fallback |
 | M7 阅读记录队列 | 待开始 | 在现有 debounce 外加单写者队列和 lifecycle flush | 需要明确本地存储的崩溃恢复能力 |
-| P2 测试/CI/观测 | 已增加轻量 CI（待远端运行） | 观察 `flutter analyze`/`flutter test` 结果，再补 reader 专项回归和结构化指标 | CI 使用 `.fvmrc` 的 Flutter 版本；本地仍无 Flutter/Dart，结果不能预先宣称通过 |
+| P2 测试/CI/观测 | 本地门禁已执行；远端自动构建暂停 | 继续补 reader 专项回归和结构化指标 | 使用 `D:\Cat\jm3\_flutter\flutter`（Flutter 3.41.2/Dart 3.11.0），输出根为 `D:\Cat\jm3\build`；workflow 仅保留手动触发，不把 GitHub 结果当验收依据 |
 
 ### 本轮继续执行记录（2026-08-30）
 
 - 在 `715c469` 上创建并推送可恢复检查点标签 `reader-optimization-m1-checkpoint-715c469`；不改写已有提交历史。
 - 对 M1 两个代码提交完成第二轮只读复核：确认空章节在父层被拦截、索引被统一 clamp、Future identity/generation 防护和监听事实记录已覆盖主要路径。
 - 发现并列入下一独立修复提交的低风险项：`JMPageImage` 旧请求在 generation 失效后仍可能发起尺寸查询；FutureBuilder 类型应显式化；reader 复用章节时应补齐加载器/章节身份与阅读记录语义；初始化专辑请求需收敛异常。
-- 当前未运行 Flutter/Dart/Cargo；上述问题不能以“编译通过”表述，修复后仍须在工具链可用时执行 analyzer、widget test 和 Rust contract test。
-- 新增 `.github/workflows/CI.yml`：仅执行无签名副作用的 `flutter pub get`、`flutter analyze` 和 `flutter test`，触发于 PR、主分支及 `MrYu/**` 分支；不改变现有 Build/Release 手动发布流程。
-- CI 首次运行（GitHub Actions run `33315355755`/`33315357701`，2026-08-30）在 job 启动前因仓库账号 billing issue 被 GitHub 拒绝，`steps` 为空；这不是 analyzer/test 结果。待账号恢复后必须重新运行，当前仍按“验证未执行”处理。
+- 本轮已在本地 Flutter 3.41.2/Dart 3.11.0 上执行 analyzer 和 widget test；Rust contract test、真实平台设备回归和性能基线仍待执行，不能以本地 Flutter 结果替代它们。
+- 新增 `.github/workflows/CI.yml`：原设计仅执行无签名副作用的 `flutter pub get`、`flutter analyze` 和 `flutter test`；按本轮本地构建要求已改为仅手动诊断触发，不改变现有 Build/Release 手动发布流程。
+- CI 首次运行（GitHub Actions run `33315355755`/`33315357701`，2026-08-30）在 job 启动前因仓库账号 billing issue 被 GitHub 拒绝，`steps` 为空；这不是 analyzer/test 结果。按用户要求后续不依赖托管 runner，workflow 已改为仅手动触发，本地门禁才是本轮验收依据。
 - 预取错误隔离补强正在独立提交：邻页 `precacheImage` 失败只记录错误类型，不传播到当前页，也不输出 URL/签名参数；post-frame 入口继续受 `mounted` 保护。
+- 使用本地锁定工具链运行 `flutter test --no-pub`：全量 69 个测试通过；reader 新增空章节占位、章节 loader 错误和越界初始索引 3 个回归用例均通过。测试夹具显式初始化 reader 配置，避免绕过 `InitScreen` 时触发未初始化的 `late` 配置。
+- 使用同一工具链运行 `flutter analyze --no-pub`：发现 0 个 analyzer error；命令因项目既有 137 条 info/deprecation lint 以退出码 1 结束，这些信息不属于本轮 M1 编译错误。修复了本轮代码引入的 reader key 插值错误和两个不必要的非空断言。
+- 按用户指定将本地验证/构建输出根固定为 `D:\Cat\jm3\build`（实际测试通过 `FLUTTER_BUILD_DIR` 指向该目录）；未继续触发 GitHub Actions，`.github/workflows/CI.yml` 改为仅 `workflow_dispatch`。
 
 ### M0：基线与工具链冻结（0.5–1 天）
 
@@ -593,7 +596,7 @@ Rust 仓库已有用户未提交修改，至少包括：
 
 后续实现只能增量修改，不能使用 reset/checkout 覆盖这些改动。
 
-当前环境未找到 `flutter`、`dart`、`cargo` 命令；在对应工具链准备好之前，本文档中的验证项均标记为“待执行”，不得把未运行的测试写成已通过。
+本地构建环境已可用：`D:\Cat\jm3\_flutter\flutter` 提供 Flutter 3.41.2/Dart 3.11.0，`D:\Cat\jm3\toolchains` 提供 Rust/Android/MSVC 工具链；平台构建必须使用 `D:\Cat\jm3\build` 的隔离子目录，不能覆盖用户已有的主构建缓存。Rust 仓库工作树仍有用户未提交修改，未在本轮改动。
 
 ## 12. 变更记录
 
@@ -608,9 +611,12 @@ Rust 仓库已有用户未提交修改，至少包括：
 - 继续深审补充 R-31～R-33：解扰失败不得伪装成 canonical、绝对 URL 的凭据外泄、`clean_all_cache` 与 fetch/read 并发竞态。
 - 边界审查补充 R-34～R-39：FocusNode/预取回调生命周期、空章节与非法初始页、异常图片列表、异步导航，以及空下载任务误用 album id。
 - 增加硬依赖图、各阶段完成定义、能力开关矩阵、缓存迁移/进度 schema 草案、灰度回滚 runbook、兼容矩阵和隐私约束。
-- 记录主仓库与 Rust 基线 SHA；确认 Rust 工作树仍有用户未提交修改，未运行 Flutter/Dart/Cargo 验证。
+- 记录主仓库与 Rust 基线 SHA；确认 Rust 工作树仍有用户未提交修改（本轮未触碰）。
 - 按可回溯要求创建分支 `MrYu/reader-optimization-m1`、基线提交 `c7b8498`、本地基线 tag，并推送 Draft PR #2；M1 仅启动生命周期/缓存竞态子集。
-- M1 子集已拆分并推送：`cfaf5f4`（Future/cache generation）和 `6474b38`（reader 生命周期、边界、导航、FocusNode/音量监听）；后续补强正在独立提交中；已执行 `git diff --check`/`git show --check`，未执行 Flutter/Dart 运行时测试。
+- M1 子集已拆分并推送：`cfaf5f4`（Future/cache generation）和 `6474b38`（reader 生命周期、边界、导航、FocusNode/音量监听）；后续补强保持独立提交，并持续执行 `git diff --check`/`git show --check`。
+- 本地验证补充：使用 `D:\Cat\jm3\_flutter\flutter`（Flutter 3.41.2/Dart 3.11.0）执行全量 `flutter test --no-pub`，69 个测试通过；`flutter analyze --no-pub` 发现 0 个 error，退出码 1 仅由项目既有 137 条 info/deprecation lint 触发。
+- 新增 reader widget 回归用例（空章节占位、章节加载失败、越界初始索引），并为直挂 reader 的测试夹具显式初始化配置；修复 analyzer 报出的 reader key 插值错误和不必要的非空断言。
+- 按用户要求停止依赖 GitHub 构建：`.github/workflows/CI.yml` 改为仅手动诊断触发；本地测试/平台构建输出统一指向 `D:\Cat\jm3\build` 的隔离子目录，避免覆盖已有构建缓存。
 
 ## 13. 后续更新规则
 

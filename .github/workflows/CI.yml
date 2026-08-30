@@ -1,11 +1,9 @@
 name: Flutter CI
 
 on:
-  push:
-    branches:
-      - main
-      - 'MrYu/**'
-  pull_request:
+  # Release/verification is performed in the pinned local environment under
+  # D:\Cat\jm3\build. Keep this workflow available for an explicit manual
+  # diagnostic run, but do not start a hosted build for every branch push.
   workflow_dispatch:
 
 permissions:
