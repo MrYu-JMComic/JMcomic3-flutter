@@ -28,6 +28,7 @@ import '../configs/volume_key_control.dart';
 import 'components/images.dart';
 import 'components/right_click_pop.dart';
 import '../reader_session.dart';
+import '../basic/reader_pages.dart';
 
 class ComicReaderScreen extends StatefulWidget {
   final ComicBasic comic;
@@ -409,6 +410,9 @@ class _ComicReader extends StatefulWidget {
 abstract class _ComicReaderState extends State<_ComicReader> {
   final ReaderSession _readerSession = ReaderSession();
   ReaderGeneration? _readerGeneration;
+  /// Source-neutral page metadata; legacy `chapter.images` remains the
+  /// rendering source until the repository-backed pipeline is enabled.
+  List<PageDescriptor> _pageDescriptors = const <PageDescriptor>[];
   static const int _uiSyncMinIntervalMs = 80;
   bool _sliderDragging = false;
   Widget _buildViewer();
@@ -568,6 +572,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       _didAddVolumeListen = true;
     }
     _rebuildSeriesCache();
+    _pageDescriptors = ReaderPageRepository.fromOnline(widget.chapter.images);
     _readerGeneration = _readerSession.openChapter(
       ChapterIdentity(widget.chapter.id.toString()),
     );
@@ -580,6 +585,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       _readerGeneration = _readerSession.openChapter(
         ChapterIdentity(widget.chapter.id.toString()),
       );
+      _pageDescriptors = ReaderPageRepository.fromOnline(widget.chapter.images);
       _rebuildSeriesCache();
     }
   }

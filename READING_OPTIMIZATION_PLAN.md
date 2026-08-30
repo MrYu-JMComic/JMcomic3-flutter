@@ -720,6 +720,15 @@ Rust 仓库已有用户未提交修改，至少包括：
 
 ## 13. 后续更新规则
 
+### 2026-08-31 M3 增量
+
+- 在 `_ComicReaderState` 增加 `ReaderPageRepository.fromOnline` 兼容转换，维护
+  source-neutral `_pageDescriptors` 元数据；现有 `chapter.images` 渲染和离线旧 API
+  保持不变，便于独立回滚。离线 `DlImage` 转换仍由 repository 提供，待离线 reader
+  数据入口具备后再接入。
+- 验证：`flutter test test/reader_pages_test.dart` 及 reader session tests；未启用新
+  元数据驱动渲染，故无行为变化。
+
 每次继续工作时，按以下顺序更新本文档：
 
 1. 在“任务状态”或“变更记录”中写明本轮做了什么。
