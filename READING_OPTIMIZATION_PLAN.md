@@ -156,7 +156,7 @@
 |---|---|---|---|
 | 二次逻辑/边界审查 | 已完成（本轮） | 将新增风险和发布门禁纳入本文档 | 只读审查；未修改业务代码 |
 | M0 基线与工具链冻结 | 部分完成（分支/PR） | 准备目标 Flutter/Rust 工具链，采集三类设备基线 | 分支 `MrYu/reader-optimization-m1`、Draft PR #2 和基线 tag 已建立；2026-08-30 检查仍未找到 `flutter`、`dart`、`cargo`、`fvm`、`rustup` |
-| M1 低风险稳定性修复 | 进行中（生命周期/缓存竞态子集） | 审查小提交并补回归测试；暂不改 target-size/离线 owner | 需要明确当前支持的 Flutter API 版本；本环境无法运行 Flutter 测试 |
+| M1 低风险稳定性修复 | 已实现子集（待运行时验证） | 安装/锁定工具链后补 widget 回归；再决定是否继续 M1 全屏状态恢复 | 已提交生命周期/缓存竞态子集；本环境无法运行 Flutter 测试，target-size/离线 owner 未混入 |
 | M2 目标尺寸解码 | 待验证 | 用 known scrambled fixture 检查 codec 实际输出尺寸 | 必须证明 target 不会在 provider 内被忽略 |
 | M3 PageDescriptor/Repository | 待开始 | 先增加兼容转换，不改变现有 UI | 需要确认在线 chapter 响应的旧/新格式 |
 | M4 ReaderSession/generation 与预取调度器 | 待开始 | 先定义 chapter identity、取消/丢弃语义，再只在在线 Gallery 实验 | 需要 M2、M3 的页面 key/尺寸语义；不得与双页重构同批发布 |
@@ -600,6 +600,7 @@ Rust 仓库已有用户未提交修改，至少包括：
 - 增加硬依赖图、各阶段完成定义、能力开关矩阵、缓存迁移/进度 schema 草案、灰度回滚 runbook、兼容矩阵和隐私约束。
 - 记录主仓库与 Rust 基线 SHA；确认 Rust 工作树仍有用户未提交修改，未运行 Flutter/Dart/Cargo 验证。
 - 按可回溯要求创建分支 `MrYu/reader-optimization-m1`、基线提交 `c7b8498`、本地基线 tag，并推送 Draft PR #2；M1 仅启动生命周期/缓存竞态子集。
+- M1 子集已拆分并推送：`cfaf5f4`（Future/cache generation）和 `6474b38`（reader 生命周期、边界、导航、FocusNode/音量监听）；已执行 `git diff --check`/`git show --check`，未执行 Flutter/Dart 运行时测试。
 
 ## 13. 后续更新规则
 
