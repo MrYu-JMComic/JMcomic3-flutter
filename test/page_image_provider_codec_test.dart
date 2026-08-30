@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jmcomic3/screens/components/images.dart';
 
@@ -9,11 +10,13 @@ void main() {
   test('target codec produces bounded pixels from a canonical fixture',
       () async {
     final fixture = File('images/reader_screen.png');
-    final bytes = await fixture.readAsBytes();
-    final codec = await decodeCanonicalPageBytesForTest(
-      bytes,
+    final provider = PageImageProvider(
+      9001,
+      'fixture.png',
+      localPath: fixture.path,
       cacheWidth: 256,
     );
+    final codec = await provider.loadCodecForTest();
     final frame = await codec.getNextFrame();
 
     // The fixture is 421x751. Target decoding must reduce the bitmap while

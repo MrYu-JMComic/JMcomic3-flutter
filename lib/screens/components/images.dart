@@ -97,14 +97,36 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
   final int? cacheWidth;
   final int? cacheHeight;
 
+  /// Optional already-resolved canonical path, used by offline readers and
+  /// tests.  It is never a network URL and is validated for existence before
+  /// handing bytes to the codec.
+  final String? localPath;
+
   PageImageProvider(
     this.id,
     this.imageName, {
     this.scale = 1.0,
     int? cacheWidth,
     int? cacheHeight,
+    String? localPath,
   })  : cacheWidth = _normalizeDecodeTarget(cacheWidth),
-        cacheHeight = _normalizeDecodeTarget(cacheHeight);
+        cacheHeight = _normalizeDecodeTarget(cacheHeight),
+        localPath = _normalizeLocalPath(localPath);
+
+  Future<String> _pathForKey(PageImageProvider key) async {
+    final supplied = key.localPath;
+    if (supplied != null) {
+      final file = File(supplied);
+      if (!await file.exists()) {
+        throw StateError('image file not found: $supplied');
+      }
+      if (await file.length() <= 0) {
+        throw StateError('image file empty: $supplied');
+      }
+      return supplied;
+    }
+    return _cachedPageImagePath(key.id, key.imageName);
+  }
 
   @override
   ImageStreamCompleter loadBuffer(
@@ -116,6 +138,15 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
       scale: key.scale,
     );
   }
+
+  /// Direct codec hook for deterministic fixture tests. Production callers
+  /// should resolve the provider through [Image] so Flutter's image cache and
+  /// lifecycle remain in charge.
+  @visibleForTesting
+  Future<ui.Codec> loadCodecForTest() => _loadAsyncWithImage(
+        this,
+        PaintingBinding.instance.instantiateImageCodecWithSize,
+      );
 
   @override
   ImageStreamCompleter loadImage(
@@ -138,8 +169,7 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
     DecoderBufferCallback decode,
   ) async {
     assert(key == this);
-    final bytes =
-        await File(await _cachedPageImagePath(id, imageName)).readAsBytes();
+    final bytes = await File(await _pathForKey(key)).readAsBytes();
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
     final width = key.cacheWidth;
     final height = key.cacheHeight;
@@ -159,8 +189,7 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
     ImageDecoderCallback decode,
   ) async {
     assert(key == this);
-    final bytes =
-        await File(await _cachedPageImagePath(id, imageName)).readAsBytes();
+    final bytes = await File(await _pathForKey(key)).readAsBytes();
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
     final width = key.cacheWidth;
     final height = key.cacheHeight;
@@ -186,12 +215,13 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
         imageName == typedOther.imageName &&
         scale == typedOther.scale &&
         cacheWidth == typedOther.cacheWidth &&
-        cacheHeight == typedOther.cacheHeight;
+        cacheHeight == typedOther.cacheHeight &&
+        localPath == typedOther.localPath;
   }
 
   @override
   int get hashCode =>
-      Object.hash(id, imageName, scale, cacheWidth, cacheHeight);
+      Object.hash(id, imageName, scale, cacheWidth, cacheHeight, localPath);
 
   @override
   String toString() => '$runtimeType('
@@ -199,7 +229,8 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
       ' imageName: ${describeIdentity(imageName)},'
       ' scale: $scale,'
       ' cacheWidth: $cacheWidth,'
-      ' cacheHeight: $cacheHeight'
+      ' cacheHeight: $cacheHeight,'
+      ' localPath: ${localPath == null ? '<cache>' : describeIdentity(localPath)}'
       ')';
 }
 
@@ -231,6 +262,11 @@ int? _normalizeDecodeTarget(int? value) {
   // Never let a caller create an unbounded image-cache key or request a
   // decoder target larger than the largest supported profile.
   return _decodeTargetBuckets.last;
+}
+
+String? _normalizeLocalPath(String? value) {
+  final trimmed = value?.trim();
+  return trimmed == null || trimmed.isEmpty ? null : trimmed;
 }
 
 final Map<int, Future<String>> _jm3x4CoverPathFutureCache = {};
