@@ -13,6 +13,8 @@ class PageDescriptor {
     this.height = 0,
     this.key = '',
     this.isDuplicateName = false,
+    this.localPath,
+    this.localAvailable = false,
   });
 
   final int position;
@@ -21,6 +23,9 @@ class PageDescriptor {
   final int height;
   final String key;
   final bool isDuplicateName;
+  /// Canonical local cache path, when independently validated by the caller.
+  final String? localPath;
+  final bool localAvailable;
 
   bool get hasName => name.trim().isNotEmpty;
   bool get hasDimensions => width > 0 && height > 0;
@@ -30,13 +35,15 @@ class PageDescriptor {
   /// or choose a stronger cache key, but never discard the page here.
   bool get isUsable => hasName;
 
-  PageDescriptor copyWith({bool? isDuplicateName}) => PageDescriptor(
+  PageDescriptor copyWith({bool? isDuplicateName, String? localPath, bool? localAvailable}) => PageDescriptor(
         position: position,
         name: name,
         width: width,
         height: height,
         key: key,
         isDuplicateName: isDuplicateName ?? this.isDuplicateName,
+        localPath: localPath ?? this.localPath,
+        localAvailable: localAvailable ?? this.localAvailable,
       );
 }
 
