@@ -174,6 +174,7 @@
 - 发现并列入下一独立修复提交的低风险项：`JMPageImage` 旧请求在 generation 失效后仍可能发起尺寸查询；FutureBuilder 类型应显式化；reader 复用章节时应补齐加载器/章节身份与阅读记录语义；初始化专辑请求需收敛异常。
 - 当前未运行 Flutter/Dart/Cargo；上述问题不能以“编译通过”表述，修复后仍须在工具链可用时执行 analyzer、widget test 和 Rust contract test。
 - 新增 `.github/workflows/CI.yml`：仅执行无签名副作用的 `flutter pub get`、`flutter analyze` 和 `flutter test`，触发于 PR、主分支及 `MrYu/**` 分支；不改变现有 Build/Release 手动发布流程。
+- CI 首次运行（GitHub Actions run `33315355755`/`33315357701`，2026-08-30）在 job 启动前因仓库账号 billing issue 被 GitHub 拒绝，`steps` 为空；这不是 analyzer/test 结果。待账号恢复后必须重新运行，当前仍按“验证未执行”处理。
 
 ### M0：基线与工具链冻结（0.5–1 天）
 
