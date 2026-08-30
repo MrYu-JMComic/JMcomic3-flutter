@@ -27,4 +27,14 @@ void main() {
     expect((await stale.future).outcome, PrefetchOutcome.discarded);
     scheduler.close();
   });
+
+  test('scheduler reports failures and deduplicates keys', () async {
+    final session = ReaderSession()..openChapter(const ChapterIdentity('a'));
+    final scheduler = PrefetchScheduler();
+    final first = scheduler.schedule(session.current, () async => throw StateError('x'), key: 'p');
+    final second = scheduler.schedule(session.current, () async => 2, key: 'p');
+    expect(identical(first, second), isTrue);
+    expect((await first.future).outcome, PrefetchOutcome.failed);
+    scheduler.close();
+  });
 }

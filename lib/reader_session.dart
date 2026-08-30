@@ -26,7 +26,7 @@ class ReaderGeneration {
   const ReaderGeneration(this.chapter, this.value);
 }
 
-enum PrefetchOutcome { completed, cancelled, discarded }
+enum PrefetchOutcome { completed, cancelled, discarded, failed }
 
 class PrefetchResult<T> {
   final PrefetchOutcome outcome;
@@ -37,6 +37,7 @@ class PrefetchResult<T> {
       : this._(PrefetchOutcome.completed, value, null);
   const PrefetchResult.cancelled() : this._(PrefetchOutcome.cancelled, null, null);
   const PrefetchResult.discarded() : this._(PrefetchOutcome.discarded, null, null);
+  const PrefetchResult.failed(Object error) : this._(PrefetchOutcome.failed, null, error);
 }
 
 /// Owns the active chapter and monotonically increasing generation token.
@@ -78,6 +79,7 @@ class PrefetchScheduler {
   final int maxConcurrent;
   int _running = 0;
   final List<_Job<dynamic>> _pending = [];
+  final Map<Object, PrefetchHandle<dynamic>> _dedupe = {};
   bool _closed = false;
 
   PrefetchScheduler({this.maxConcurrent = 2})
@@ -85,11 +87,16 @@ class PrefetchScheduler {
 
   PrefetchHandle<T> schedule<T>(
       ReaderGeneration generation, PrefetchLoader<T> loader,
-      {bool Function()? isCurrent}) {
+      {bool Function()? isCurrent, int priority = 0, Object? key}) {
+    if (key != null) {
+      final existing = _dedupe[key];
+      if (existing != null) return existing as PrefetchHandle<T>;
+    }
     var cancelled = false;
     final completer = Future<PrefetchResult<T>>.sync(() {
-      final job = _Job<T>(generation, loader, () => cancelled, isCurrent);
+      final job = _Job<T>(generation, loader, () => cancelled, isCurrent, priority);
       _pending.add(job);
+      _pending.sort((a, b) => b.priority.compareTo(a.priority));
       _pump();
       return job.future;
     }).then((value) => value);
@@ -97,7 +104,9 @@ class PrefetchScheduler {
       cancelled = true;
       _pump();
     }
-    return PrefetchHandle(generation, completer, cancel);
+    final handle = PrefetchHandle(generation, completer, cancel);
+    if (key != null) _dedupe[key] = handle;
+    return handle;
   }
 
   void _pump() {
@@ -122,6 +131,7 @@ class PrefetchScheduler {
       job.complete(const PrefetchResult.cancelled());
     }
     _pending.clear();
+    _dedupe.clear();
   }
 }
 
@@ -130,8 +140,9 @@ class _Job<T> {
   final PrefetchLoader<T> loader;
   final bool Function() _isCancelled;
   final bool Function()? isCurrent;
+  final int priority;
   final _completer = Completer<PrefetchResult<T>>();
-  _Job(this.generation, this.loader, this._isCancelled, this.isCurrent);
+  _Job(this.generation, this.loader, this._isCancelled, this.isCurrent, this.priority);
   Future<PrefetchResult<T>> get future => _completer.future;
   bool get cancelled => _isCancelled();
   void complete(PrefetchResult<T> result) {
@@ -146,7 +157,7 @@ class _Job<T> {
               ? const PrefetchResult.discarded()
               : PrefetchResult.completed(value)));
     } catch (error) {
-      complete(PrefetchResult._(PrefetchOutcome.completed, null, error));
+      complete(PrefetchResult.failed(error));
     }
   }
 }
