@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:jmcomic3/screens/components/images.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('decode target is bounded to stable buckets', () {
     expect(decodeTargetExtentForTest(100, 1), 256);
     expect(decodeTargetExtentForTest(500, 1), 512);
@@ -38,5 +40,52 @@ void main() {
     expect(small, same);
     expect(small, isNot(different));
     expect(small.hashCode, same.hashCode);
+  });
+
+  test('duplicate source pages keep distinct provider identities', () {
+    final first = readerPageImageProviderForTest(
+      id: 1,
+      imageName: 'same.jpg',
+      pageIndex: 0,
+      width: 400,
+    );
+    final second = readerPageImageProviderForTest(
+      id: 1,
+      imageName: 'same.jpg',
+      pageIndex: 1,
+      width: 400,
+    );
+
+    expect(first, isNot(second));
+    expect(first.hashCode, isNot(second.hashCode));
+  });
+
+  test('local-only provider rejects missing availability without bridge call',
+      () async {
+    final provider = readerPageImageProviderForTest(
+      id: 1,
+      imageName: 'missing.jpg',
+      localOnly: true,
+    );
+
+    await expectLater(
+      provider.loadCodecForTest(),
+      throwsA(isA<StateError>()),
+    );
+  });
+
+  test('local-only provider treats blank local path as unavailable', () async {
+    final provider = readerPageImageProviderForTest(
+      id: 2,
+      imageName: 'blank.jpg',
+      localPath: '   ',
+      localOnly: true,
+    );
+
+    expect(provider.localPath, isNull);
+    await expectLater(
+      provider.loadCodecForTest(),
+      throwsA(isA<StateError>()),
+    );
   });
 }

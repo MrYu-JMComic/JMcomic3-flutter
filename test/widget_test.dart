@@ -134,4 +134,46 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('reused reader state resets chapter generation safely',
+      (tester) async {
+    final loaded = <int>[];
+    Future<ChapterResponse> loader(int id) async {
+      loaded.add(id);
+      return ChapterResponse(
+        id: id,
+        series: [Series(id: id, name: 'Chapter $id', sort: '$id')],
+        tags: '',
+        name: 'Chapter $id',
+        images: const ['images/ic.png'],
+        seriesId: id,
+        isFavorite: false,
+        liked: false,
+      );
+    }
+
+    Widget buildReader(int chapterId) {
+      return MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: const [AppLocalizations.delegate],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ComicReaderScreen(
+          key: const ValueKey('same-reader-state'),
+          comic: _comic(),
+          series: const [],
+          chapterId: chapterId,
+          initRank: 0,
+          loadChapter: loader,
+        ),
+      );
+    }
+
+    await tester.pumpWidget(buildReader(10));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(buildReader(11));
+    await tester.pumpAndSettle();
+
+    expect(loaded, [10, 11]);
+    expect(tester.takeException(), isNull);
+  });
 }
