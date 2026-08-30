@@ -56,6 +56,24 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
   late Future<ChapterResponse> _chapterFuture;
   bool _navigationInFlight = false;
 
+  /// Record the opening position without allowing a failed auxiliary request
+  /// to become an unhandled asynchronous error.  The `ignore_view_log`
+  /// compatibility behavior intentionally remains unchanged: when enabled,
+  /// the album request still gates the initial view-log write.
+  Future<void> _recordInitialViewLog() async {
+    final comicId = widget.comic.id;
+    final chapterId = widget.chapterId;
+    final page = widget.initRank;
+    try {
+      if (currentIgnoreVewLog()) {
+        await methods.album(comicId);
+      }
+      await methods.updateViewLog(comicId, chapterId, page);
+    } catch (error, stackTrace) {
+      debugPrient("initial view log failed: $error\n$stackTrace");
+    }
+  }
+
   void _load() {
     if (!mounted) {
       return;
@@ -105,17 +123,7 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
     _readerType = currentReaderType;
     _readerDirection = currentReaderDirection;
     _chapterFuture = widget.loadChapter(widget.chapterId);
-    if (currentIgnoreVewLog()) {
-      late Future<AlbumResponse> _albumFuture = methods.album(
-        widget.comic.id,
-      );
-      _albumFuture.then((value) {
-        methods.updateViewLog(
-            widget.comic.id, widget.chapterId, widget.initRank);
-      });
-    } else {
-      methods.updateViewLog(widget.comic.id, widget.chapterId, widget.initRank);
-    }
+    unawaited(_recordInitialViewLog());
   }
 
   @override
@@ -129,6 +137,7 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
       _readerType = currentReaderType;
       _readerDirection = currentReaderDirection;
       _chapterFuture = widget.loadChapter(widget.chapterId);
+      unawaited(_recordInitialViewLog());
     }
   }
 
@@ -138,7 +147,7 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
   }
 
   Widget buildScreen(BuildContext context) {
-    return FutureBuilder(
+    return FutureBuilder<ChapterResponse>(
       future: _chapterFuture,
       builder: (BuildContext context, AsyncSnapshot<ChapterResponse> snapshot) {
         if (snapshot.hasError) {
@@ -544,20 +553,21 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   }
 
   void _onPageControl(_ReaderControllerEventArgs? args) {
-    if (args != null) {
-      var event = args.key;
-      switch (event) {
-        case "UP":
-          if (_current > 0) {
-            _needJumpTo(_current - 1, !currentNoAnimation());
-          }
-          break;
-        case "DOWN":
-          if (_current < widget.chapter.images.length - 1) {
-            _needJumpTo(_current + 1, !currentNoAnimation());
-          }
-          break;
-      }
+    if (!mounted || args == null || widget.chapter.images.isEmpty) {
+      return;
+    }
+    var event = args.key;
+    switch (event) {
+      case "UP":
+        if (_current > 0) {
+          _needJumpTo(_current - 1, !currentNoAnimation());
+        }
+        break;
+      case "DOWN":
+        if (_current < widget.chapter.images.length - 1) {
+          _needJumpTo(_current + 1, !currentNoAnimation());
+        }
+        break;
     }
   }
 
@@ -1243,13 +1253,13 @@ class _ComicReaderWebToonState extends _ComicReaderState {
 
   @override
   void initState() {
+    super.initState();
     for (var _ in widget.chapter.images) {
       _trueSizes.add(null);
     }
     _itemScrollController = ItemScrollController();
     _itemPositionsListener = ItemPositionsListener.create();
     _itemPositionsListener.itemPositions.addListener(_onListCurrentChange);
-    super.initState();
   }
 
   @override
@@ -1306,6 +1316,9 @@ class _ComicReaderWebToonState extends _ComicReaderState {
   }
 
   void _onTrueSize(int index, Size size) {
+    if (index < 0 || index >= _trueSizes.length) {
+      return;
+    }
     final previous = _trueSizes[index];
     if (previous != null &&
         previous.width == size.width &&
@@ -1335,6 +1348,9 @@ class _ComicReaderWebToonState extends _ComicReaderState {
 
   @override
   void _needJumpTo(int index, bool animation) {
+    if (index < 0 || index >= widget.chapter.images.length) {
+      return;
+    }
     if (animation) {
       if (DateTime.now().millisecondsSinceEpoch < _controllerTime) {
         return;
@@ -1441,13 +1457,13 @@ class _ComicReaderGalleryState extends _ComicReaderState {
 
   @override
   void initState() {
-    _pageController = PageController(initialPage: widget.startIndex);
     super.initState();
+    _pageController = PageController(initialPage: widget.startIndex);
     _preloadJump(widget.startIndex, init: true);
   }
 
   void _reloadImage(int index) {
-    if (mounted) {
+    if (mounted && index >= 0 && index < widget.chapter.images.length) {
       // Clear image cache for this page.
       final oldProvider =
           PageImageProvider(widget.chapter.id, widget.chapter.images[index]);
@@ -1550,6 +1566,9 @@ class _ComicReaderGalleryState extends _ComicReaderState {
 
   @override
   _needJumpTo(int pageIndex, bool animation) {
+    if (pageIndex < 0 || pageIndex >= widget.chapter.images.length) {
+      return;
+    }
     if (animation) {
       _pageController.animateToPage(
         pageIndex,
@@ -1564,6 +1583,9 @@ class _ComicReaderGalleryState extends _ComicReaderState {
   }
 
   void _onGalleryPageChange(int to) {
+    if (!mounted || to < 0 || to >= widget.chapter.images.length) {
+      return;
+    }
     var toIndex = to;
     // Preload nearby pages.
     for (var i = toIndex + 1;
@@ -1578,6 +1600,9 @@ class _ComicReaderGalleryState extends _ComicReaderState {
 
   _preloadJump(int index, {bool init = false}) {
     fn() {
+      if (!mounted) {
+        return;
+      }
       for (var i = index - 1; i < index + 3; i++) {
         if (i < 0 || i >= widget.chapter.images.length) continue;
         final ip =
@@ -1646,8 +1671,8 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
 
   @override
   void initState() {
-    _pageController = PageController(initialPage: widget.startIndex);
     super.initState();
+    _pageController = PageController(initialPage: widget.startIndex);
     _bindZoomListener(widget.startIndex);
     _preloadAround(widget.startIndex, init: true);
   }
@@ -1727,7 +1752,7 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
   }
 
   void _reloadImage(int index) {
-    if (!mounted) {
+    if (!mounted || index < 0 || index >= widget.chapter.images.length) {
       return;
     }
     final oldProvider =
@@ -1762,6 +1787,9 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
   }
 
   void _onGalleryPageChange(int to) {
+    if (!mounted || to < 0 || to >= widget.chapter.images.length) {
+      return;
+    }
     _resetZoomFor(_current);
     _bindZoomListener(to);
     _preloadAround(to);
@@ -1770,6 +1798,9 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
 
   void _preloadAround(int index, {bool init = false}) {
     void run() {
+      if (!mounted) {
+        return;
+      }
       for (var i = index - 1; i < index + 3; i++) {
         if (i < 0 || i >= widget.chapter.images.length) {
           continue;
@@ -1947,6 +1978,7 @@ class _ListViewReaderState extends _ComicReaderState
 
   @override
   void initState() {
+    super.initState();
     for (var _ in widget.chapter.images) {
       _trueSizes.add(null);
       _pageKeys.add(GlobalKey());
@@ -1960,7 +1992,6 @@ class _ListViewReaderState extends _ComicReaderState
       }
       _needJumpTo(widget.startIndex, false);
     });
-    super.initState();
   }
 
   @override
@@ -2107,6 +2138,9 @@ class _ListViewReaderState extends _ComicReaderState
   }
 
   void _onTrueSize(int index, Size size) {
+    if (index < 0 || index >= _trueSizes.length) {
+      return;
+    }
     final previous = _trueSizes[index];
     if (previous != null &&
         previous.width == size.width &&
@@ -2268,11 +2302,11 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
 
   @override
   void initState() {
+    super.initState();
     // Initialize chapter state before using startIndex.
     for (var _ in widget.chapter.images) {
       _trueSizes.add(null);
     }
-    super.initState();
     _pageController = PageController(initialPage: widget.startIndex ~/ 2);
     for (var index = 0; index < widget.chapter.images.length; index++) {
       _imageProviderKeys[index] = 0;
@@ -2395,7 +2429,7 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
   }
 
   void _reloadImage(int index) {
-    if (mounted) {
+    if (mounted && index >= 0 && index < widget.chapter.images.length) {
       setState(() {
         _imageProviderKeys[index] = (_imageProviderKeys[index] ?? 0) + 1;
         // Clear image cache for this page.
@@ -2419,6 +2453,9 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
 
   @override
   void _needJumpTo(int index, bool animation) {
+    if (index < 0 || index >= widget.chapter.images.length) {
+      return;
+    }
     if (currentNoAnimation() || animation == false) {
       _pageController.jumpToPage(
         index ~/ 2,
@@ -2436,6 +2473,9 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
 
   _preloadJump(int index, {bool init = false}) {
     fn() {
+      if (!mounted) {
+        return;
+      }
       for (var i = index - 2; i < index + 5; i++) {
         if (i < 0 || i >= ips.length) continue;
         final ip = ips[i];
@@ -2463,6 +2503,9 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
   }
 
   void _onGalleryPageChange(int to) {
+    if (!mounted || to < 0) {
+      return;
+    }
     var toIndex = to * 2;
     // Preload nearby pages.
     for (var i = toIndex + 2; i < toIndex + 5 && i < ips.length; i++) {
