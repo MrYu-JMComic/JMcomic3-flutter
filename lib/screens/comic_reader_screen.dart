@@ -412,6 +412,27 @@ abstract class _ComicReaderState extends State<_ComicReader> {
 
   _needJumpTo(int pageIndex, bool animation);
 
+  /// Preloading is opportunistic: a failed neighbour must never turn into a
+  /// current-page error or an unhandled Future. Keep the context access behind
+  /// a mounted check because several callers are post-frame callbacks.
+  void _precacheReaderImage(ImageProvider provider) {
+    if (!mounted) {
+      return;
+    }
+    try {
+      final future = precacheImage(provider, context);
+      unawaited(
+        future.catchError((Object error, StackTrace _) {
+          // Do not log URLs or signed parameters; the type is enough for
+          // local diagnostics and keeps prefetch failures low-noise.
+          debugPrient("reader prefetch failed: ${error.runtimeType}");
+        }),
+      );
+    } catch (error) {
+      debugPrient("reader prefetch failed: ${error.runtimeType}");
+    }
+  }
+
   late bool _fullScreen;
   late int _current;
   late int _slider;
@@ -1601,7 +1622,7 @@ class _ComicReaderGalleryState extends _ComicReaderState {
         i < toIndex + 3 && i < widget.chapter.images.length;
         i++) {
       final ip = PageImageProvider(widget.chapter.id, widget.chapter.images[i]);
-      precacheImage(ip, context);
+      _precacheReaderImage(ip);
     }
     // Preload nearby pages.
     super._onCurrentChange(to);
@@ -1616,7 +1637,7 @@ class _ComicReaderGalleryState extends _ComicReaderState {
         if (i < 0 || i >= widget.chapter.images.length) continue;
         final ip =
             PageImageProvider(widget.chapter.id, widget.chapter.images[i]);
-        precacheImage(ip, context);
+        _precacheReaderImage(ip);
       }
     }
 
@@ -1816,7 +1837,7 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
         }
         final provider =
             PageImageProvider(widget.chapter.id, widget.chapter.images[i]);
-        precacheImage(provider, context);
+        _precacheReaderImage(provider);
       }
     }
 
@@ -2488,7 +2509,7 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
       for (var i = index - 2; i < index + 5; i++) {
         if (i < 0 || i >= ips.length) continue;
         final ip = ips[i];
-        precacheImage(ip, context);
+        _precacheReaderImage(ip);
       }
     }
 
@@ -2519,7 +2540,7 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
     // Preload nearby pages.
     for (var i = toIndex + 2; i < toIndex + 5 && i < ips.length; i++) {
       final ip = ips[i];
-      precacheImage(ip, context);
+      _precacheReaderImage(ip);
     }
     // Includes a synthetic trailing item for next-episode action.
     if (to >= 0 && to < widget.chapter.images.length) {
