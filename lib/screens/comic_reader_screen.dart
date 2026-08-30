@@ -27,6 +27,7 @@ import '../configs/no_animation.dart';
 import '../configs/volume_key_control.dart';
 import 'components/images.dart';
 import 'components/right_click_pop.dart';
+import '../reader_session.dart';
 
 class ComicReaderScreen extends StatefulWidget {
   final ComicBasic comic;
@@ -406,6 +407,8 @@ class _ComicReader extends StatefulWidget {
 }
 
 abstract class _ComicReaderState extends State<_ComicReader> {
+  final ReaderSession _readerSession = ReaderSession();
+  ReaderGeneration? _readerGeneration;
   static const int _uiSyncMinIntervalMs = 80;
   bool _sliderDragging = false;
   Widget _buildViewer();
@@ -420,6 +423,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       return;
     }
     try {
+      final generation = _readerGeneration;
       final future = precacheImage(provider, context);
       unawaited(
         future.catchError((Object error, StackTrace _) {
@@ -428,6 +432,11 @@ abstract class _ComicReaderState extends State<_ComicReader> {
           debugPrient("reader prefetch failed: ${error.runtimeType}");
         }),
       );
+      // Prefetch is opportunistic; retain the generation capture so future
+      // callers can gate publication when this path is adopted by a loader.
+      if (generation != null && !_readerSession.isCurrent(generation)) {
+        return;
+      }
     } catch (error) {
       debugPrient("reader prefetch failed: ${error.runtimeType}");
     }
@@ -559,12 +568,18 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       _didAddVolumeListen = true;
     }
     _rebuildSeriesCache();
+    _readerGeneration = _readerSession.openChapter(
+      ChapterIdentity(widget.chapter.id.toString()),
+    );
   }
 
   @override
   void didUpdateWidget(covariant _ComicReader oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.chapter, widget.chapter)) {
+      _readerGeneration = _readerSession.openChapter(
+        ChapterIdentity(widget.chapter.id.toString()),
+      );
       _rebuildSeriesCache();
     }
   }
@@ -572,6 +587,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   @override
   void dispose() {
     _viewLogDebounce?.cancel();
+    _readerSession.close();
     _flushViewLogPersist();
     _readerControllerEvent.unsubscribe(_onPageControl);
     if (_didAddVolumeListen) {
