@@ -892,8 +892,20 @@ int? _cacheExtent(double? logicalExtent, double devicePixelRatio) {
     return null;
   }
   final value = (logicalExtent * devicePixelRatio).round();
-  return value > 0 ? value : null;
+  if (value <= 0) return null;
+  // Keep the codec/cache key space bounded.  The source file remains the
+  // canonical (fully decoded/decrypted) image; this only controls Flutter's
+  // codec sampling target and therefore cannot affect decryption semantics.
+  const buckets = <int>[256, 512, 768, 1024, 1536, 2048, 3072, 4096];
+  for (final bucket in buckets) {
+    if (value <= bucket) return bucket;
+  }
+  return value;
 }
+
+@visibleForTesting
+int? decodeTargetExtentForTest(double? logicalExtent, double devicePixelRatio) =>
+    _cacheExtent(logicalExtent, devicePixelRatio);
 
 Widget buildFile(
     BuildContext context, String file, double? width, double? height,
