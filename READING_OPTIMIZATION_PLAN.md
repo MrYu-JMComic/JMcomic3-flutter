@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-08-30（本地 Flutter 验证与构建门禁）
 >
-> 当前状态：方案审查完成；M1 可回滚子集已完成本地静态/测试验证，平台构建继续使用 `D:\Cat\jm3\build` 下的隔离输出目录。M2 目标尺寸解码和 Rust 解扰失败语义仍未开启。
+> 当前状态：M1 低风险子集、M3 兼容描述层、M4 generation 最小接入和 M6 Flutter availability 最小模型已提交；M2 正在补齐实际 codec target 验证，M5 Rust 批量接口已在外部分支完成并待客户端兼容测试。平台构建继续使用 `D:\Cat\jm3\build` 下的隔离输出目录。
 
 ## 0. 固定工作上下文（压缩/换代理后先读）
 
@@ -245,12 +245,12 @@
 |---|---|---|---|
 | 二次逻辑/边界审查 | 已完成（本轮） | 将新增风险和发布门禁纳入本文档 | 只读审查；未修改业务代码 |
 | M0 基线与工具链冻结 | 部分完成（分支/PR/工具链已验；Android 输出隔离待处理） | 固定已验证的 NDK 25.2，完成外部构建目录 smoke build；之后采集三类设备基线并固定产物命名 | 分支 `MrYu/reader-optimization-m1`、Draft PR #2、基线 tag 和 `D:\Cat\jm3` 工具链已建立；`verify_build_env.ps1`/`flutter doctor -v` 通过；Windows 外部目录构建和 Android arm64 构建均已通过，但 Flutter Android Gradle 模板仍把 APK 输出落到当前仓库 `build`，设备基线仍待采集 |
-| M1 低风险稳定性修复 | 已实现子集（本地验证通过） | 补同一 State 切章/快速 pop 的专项 widget 回归；再决定是否继续全屏状态恢复 | Flutter 3.41.2 analyzer 无 error（仅既有 lint/deprecation 信息），全量 Flutter test 通过；target-size/离线 owner 未混入 |
-| M2 目标尺寸解码 | 待验证 | 用 known scrambled fixture 检查 codec 实际输出尺寸 | 必须证明 target 不会在 provider 内被忽略 |
-| M3 PageDescriptor/Repository | 待开始 | 先增加兼容转换，不改变现有 UI | 需要确认在线 chapter 响应的旧/新格式 |
-| M4 ReaderSession/generation 与预取调度器 | 待开始 | 先定义 chapter identity、取消/丢弃语义，再只在在线 Gallery 实验 | 需要 M2、M3 的页面 key/尺寸语义；不得与双页重构同批发布 |
-| M5 Rust 批量与网络协议 | 待开始 | 先定义版本化 contract 和部分成功结构 | 需要 wire/mock contract test |
-| M6 离线缓存隔离 | 待开始 | 盘点旧目录 owner，设计 manifest 和迁移演练 | 不能在未确认下载文件归属前清理旧目录 |
+| M1 低风险稳定性修复 | 已实现低风险子集；专项复用/全屏恢复待补 | 补同一 State 切章/快速 pop 的专项 widget 回归；审查全屏状态恢复 | Flutter 3.41.2 analyzer 无 error（仅既有 lint/deprecation 信息），全量 Flutter test 通过；新能力默认未强制开启 |
+| M2 目标尺寸解码 | 实现中（固定档位及 provider 接入待验证） | 让 Gallery/自由缩放/双页使用受限 target provider；known fixture 核验实际像素及错误回退 | 必须证明 target 不会被自定义 provider 忽略，且不改变 canonical/解扰流程 |
+| M3 PageDescriptor/Repository | 已完成兼容前置层（UI 仍旧数据驱动） | 接入离线入口并确认重复名/availability 语义 | 在线/离线转换测试已通过；默认渲染路径保持旧 API |
+| M4 ReaderSession/generation 与预取调度器 | 已完成最小 UI generation 接入；资源预算/真实 scheduler 灰度待补 | 增加真实队列接入、并发/取消/错误专项测试 | 当前页与旧行为保持兼容；取消的网络中止仍待实测 |
+| M5 Rust 批量与网络协议 | 外部 Rust contract + invoke 路由已提交；客户端 adapter/新旧契约待补 | 补 Dart adapter、逐项 fallback 和跨版本 smoke | 外部工作树有用户 dirty 修改，必须保持隔离；Rust commit 需固定记录 |
+| M6 离线缓存隔离 | Flutter availability 最小模型已提交；真实 owner/迁移/清理隔离待补 | 接入 DownloadAlbumScreen/Reader，增加文件探测和 metadata-only UI | 不触碰外部 dirty Rust 文件；未完成迁移前保持旧目录只读兼容 |
 | M7 双页窗口化 | 待开始 | 先固定封面、奇偶和 RTL/LTR 配对规则 | 需要独立 widget/golden 回归 |
 | M7 垂直精确进度 | 待开始 | 定义可见页规则和远跳二次校正算法 | 需要 PageDescriptor 尺寸或可靠 fallback |
 | M7 阅读记录队列 | 待开始 | 在现有 debounce 外加单写者队列和 lifecycle flush | 需要明确本地存储的崩溃恢复能力 |

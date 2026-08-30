@@ -91,7 +91,20 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
   final String imageName;
   final double scale;
 
-  PageImageProvider(this.id, this.imageName, {this.scale = 1.0});
+  /// Optional codec target in physical pixels.  This is deliberately a
+  /// property of the Flutter provider only: the file resolved by
+  /// [_cachedPageImagePath] is still the canonical, fully decrypted image.
+  final int? cacheWidth;
+  final int? cacheHeight;
+
+  PageImageProvider(
+    this.id,
+    this.imageName, {
+    this.scale = 1.0,
+    int? cacheWidth,
+    int? cacheHeight,
+  })  : cacheWidth = _normalizeDecodeTarget(cacheWidth),
+        cacheHeight = _normalizeDecodeTarget(cacheHeight);
 
   @override
   ImageStreamCompleter loadBuffer(
@@ -128,7 +141,17 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
     final bytes =
         await File(await _cachedPageImagePath(id, imageName)).readAsBytes();
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    return decode(buffer);
+    final width = key.cacheWidth;
+    final height = key.cacheHeight;
+    if (width == null && height == null) {
+      return decode(buffer);
+    }
+    return decode(
+      buffer,
+      cacheWidth: width,
+      cacheHeight: height,
+      allowUpscaling: false,
+    );
   }
 
   Future<ui.Codec> _loadAsyncWithImage(
@@ -139,7 +162,20 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
     final bytes =
         await File(await _cachedPageImagePath(id, imageName)).readAsBytes();
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    return decode(buffer);
+    final width = key.cacheWidth;
+    final height = key.cacheHeight;
+    if (width == null && height == null) {
+      return decode(buffer);
+    }
+    return decode(
+      buffer,
+      getTargetSize: (int intrinsicWidth, int intrinsicHeight) {
+        // Supplying one dimension is supported by dart:ui and preserves the
+        // source aspect ratio.  Callers that provide both dimensions have
+        // already calculated a layout box and explicitly request that box.
+        return ui.TargetImageSize(width: width, height: height);
+      },
+    );
   }
 
   @override
@@ -148,17 +184,22 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
     final PageImageProvider typedOther = other as PageImageProvider;
     return id == typedOther.id &&
         imageName == typedOther.imageName &&
-        scale == typedOther.scale;
+        scale == typedOther.scale &&
+        cacheWidth == typedOther.cacheWidth &&
+        cacheHeight == typedOther.cacheHeight;
   }
 
   @override
-  int get hashCode => Object.hash(id, imageName, scale);
+  int get hashCode =>
+      Object.hash(id, imageName, scale, cacheWidth, cacheHeight);
 
   @override
   String toString() => '$runtimeType('
       ' id: ${describeIdentity(id)},'
       ' imageName: ${describeIdentity(imageName)},'
-      ' scale: $scale'
+      ' scale: $scale,'
+      ' cacheWidth: $cacheWidth,'
+      ' cacheHeight: $cacheHeight'
       ')';
 }
 
@@ -166,6 +207,31 @@ const _pageImagePathCacheLimit = 800;
 const _pageImageTrueSizeCacheLimit = 800;
 const _coverPathCacheLimit = 400;
 const _photoPathCacheLimit = 400;
+
+const _decodeTargetBuckets = <int>[
+  256,
+  512,
+  768,
+  1024,
+  1536,
+  2048,
+  3072,
+  4096,
+];
+
+int? _normalizeDecodeTarget(int? value) {
+  if (value == null || value <= 0) {
+    return null;
+  }
+  for (final bucket in _decodeTargetBuckets) {
+    if (value <= bucket) {
+      return bucket;
+    }
+  }
+  // Never let a caller create an unbounded image-cache key or request a
+  // decoder target larger than the largest supported profile.
+  return _decodeTargetBuckets.last;
+}
 
 final Map<int, Future<String>> _jm3x4CoverPathFutureCache = {};
 final Map<int, Future<String>> _jmSquareCoverPathFutureCache = {};
@@ -645,8 +711,10 @@ class _JMPageImageState extends State<JMPageImage> {
     // A newer widget/reload may have replaced this request while the path was
     // loading. Do not start a force-refresh size lookup from the stale
     // request, since it could evict the newer size Future for the same key.
-    if (!mounted || generation != _generation ||
-        widget.id != id || widget.imageName != imageName) {
+    if (!mounted ||
+        generation != _generation ||
+        widget.id != id ||
+        widget.imageName != imageName) {
       return _path;
     }
     if (onTrueSize != null) {
@@ -654,8 +722,10 @@ class _JMPageImageState extends State<JMPageImage> {
       // can complete while a newer widget/reload is being installed; without
       // this second guard the stale request would still perform I/O and could
       // populate the size cache for a page that is no longer mounted.
-      if (!mounted || generation != _generation ||
-          widget.id != id || widget.imageName != imageName) {
+      if (!mounted ||
+          generation != _generation ||
+          widget.id != id ||
+          widget.imageName != imageName) {
         return _path;
       }
       final size = await _cachedPageImageTrueSize(
@@ -666,8 +736,10 @@ class _JMPageImageState extends State<JMPageImage> {
       );
       // Do not let an old request publish into a reused State whose widget
       // identity has changed while the request was in flight.
-      if (mounted && generation == _generation &&
-          widget.id == id && widget.imageName == imageName) {
+      if (mounted &&
+          generation == _generation &&
+          widget.id == id &&
+          widget.imageName == imageName) {
         onTrueSize(size);
       }
     }
@@ -888,7 +960,11 @@ Widget buildLoading(BuildContext context, double? width, double? height,
 }
 
 int? _cacheExtent(double? logicalExtent, double devicePixelRatio) {
-  if (logicalExtent == null || logicalExtent <= 0) {
+  if (logicalExtent == null ||
+      !logicalExtent.isFinite ||
+      logicalExtent <= 0 ||
+      !devicePixelRatio.isFinite ||
+      devicePixelRatio <= 0) {
     return null;
   }
   final value = (logicalExtent * devicePixelRatio).round();
@@ -896,16 +972,74 @@ int? _cacheExtent(double? logicalExtent, double devicePixelRatio) {
   // Keep the codec/cache key space bounded.  The source file remains the
   // canonical (fully decoded/decrypted) image; this only controls Flutter's
   // codec sampling target and therefore cannot affect decryption semantics.
-  const buckets = <int>[256, 512, 768, 1024, 1536, 2048, 3072, 4096];
-  for (final bucket in buckets) {
-    if (value <= bucket) return bucket;
-  }
-  return value;
+  return _normalizeDecodeTarget(value);
 }
 
 @visibleForTesting
-int? decodeTargetExtentForTest(double? logicalExtent, double devicePixelRatio) =>
+int? decodeTargetExtentForTest(
+        double? logicalExtent, double devicePixelRatio) =>
     _cacheExtent(logicalExtent, devicePixelRatio);
+
+/// Exercise the same target-size codec contract as [PageImageProvider] with a
+/// canonical (already decrypted) fixture, without creating an image stream.
+/// This is test-only and never participates in the production cache path.
+@visibleForTesting
+Future<ui.Codec> decodeCanonicalPageBytesForTest(
+  Uint8List bytes, {
+  int? cacheWidth,
+  int? cacheHeight,
+}) async {
+  final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+  return ui.instantiateImageCodecWithSize(
+    buffer,
+    getTargetSize: (int _, int __) => ui.TargetImageSize(
+      width: _normalizeDecodeTarget(cacheWidth),
+      height: _normalizeDecodeTarget(cacheHeight),
+    ),
+  );
+}
+
+/// Build the reader page provider for a concrete layout box.
+///
+/// `width`/`height` are logical Flutter pixels and are converted to bounded
+/// physical codec targets.  The returned provider always resolves the same
+/// canonical file as [PageImageProvider]; target decoding is never applied to
+/// the scrambled network bytes or to the Rust cache writer.
+PageImageProvider readerPageImageProvider(
+  BuildContext context,
+  int id,
+  String imageName, {
+  double? width,
+  double? height,
+  bool enabled = true,
+}) {
+  if (!enabled) {
+    return PageImageProvider(id, imageName);
+  }
+  final devicePixelRatio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
+  return PageImageProvider(
+    id,
+    imageName,
+    cacheWidth: _cacheExtent(width, devicePixelRatio),
+    cacheHeight: _cacheExtent(height, devicePixelRatio),
+  );
+}
+
+@visibleForTesting
+PageImageProvider readerPageImageProviderForTest({
+  required int id,
+  required String imageName,
+  double? width,
+  double? height,
+  double devicePixelRatio = 1.0,
+}) {
+  return PageImageProvider(
+    id,
+    imageName,
+    cacheWidth: _cacheExtent(width, devicePixelRatio),
+    cacheHeight: _cacheExtent(height, devicePixelRatio),
+  );
+}
 
 Widget buildFile(
     BuildContext context, String file, double? width, double? height,

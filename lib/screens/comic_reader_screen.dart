@@ -25,6 +25,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../configs/ignore_view_log.dart';
 import '../configs/no_animation.dart';
 import '../configs/volume_key_control.dart';
+import '../configs/reader_target_decode.dart';
 import 'components/images.dart';
 import 'components/right_click_pop.dart';
 import '../reader_session.dart';
@@ -287,7 +288,8 @@ Widget readerKeyboardHolder(Widget widget) {
 class _ReaderKeyboardHolder extends StatefulWidget {
   final Widget child;
 
-  const _ReaderKeyboardHolder({required this.child, Key? key}) : super(key: key);
+  const _ReaderKeyboardHolder({required this.child, Key? key})
+      : super(key: key);
 
   @override
   State<_ReaderKeyboardHolder> createState() => _ReaderKeyboardHolderState();
@@ -410,6 +412,7 @@ class _ComicReader extends StatefulWidget {
 abstract class _ComicReaderState extends State<_ComicReader> {
   final ReaderSession _readerSession = ReaderSession();
   ReaderGeneration? _readerGeneration;
+
   /// Source-neutral page metadata; legacy `chapter.images` remains the
   /// rendering source until the repository-backed pipeline is enabled.
   List<PageDescriptor> _pageDescriptors = const <PageDescriptor>[];
@@ -418,6 +421,30 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   Widget _buildViewer();
 
   _needJumpTo(int pageIndex, bool animation);
+
+  /// Resolve a page provider using the current reader layout when the target
+  /// decode experiment is enabled.  Keeping this helper in the common state
+  /// makes Gallery, free-zoom and two-page prefetch use identical cache-key
+  /// semantics while the legacy path remains a one-line rollback.
+  PageImageProvider _readerPageProvider(
+    int index, {
+    double? width,
+    double? height,
+  }) {
+    final imageName = index < _pageDescriptors.length
+        ? _pageDescriptors[index].name
+        : widget.chapter.images[index];
+    final safeWidth =
+        width ?? (mounted ? MediaQuery.maybeSizeOf(context)?.width : null);
+    return readerPageImageProvider(
+      context,
+      widget.chapter.id,
+      imageName,
+      width: safeWidth,
+      height: height,
+      enabled: readerTargetDecodeV1,
+    );
+  }
 
   /// Preloading is opportunistic: a failed neighbour must never turn into a
   /// current-page error or an unhandled Future. Keep the context access behind
@@ -536,7 +563,8 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     _slider = safeIndex;
     _schedulePersistViewLog(safeIndex);
     final now = DateTime.now().millisecondsSinceEpoch;
-    final isEdge = safeIndex <= 0 || safeIndex >= widget.chapter.images.length - 1;
+    final isEdge =
+        safeIndex <= 0 || safeIndex >= widget.chapter.images.length - 1;
     if (forceUiSync || isEdge || now - _lastUiSyncMs >= _uiSyncMinIntervalMs) {
       _lastUiSyncMs = now;
       setState(() {});
@@ -1527,6 +1555,7 @@ class _ComicReaderGalleryState extends _ComicReaderState {
       evictPageImageMemoryCache(
           widget.chapter.id, widget.chapter.images[index]);
       imageCache.evict(oldProvider);
+      imageCache.evict(_readerPageProvider(index));
       debugPrient("evict ${widget.chapter.images[index]}");
       setState(() {
         _reloadKeys[index] = (_reloadKeys[index] ?? 0) + 1;
@@ -1553,8 +1582,6 @@ class _ComicReaderGalleryState extends _ComicReaderState {
       allowImplicitScrolling: true,
       builder: (BuildContext context, int index) {
         final reloadKey = _reloadKeys[index] ?? 0;
-        final imageProvider =
-            PageImageProvider(widget.chapter.id, widget.chapter.images[index]);
 
         return PhotoViewGalleryPageOptions.customChild(
           disableGestures:
@@ -1565,6 +1592,13 @@ class _ComicReaderGalleryState extends _ComicReaderState {
             key: ValueKey(
                 'page_${widget.chapter.id}_${widget.chapter.images[index]}_$reloadKey'),
             builder: (BuildContext context, BoxConstraints constraints) {
+              final imageProvider = _readerPageProvider(
+                index,
+                // Width-only target preserves the source aspect ratio and
+                // leaves zoom gestures free to use the explicit full-size
+                // fallback when the experiment is disabled.
+                width: constraints.maxWidth,
+              );
               return Image(
                 key: ValueKey(
                     'image_${widget.chapter.id}_${widget.chapter.images[index]}_$reloadKey'),
@@ -1648,7 +1682,7 @@ class _ComicReaderGalleryState extends _ComicReaderState {
     for (var i = toIndex + 1;
         i < toIndex + 3 && i < widget.chapter.images.length;
         i++) {
-      final ip = PageImageProvider(widget.chapter.id, widget.chapter.images[i]);
+      final ip = _readerPageProvider(i);
       _precacheReaderImage(ip);
     }
     // Preload nearby pages.
@@ -1662,8 +1696,7 @@ class _ComicReaderGalleryState extends _ComicReaderState {
       }
       for (var i = index - 1; i < index + 3; i++) {
         if (i < 0 || i >= widget.chapter.images.length) continue;
-        final ip =
-            PageImageProvider(widget.chapter.id, widget.chapter.images[i]);
+        final ip = _readerPageProvider(i);
         _precacheReaderImage(ip);
       }
     }
@@ -1816,6 +1849,7 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
         PageImageProvider(widget.chapter.id, widget.chapter.images[index]);
     evictPageImageMemoryCache(widget.chapter.id, widget.chapter.images[index]);
     imageCache.evict(oldProvider);
+    imageCache.evict(_readerPageProvider(index));
     setState(() {
       _reloadKeys[index] = (_reloadKeys[index] ?? 0) + 1;
       _resetZoomFor(index);
@@ -1862,8 +1896,7 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
         if (i < 0 || i >= widget.chapter.images.length) {
           continue;
         }
-        final provider =
-            PageImageProvider(widget.chapter.id, widget.chapter.images[i]);
+        final provider = _readerPageProvider(i);
         _precacheReaderImage(provider);
       }
     }
@@ -1900,8 +1933,6 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
           : const ClampingScrollPhysics(),
       builder: (BuildContext context, int index) {
         final reloadKey = _reloadKeys[index] ?? 0;
-        final imageProvider =
-            PageImageProvider(widget.chapter.id, widget.chapter.images[index]);
         return PhotoViewGalleryPageOptions.customChild(
           disableGestures:
               currentReaderControllerType == ReaderControllerType.touchDouble ||
@@ -1919,6 +1950,10 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
               'fz_page_${widget.chapter.id}_${widget.chapter.images[index]}_$reloadKey',
             ),
             builder: (BuildContext context, BoxConstraints constraints) {
+              final imageProvider = _readerPageProvider(
+                index,
+                width: constraints.maxWidth,
+              );
               return SizedBox.expand(
                 child: Image(
                   key: ValueKey(
@@ -2456,11 +2491,18 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
     if (imageProvider == null || imageIndex < 0) {
       return const SizedBox.expand();
     }
+    final effectiveProvider = _readerPageProvider(
+      imageIndex,
+      // Each page occupies half of the two-page viewport.  Use a width-only
+      // target so the codec preserves the source aspect ratio and never
+      // changes the pairing/layout semantics.
+      width: constraints.maxWidth / 2,
+    );
     return Align(
       alignment: alignment,
       child: Image(
         key: ValueKey(_imageProviderKeys[imageIndex] ?? 0),
-        image: imageProvider,
+        image: effectiveProvider,
         fit: BoxFit.contain,
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) {
@@ -2493,6 +2535,12 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
         evictPageImageMemoryCache(
             widget.chapter.id, widget.chapter.images[index]);
         imageCache.evict(ips[index]);
+        imageCache.evict(
+          _readerPageProvider(
+            index,
+            width: (MediaQuery.maybeSizeOf(context)?.width ?? 0) / 2,
+          ),
+        );
         ips[index] =
             PageImageProvider(widget.chapter.id, widget.chapter.images[index]);
         _buildOptions();
@@ -2535,7 +2583,8 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
       }
       for (var i = index - 2; i < index + 5; i++) {
         if (i < 0 || i >= ips.length) continue;
-        final ip = ips[i];
+        final ip = _readerPageProvider(i,
+            width: (MediaQuery.maybeSizeOf(context)?.width ?? 0) / 2);
         _precacheReaderImage(ip);
       }
     }
@@ -2566,7 +2615,8 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
     var toIndex = to * 2;
     // Preload nearby pages.
     for (var i = toIndex + 2; i < toIndex + 5 && i < ips.length; i++) {
-      final ip = ips[i];
+      final ip = _readerPageProvider(i,
+          width: (MediaQuery.maybeSizeOf(context)?.width ?? 0) / 2);
       _precacheReaderImage(ip);
     }
     // Includes a synthetic trailing item for next-episode action.

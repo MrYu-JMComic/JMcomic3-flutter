@@ -9,6 +9,7 @@ void main() {
     expect(pages[1].hasName, isFalse);
     expect(pages[2].isDuplicateName, isTrue);
     expect(pages[0].isUsable, isTrue);
+    expect(pages[2].isUsable, isTrue);
   });
 
   test('offline pages retain dimensions and key', () {
