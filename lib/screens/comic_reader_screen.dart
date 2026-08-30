@@ -74,6 +74,15 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
     }
   }
 
+  Future<ChapterResponse> _loadChapter(int chapterId) {
+    // A custom offline loader may throw before returning a Future. Normalize
+    // that case into FutureBuilder's error path instead of failing initState
+    // or a setState callback synchronously.
+    return Future<ChapterResponse>.sync(
+      () => widget.loadChapter(chapterId),
+    );
+  }
+
   void _load() {
     if (!mounted) {
       return;
@@ -81,7 +90,7 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
     setState(() {
       _readerType = currentReaderType;
       _readerDirection = currentReaderDirection;
-      _chapterFuture = widget.loadChapter(widget.chapterId);
+      _chapterFuture = _loadChapter(widget.chapterId);
     });
   }
 
@@ -122,7 +131,7 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
     super.initState();
     _readerType = currentReaderType;
     _readerDirection = currentReaderDirection;
-    _chapterFuture = widget.loadChapter(widget.chapterId);
+    _chapterFuture = _loadChapter(widget.chapterId);
     unawaited(_recordInitialViewLog());
   }
 
@@ -136,7 +145,7 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
       // rendering the previous chapter after the identity changes.
       _readerType = currentReaderType;
       _readerDirection = currentReaderDirection;
-      _chapterFuture = widget.loadChapter(widget.chapterId);
+      _chapterFuture = _loadChapter(widget.chapterId);
       unawaited(_recordInitialViewLog());
     }
   }
