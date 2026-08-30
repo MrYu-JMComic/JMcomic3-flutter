@@ -650,6 +650,14 @@ class _JMPageImageState extends State<JMPageImage> {
       return _path;
     }
     if (onTrueSize != null) {
+      // Check again immediately before the size bridge call. The path Future
+      // can complete while a newer widget/reload is being installed; without
+      // this second guard the stale request would still perform I/O and could
+      // populate the size cache for a page that is no longer mounted.
+      if (!mounted || generation != _generation ||
+          widget.id != id || widget.imageName != imageName) {
+        return _path;
+      }
       final size = await _cachedPageImageTrueSize(
         id,
         imageName,
