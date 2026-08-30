@@ -2,9 +2,9 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-08-31 03:35（本地最终门禁与提交前审查）
+> 最后更新：2026-08-31 03:52（当前 HEAD 最终本地门禁复跑）
 >
-> 当前状态：已完成可安全回滚的 M1/M2/M3/M4/M5/M7 实现子集；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
+> 当前状态：已完成可安全回滚的 M1/M2/M3/M4/M5/M7 实现子集；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位，并在当前 HEAD 重新通过默认/全 flags 124/124 回归。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
 ## 0. 固定工作上下文（压缩/换代理后先读）
 
@@ -12,7 +12,7 @@
 
 ### 0.1 路径与版本控制快照
 
-| 字段 | 固定值/当前记录（2026-08-30） |
+| 字段 | 固定值/当前记录（2026-08-31 03:52） |
 |---|---|
 | 功能代码工作区 | `D:\Cat\jmcomic3` |
 | 本地构建/工具链根 | `D:\Cat\jm3` |
@@ -20,11 +20,11 @@
 | 环境入口脚本 | `D:\Cat\jm3\scripts\enter_build_env.ps1` |
 | 环境自检脚本 | `D:\Cat\jm3\scripts\verify_build_env.ps1` |
 | 当前功能分支 | `MrYu/reader-optimization-m1` |
-| 当前 HEAD（2026-08-31 复核） | `fe83871`（功能提交 `b59e139` + 测试提交 `fe83871`）；仅文档与 Flutter/Windows 生成文件仍 dirty，提交文档前已保留 checkpoint |
-| 远端同步 | `MrYu/reader-optimization-m1` 当前较 `origin/MrYu/reader-optimization-m1` 超前 18 个提交；本轮只准备 Draft PR 更新，不触发 GitHub 构建 |
+| 当前 HEAD（本轮测试基线） | `015fcf9`（功能提交 `b59e139` + 测试提交 `fe83871` + 门禁文档提交）；测试完成后仅文档待提交，Flutter/Windows 生成文件仍 dirty，均不纳入本次提交 |
+| 远端同步 | `MrYu/reader-optimization-m1` 当前较 `origin/MrYu/reader-optimization-m1` 超前 19 个提交；本轮只准备普通 push 更新 Draft PR，不触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
 | Draft PR | GitHub PR #2，保持 Draft；GitHub 只作代码评审，不作本地构建验收 |
-| 恢复点 | `reader-optimization-pre-finalize-20260831-032500`、`reader-optimization-post-functional-20260831-033700` 分支/标签，以及既有 `reader-optimization-before-final-review-20260831`、`reader-optimization-before-queue-20260831-continue`；禁止改写已有提交历史 |
+| 恢复点 | `reader-optimization-pre-finalize-20260831-032500`、`reader-optimization-post-functional-20260831-033700`、`reader-optimization-final-local-gates-20260831-033900`，以及既有 `reader-optimization-before-final-review-20260831`、`reader-optimization-before-queue-20260831-continue`；文档提交后另创建 `reader-optimization-final-local-gates-20260831-035300`；禁止改写已有提交历史 |
 | 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
 | 构建 checkout | `D:\Cat\jm3` 有独立且可能 dirty 的工作树；不要假定它自动等于功能分支，构建前先核对 commit/diff |
 | 未跟踪生成物 | `D:\Cat\jmcomic3\windows\rust.h`；保留并先确认来源，不要擅自删除或提交 |
@@ -82,9 +82,9 @@
 | 检查 | 结果/产物 |
 |---|---|
 | `D:\Cat\jm3\scripts\verify_build_env.ps1` | 全部工具/SDK 检查通过；`flutter doctor -v` 为 `No issues found!` |
-| Flutter tests | 固定环境下默认 `flutter test --no-pub` 123/123 通过；全部 8 个 reader flags 同样 123/123 通过；日志位于 `D:\Cat\jm3\build\reader-optimization-validation-final` |
-| Flutter analyze | 0 error；137 条既有 info/lint，命令按 Flutter 约定以退出码 1 结束；`flutter analyze` 不支持 `--dart-define`，全 flags 代码路径由上述测试编译覆盖 |
-| Dart format / diff | 28 个变更 Dart 文件 `dart format --set-exit-if-changed` 通过；`git diff --check` 通过 |
+| Flutter tests | 在固定环境、当前 HEAD `015fcf9` 下默认 `flutter test --no-pub` 124/124 通过；全部 8 个 reader flags 同样 124/124 通过；日志位于 `D:\Cat\jm3\build\reader-optimization-validation-final-20260831` |
+| Flutter analyze | 本轮 0 error；137 条既有 info/lint，命令按 Flutter 约定以退出码 1 结束；`flutter analyze` 不支持 `--dart-define`，全 flags 代码路径由上述测试编译覆盖 |
+| Dart format / diff | 28 个变更 Dart 文件 `dart format --set-exit-if-changed` 通过（0 changed）；`git diff --check` 通过 |
 | Rust | 隔离 worktree `a7a8015` 上 `cargo fmt --check` 通过，`cargo test --offline` 128/128 通过（含 doc/smoke；仅既有 dead_code/linker warning） |
 | Windows Release | 历史 smoke 产物位于 `D:\Cat\jm3\build\reader-optimization-m1\windows\x64\runner\Release\jmcomic3.exe`；本轮代码提交后未重新生成平台包 |
 | Android Release | 历史 arm64-v8a/armeabi-v7a smoke APK 已核对 ABI 与 `librust.so`；本轮未重新生成，且 Gradle/JNI staging 仍可能触碰 checkout |
@@ -823,6 +823,40 @@ Rust 仓库已有用户未提交修改，至少包括：
   reader/崩溃持久化仍是待执行项，相关开关保持默认关闭。构建脚本仍可能把 JNI/
   Windows staging 文件写入其 checkout；因此不宣称“所有平台产物已完全外置”，只
   认可本记录中明确的 `D:\Cat\jm3\build` 测试/诊断输出。
+
+### 2026-08-31 03:52 当前 HEAD 最终本地门禁（提交文档前）
+
+- 固定环境入口为 `D:\Cat\jm3\scripts\enter_build_env.ps1`，自检脚本
+  `D:\Cat\jm3\scripts\verify_build_env.ps1`；Flutter 3.41.2/Dart 3.11.0、
+  Rust 1.98、JDK 21、NDK 25.2.9519653、MSVC/CMake/Ninja 和 Android SDK
+  均通过自检，`flutter doctor -v` 报 `No issues found!`。
+- 测试基线为主仓库 HEAD `015fcf9`。默认命令
+  `flutter test --no-pub` 完成 **124/124**；全开以下 8 个编译开关的同一命令也完成
+  **124/124**：
+  `JM_READER_PAGE_DESCRIPTOR_V1`、`JM_READER_PREFETCH_SCHEDULER_V1`、
+  `JM_READER_BATCH_API_V1`、`JM_READER_OFFLINE_OWNER_V1`、
+  `JM_READER_TWO_PAGE_WINDOW_V1`、`JM_READER_PRECISE_PROGRESS_V1`、
+  `JM_READER_VIEWLOG_QUEUE_V1`、`JM_READER_TARGET_DECODE_V1`。
+  完整日志分别为
+  `D:\Cat\jm3\build\reader-optimization-validation-final-20260831\flutter-test-default.log`
+  和 `...\flutter-test-all-reader-flags.log`。
+- `flutter analyze --no-pub` 本轮发现 0 error、137 条项目既有 info/lint，退出码
+  为 1（Flutter analyzer 的既有诊断行为）；输出保存为
+  `...\flutter-analyze.log`。Analyzer 不接受 `--dart-define`，因此没有虚构“全 flags
+  analyzer”结果；全 flags 至少由上面的完整测试编译并执行覆盖。
+- `dart format --set-exit-if-changed` 检查 28 个变更 Dart 文件，0 文件被改写；
+  `git diff --check` 退出码 0。日志和文件清单保存在同一 `D:\Cat\jm3\build` 验证目录。
+- 本轮没有触碰或清理主仓库现有生成文件
+  `windows/flutter/generated_plugin_registrant.{cc,h}`、
+  `windows/flutter/generated_plugins.cmake`、`windows/rust.h`；外部 Rust 工作树
+  `D:\Cat\jmcomic3-rust-backend` 的用户 dirty `rust/README.md`、
+  `rust/src/api/invoke.rs`，以及隔离 worktree 的 M6 helper 均保留原状。
+- 该证据只证明安全可回滚的实现子集和本地回归门禁；M0 真机/网络/签名、M2 真实
+  scrambled fixture、M4 真实取消、M5 跨版本 smoke、M6 offline owner 的复制/校验/
+  原子迁移/共享锁、M7 golden/真实 list reader/崩溃持久化仍未完成，相关开关继续 OFF。
+- 后续动作固定为：仅提交本文件（不带生成物）→ 创建最终恢复 tag
+  `reader-optimization-final-local-gates-20260831-035300` → 普通 push
+  `MrYu/reader-optimization-m1` → 只核对 Draft PR #2；不触发 GitHub Actions。
 
 每次继续工作时，按以下顺序更新本文档：
 
