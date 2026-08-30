@@ -175,6 +175,7 @@
 - 当前未运行 Flutter/Dart/Cargo；上述问题不能以“编译通过”表述，修复后仍须在工具链可用时执行 analyzer、widget test 和 Rust contract test。
 - 新增 `.github/workflows/CI.yml`：仅执行无签名副作用的 `flutter pub get`、`flutter analyze` 和 `flutter test`，触发于 PR、主分支及 `MrYu/**` 分支；不改变现有 Build/Release 手动发布流程。
 - CI 首次运行（GitHub Actions run `33315355755`/`33315357701`，2026-08-30）在 job 启动前因仓库账号 billing issue 被 GitHub 拒绝，`steps` 为空；这不是 analyzer/test 结果。待账号恢复后必须重新运行，当前仍按“验证未执行”处理。
+- 预取错误隔离补强正在独立提交：邻页 `precacheImage` 失败只记录错误类型，不传播到当前页，也不输出 URL/签名参数；post-frame 入口继续受 `mounted` 保护。
 
 ### M0：基线与工具链冻结（0.5–1 天）
 
