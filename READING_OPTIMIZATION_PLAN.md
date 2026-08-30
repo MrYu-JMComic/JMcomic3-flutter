@@ -2,9 +2,9 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-08-31 03:52（当前 HEAD 最终本地门禁复跑）
+> 最后更新：2026-08-31 03:55（门禁文档提交、tag 与 Draft PR 收尾核对）
 >
-> 当前状态：已完成可安全回滚的 M1/M2/M3/M4/M5/M7 实现子集；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位，并在当前 HEAD 重新通过默认/全 flags 124/124 回归。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
+> 当前状态：已完成可安全回滚的 M1/M2/M3/M4/M5/M7 实现子集；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位，并在测试基线 `015fcf9` 重新通过默认/全 flags 124/124 回归。门禁文档提交已推送，Draft PR #2 保持打开。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
 ## 0. 固定工作上下文（压缩/换代理后先读）
 
@@ -12,7 +12,7 @@
 
 ### 0.1 路径与版本控制快照
 
-| 字段 | 固定值/当前记录（2026-08-31 03:52） |
+| 字段 | 固定值/当前记录（2026-08-31 03:55） |
 |---|---|
 | 功能代码工作区 | `D:\Cat\jmcomic3` |
 | 本地构建/工具链根 | `D:\Cat\jm3` |
@@ -20,11 +20,11 @@
 | 环境入口脚本 | `D:\Cat\jm3\scripts\enter_build_env.ps1` |
 | 环境自检脚本 | `D:\Cat\jm3\scripts\verify_build_env.ps1` |
 | 当前功能分支 | `MrYu/reader-optimization-m1` |
-| 当前 HEAD（本轮测试基线） | `015fcf9`（功能提交 `b59e139` + 测试提交 `fe83871` + 门禁文档提交）；测试完成后仅文档待提交，Flutter/Windows 生成文件仍 dirty，均不纳入本次提交 |
-| 远端同步 | `MrYu/reader-optimization-m1` 当前较 `origin/MrYu/reader-optimization-m1` 超前 19 个提交；本轮只准备普通 push 更新 Draft PR，不触发 GitHub 构建 |
+| 当前 HEAD（收尾快照） | `dba86f7`（文档刷新提交）；Flutter 测试基线为其父提交 `015fcf9`，代码未变；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
+| 远端同步 | `MrYu/reader-optimization-m1` 已与 `origin/MrYu/reader-optimization-m1` 同步（`dba86f7`）；普通 push 已完成，不触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
 | Draft PR | GitHub PR #2，保持 Draft；GitHub 只作代码评审，不作本地构建验收 |
-| 恢复点 | `reader-optimization-pre-finalize-20260831-032500`、`reader-optimization-post-functional-20260831-033700`、`reader-optimization-final-local-gates-20260831-033900`，以及既有 `reader-optimization-before-final-review-20260831`、`reader-optimization-before-queue-20260831-continue`；文档提交后另创建 `reader-optimization-final-local-gates-20260831-035300`；禁止改写已有提交历史 |
+| 恢复点 | `reader-optimization-pre-finalize-20260831-032500`、`reader-optimization-post-functional-20260831-033700`、`reader-optimization-final-local-gates-20260831-033900`、`reader-optimization-final-local-gates-20260831-035300`，以及既有 `reader-optimization-before-final-review-20260831`、`reader-optimization-before-queue-20260831-continue`；本条收尾提交后另创建 `reader-optimization-final-local-gates-20260831-035600`；禁止改写已有提交历史 |
 | 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
 | 构建 checkout | `D:\Cat\jm3` 有独立且可能 dirty 的工作树；不要假定它自动等于功能分支，构建前先核对 commit/diff |
 | 未跟踪生成物 | `D:\Cat\jmcomic3\windows\rust.h`；保留并先确认来源，不要擅自删除或提交 |
@@ -857,6 +857,24 @@ Rust 仓库已有用户未提交修改，至少包括：
 - 后续动作固定为：仅提交本文件（不带生成物）→ 创建最终恢复 tag
   `reader-optimization-final-local-gates-20260831-035300` → 普通 push
   `MrYu/reader-optimization-m1` → 只核对 Draft PR #2；不触发 GitHub Actions。
+
+### 2026-08-31 03:55 收尾同步核对（文档提交后）
+
+- 文档刷新提交为 `dba86f796b82b78a1b00dc2fb20a9e110c869b0d`（短 SHA
+  `dba86f7`），已用普通 `git push` 推送到
+  `origin/MrYu/reader-optimization-m1`；`git fetch --prune` 后本地与远端无领先差异。
+- 回滚 tag `reader-optimization-final-local-gates-20260831-035300` 已创建并推送，
+  指向 `dba86f7`；本条收尾文档提交后将再创建
+  `reader-optimization-final-local-gates-20260831-035600` 作为最新文档快照。
+- 只读 PR 核对：`https://github.com/MrYu-JMComic/JMcomic3-flutter/pull/2`，
+  `state=OPEN`、`isDraft=true`、head=`MrYu/reader-optimization-m1`、base=`main`。
+  仓库工作流均为 `workflow_dispatch`，本轮 push 未启动 GitHub 构建。
+- 收尾后工作区仍只包含既有生成/暂存文件
+  `windows/flutter/generated_plugin_registrant.{cc,h}`、
+  `windows/flutter/generated_plugins.cmake`、`windows/rust.h`；这些文件和外部
+  Rust 用户 dirty 修改均未清理、未覆盖、未提交。
+- 目标完成判定采用“安全可回滚子集完成 + 阻塞项显式保留”，不是把整个长期计划
+  误报为完成。若后续继续，先读取本文件，再从未完成项和最新 tag 分支恢复。
 
 每次继续工作时，按以下顺序更新本文档：
 
