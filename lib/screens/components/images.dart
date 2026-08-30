@@ -221,7 +221,7 @@ Future<String> _cachePathFuture<K>({
     }
     Error.throwWithStackTrace(error, stackTrace);
   });
-  return _putCacheWithLimit(cache, key, currentFuture!, limit);
+  return _putCacheWithLimit(cache, key, currentFuture, limit);
 }
 
 Future<String> _cachedJm3x4CoverPath(
@@ -313,7 +313,7 @@ Future<Size> _cachedPageImageTrueSize(
   return _putCacheWithLimit(
     _pageImageTrueSizeFutureCache,
     key,
-    currentFuture!,
+    currentFuture,
     _pageImageTrueSizeCacheLimit,
   );
 }

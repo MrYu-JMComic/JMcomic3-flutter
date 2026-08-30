@@ -212,7 +212,7 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
             startIndex: safeStartIndex,
             key: ValueKey(
               'reader_${widget.comic.id}_${chapter.id}_$_readerType'
-              '_$_readerDirection_${widget.fullScreenOnInit}_$safeStartIndex'
+              '_${_readerDirection}_${widget.fullScreenOnInit}_$safeStartIndex'
               '_${identityHashCode(chapter)}',
             ),
             reload: (int index, bool fullScreen) => _replaceReaderRoute(
