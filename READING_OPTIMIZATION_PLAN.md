@@ -2,9 +2,9 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-08-30（本地 Flutter 验证与构建门禁）
+> 最后更新：2026-08-31 03:35（本地最终门禁与提交前审查）
 >
-> 当前状态：M1 低风险子集、M3 兼容描述层、M4 generation 最小接入和 M6 Flutter availability 最小模型已提交；M2 正在补齐实际 codec target 验证，M5 Rust 批量接口已在外部分支完成并待客户端兼容测试。平台构建继续使用 `D:\Cat\jm3\build` 下的隔离输出目录。
+> 当前状态：已完成可安全回滚的 M1/M2/M3/M4/M5/M7 实现子集；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
 ## 0. 固定工作上下文（压缩/换代理后先读）
 
@@ -20,11 +20,11 @@
 | 环境入口脚本 | `D:\Cat\jm3\scripts\enter_build_env.ps1` |
 | 环境自检脚本 | `D:\Cat\jm3\scripts\verify_build_env.ps1` |
 | 当前功能分支 | `MrYu/reader-optimization-m1` |
-| 文档写入前 HEAD | `3fbe800`（文档提交后以 `git rev-parse --short HEAD` 为当前值） |
-| 远端同步（文档写入前） | 本地当时领先 `origin/MrYu/reader-optimization-m1` 5 个提交，尚未 push；push 后重新核对 |
+| 当前 HEAD（2026-08-31 复核） | `fe83871`（功能提交 `b59e139` + 测试提交 `fe83871`）；仅文档与 Flutter/Windows 生成文件仍 dirty，提交文档前已保留 checkpoint |
+| 远端同步 | `MrYu/reader-optimization-m1` 当前较 `origin/MrYu/reader-optimization-m1` 超前 18 个提交；本轮只准备 Draft PR 更新，不触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
 | Draft PR | GitHub PR #2，保持 Draft；GitHub 只作代码评审，不作本地构建验收 |
-| 恢复点 | `reader-optimization-m1-checkpoint-*` 标签；禁止改写已有提交历史 |
+| 恢复点 | `reader-optimization-pre-finalize-20260831-032500`、`reader-optimization-post-functional-20260831-033700` 分支/标签，以及既有 `reader-optimization-before-final-review-20260831`、`reader-optimization-before-queue-20260831-continue`；禁止改写已有提交历史 |
 | 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
 | 构建 checkout | `D:\Cat\jm3` 有独立且可能 dirty 的工作树；不要假定它自动等于功能分支，构建前先核对 commit/diff |
 | 未跟踪生成物 | `D:\Cat\jmcomic3\windows\rust.h`；保留并先确认来源，不要擅自删除或提交 |
@@ -67,9 +67,13 @@
 ### 0.4 阶段状态与不可破坏不变量
 
 - M0：工具链和本地构建门禁已验证；真机性能基线仍未采集。
-- M1：低风险 reader 生命周期/缓存竞态子集已实现；Flutter test 69/69 通过，analyzer 为 0 error（既有 info/deprecation 仍使命令返回 1）。
-- M2：**保持关闭**。目标尺寸只允许作用于 Rust 已完整解扰后的 canonical 文件；绝不在解扰前缩放、裁剪、压缩，也不能把解扰失败的原始 bytes 写入 `decoded_v1`。
-- M3–M7：尚未开始；不要把方案、测试夹具或构建成功误写成已发布功能。
+- M1：低风险 reader 生命周期/缓存竞态子集已实现；定向 reader 回归 13/13 通过，analyzer 0 error（既有 info/lint 仍使命令返回 1）。
+- M2：目标 codec provider 与固定 bucket 已实现并有 canonical fixture 证据；**保持关闭**，尚未完成真实 scrambled fixture、跨设备峰值和所有 reader 端到端验证。目标尺寸只允许作用于 Rust 已完整解扰后的 canonical 文件。
+- M3：PageDescriptor/Repository 兼容层已实现；离线顺序/availability 仍需持续验证。
+- M4：generation/session 与 scheduler 最小接入已实现；真实网络中止和资源预算未验证。
+- M5：Dart 批量 adapter 与 Rust availability 合约测试已实现；Rust availability 独立提交 `a7a8015`（tag `reader-optimization-m5-availability-20260831`），尚未安全合并到原 Rust dirty 工作树，跨版本 smoke 待执行。
+- M6：Flutter availability 最小接线已实现；真实 offline owner、复制/校验/原子提交、迁移和清理锁未实现，开关保持关闭。
+- M7：双页配对、可变高度进度模型和内存 view-log 重试队列已有模型实现；队列现有 `maxPending` 容量上限与 `droppedCount` 诊断，但仍无崩溃持久化；窗口化/golden、真实 list reader 仍待执行。
 - 离线文件必须与普通 reader cache 隔离；`dl_status=1` 不等于本机文件可读；普通清理不得删除 offline assets。
 - 当前页优先于预取；旧 Future/旧章节结果不得写入新 generation；任何新能力必须可独立关闭和回退。
 
@@ -78,11 +82,12 @@
 | 检查 | 结果/产物 |
 |---|---|
 | `D:\Cat\jm3\scripts\verify_build_env.ps1` | 全部工具/SDK 检查通过；`flutter doctor -v` 为 `No issues found!` |
-| Flutter tests | `flutter test --no-pub`：69/69 通过 |
-| Flutter analyze | 0 error；137 条既有 info/deprecation，不作为本轮编译失败 |
-| Rust | 120 个单元测试及 doc/smoke 测试通过（外部 target/cache） |
-| Windows Release | `D:\Cat\jm3\build\reader-optimization-m1\windows\x64\runner\Release\jmcomic3.exe` 已生成 |
-| Android Release | arm64-v8a 与 armeabi-v7a APK 已生成，均核对包含对应 ABI 的 `librust.so` 并记录 SHA-256 |
+| Flutter tests | 固定环境下默认 `flutter test --no-pub` 123/123 通过；全部 8 个 reader flags 同样 123/123 通过；日志位于 `D:\Cat\jm3\build\reader-optimization-validation-final` |
+| Flutter analyze | 0 error；137 条既有 info/lint，命令按 Flutter 约定以退出码 1 结束；`flutter analyze` 不支持 `--dart-define`，全 flags 代码路径由上述测试编译覆盖 |
+| Dart format / diff | 28 个变更 Dart 文件 `dart format --set-exit-if-changed` 通过；`git diff --check` 通过 |
+| Rust | 隔离 worktree `a7a8015` 上 `cargo fmt --check` 通过，`cargo test --offline` 128/128 通过（含 doc/smoke；仅既有 dead_code/linker warning） |
+| Windows Release | 历史 smoke 产物位于 `D:\Cat\jm3\build\reader-optimization-m1\windows\x64\runner\Release\jmcomic3.exe`；本轮代码提交后未重新生成平台包 |
+| Android Release | 历史 arm64-v8a/armeabi-v7a smoke APK 已核对 ABI 与 `librust.so`；本轮未重新生成，且 Gradle/JNI staging 仍可能触碰 checkout |
 | Android 真机 | 当前未连接（`adb devices` 无设备）；reader 真实回归/性能基线待做 |
 | 正式签名 | 未配置 `android/key.properties` 或 keystore；待用户提供发布签名材料 |
 | symlink 权限 | 新环境若 `pub get` 失败，先检查 Windows Developer Mode/权限；已有验证使用固定环境和 `--no-pub` |
@@ -246,14 +251,14 @@
 | 二次逻辑/边界审查 | 已完成（本轮） | 将新增风险和发布门禁纳入本文档 | 只读审查；未修改业务代码 |
 | M0 基线与工具链冻结 | 部分完成（分支/PR/工具链已验；Android 输出隔离待处理） | 固定已验证的 NDK 25.2，完成外部构建目录 smoke build；之后采集三类设备基线并固定产物命名 | 分支 `MrYu/reader-optimization-m1`、Draft PR #2、基线 tag 和 `D:\Cat\jm3` 工具链已建立；`verify_build_env.ps1`/`flutter doctor -v` 通过；Windows 外部目录构建和 Android arm64 构建均已通过，但 Flutter Android Gradle 模板仍把 APK 输出落到当前仓库 `build`，设备基线仍待采集 |
 | M1 低风险稳定性修复 | 已实现低风险子集；专项复用/全屏恢复待补 | 补同一 State 切章/快速 pop 的专项 widget 回归；审查全屏状态恢复 | Flutter 3.41.2 analyzer 无 error（仅既有 lint/deprecation 信息），全量 Flutter test 通过；新能力默认未强制开启 |
-| M2 目标尺寸解码 | 实现中（固定档位及 provider 接入待验证） | 让 Gallery/自由缩放/双页使用受限 target provider；known fixture 核验实际像素及错误回退 | 必须证明 target 不会被自定义 provider 忽略，且不改变 canonical/解扰流程 |
+| M2 目标尺寸解码 | 已实现默认关闭子集；真实 fixture/端到端待验证 | 重跑图片/cache 回归并用 scrambled fixture 核验实际像素及错误回退 | 必须证明 target 不会被自定义 provider 忽略，且不改变 canonical/解扰流程 |
 | M3 PageDescriptor/Repository | 已完成兼容前置层（UI 仍旧数据驱动） | 接入离线入口并确认重复名/availability 语义 | 在线/离线转换测试已通过；默认渲染路径保持旧 API |
 | M4 ReaderSession/generation 与预取调度器 | 已完成最小 UI generation 接入；资源预算/真实 scheduler 灰度待补 | 增加真实队列接入、并发/取消/错误专项测试 | 当前页与旧行为保持兼容；取消的网络中止仍待实测 |
-| M5 Rust 批量与网络协议 | 外部 Rust contract + invoke 路由已提交；客户端 adapter/新旧契约待补 | 补 Dart adapter、逐项 fallback 和跨版本 smoke | 外部工作树有用户 dirty 修改，必须保持隔离；Rust commit 需固定记录 |
-| M6 离线缓存隔离 | Flutter availability 最小模型已提交；真实 owner/迁移/清理隔离待补 | 接入 DownloadAlbumScreen/Reader，增加文件探测和 metadata-only UI | 不触碰外部 dirty Rust 文件；未完成迁移前保持旧目录只读兼容 |
-| M7 双页窗口化 | 待开始 | 先固定封面、奇偶和 RTL/LTR 配对规则 | 需要独立 widget/golden 回归 |
-| M7 垂直精确进度 | 待开始 | 定义可见页规则和远跳二次校正算法 | 需要 PageDescriptor 尺寸或可靠 fallback |
-| M7 阅读记录队列 | 待开始 | 在现有 debounce 外加单写者队列和 lifecycle flush | 需要明确本地存储的崩溃恢复能力 |
+| M5 Rust 批量与网络协议 | Dart adapter 已实现；availability 路由在隔离 worktree 提交 | 补新旧契约 smoke、脱敏审查，并决定是否由后端维护者合并 `a7a8015` | 原 Rust 工作树 `rust/README.md`/`invoke.rs` 有用户 dirty 修改，不能直接合并或覆盖 |
+| M6 离线缓存隔离 | Flutter availability 与 metadata-only 占位已实现；真实 owner/迁移/清理隔离待补 | 接入 DownloadAlbumScreen/Reader，增加文件复制、校验、原子提交和 manifest 演练 | 不触碰外部 dirty Rust 文件；未完成迁移前保持旧目录只读兼容 |
+| M7 双页窗口化 | 配对模型/RTL 语义已实现；窗口化仍未接入 | 完成真实 widget/golden 回归后再评估灰度 | 现有整章 options 仍是默认路径 |
+| M7 垂直精确进度 | `ReaderExtentIndex` 已实现并有边界测试 | 补真实 list reader/动态尺寸回归 | 未知尺寸仍使用保守 fallback |
+| M7 阅读记录队列 | 内存单写者队列、失败重试及 `maxPending`/`droppedCount` 已实现 | 增加崩溃恢复持久化或明确不纳入首发；重跑新增回归 | 当前失败事件只在实例生命周期内保留，超限丢弃最旧 snapshot 并计数 |
 | P2 测试/CI/观测 | 本地门禁已执行；远端自动构建暂停 | 继续补 reader 专项回归和结构化指标 | 使用 `D:\Cat\jm3\_flutter\flutter`（Flutter 3.41.2/Dart 3.11.0），输出根为 `D:\Cat\jm3\build`；workflow 仅保留手动触发，不把 GitHub 结果当验收依据 |
 
 ### 本轮继续执行记录（2026-08-30）
@@ -743,6 +748,81 @@ Rust 仓库已有用户未提交修改，至少包括：
   `reader-optimization-preaudit-20260831-005916`；当前工作仍在
   `MrYu/reader-optimization-m1`，不改写既有提交历史。
 - 本轮先处理 M5 Dart 批量测试夹具和 reader 生命周期/双页边界审查；未通过的检查继续标为待执行，不把已有模型测试当作阶段完成证据。
+
+### 2026-08-31 01:15 持续目标前置 checkpoint
+
+- 本轮目标仍为“完成所有可执行项并明确阻塞项”；当前线程已有 active goal，继续沿既定目标推进。
+- 在继续集成前创建可回滚恢复点分支 `MrYu/reader-optimization-preintegration-20260831-011554` 与标签 `reader-optimization-preintegration-20260831-011554`；当前功能分支和已有 dirty 工作区保持不变，未改写历史。
+- 并行复核 M4 reader 边界、M5 Rust availability 契约和 M6 Dart availability 接口；外部 Rust 工作树的 `rust/README.md` 与 `invoke.rs` 未提交差异继续保留，未经隔离测试不得覆盖或宣称完成。
+- 本轮新增/修改代码在阶段提交前必须通过 `git diff --check`、定向测试和全量 Flutter 门禁；Android/Windows 产物仍只允许写入 `D:\Cat\jm3\build`。
+
+### 2026-08-31 继续执行 reader/离线审查
+
+- 继续 active goal 前先复核主仓库仍在 `MrYu/reader-optimization-m1`，保留既有 dirty 工作区与恢复标签；没有执行 reset、checkout 或覆盖用户文件。
+- 并行审查结论：Webtoon/FreeZoom 的图片 State key 需要携带 source index；Rust availability 仍需 scalar/object 参数兼容、有限 header probe 和可注入测试；offline owner 尚未具备可信文件复制/校验/原子提交链路，因此 `readerOfflineOwnerV1` 继续默认关闭。
+- 本轮将先完成 reader 边界修补和回归证据，再处理 Rust/offline owner；每一步先补充测试和文档，未运行的门禁不宣称通过。
+
+### 2026-08-31 Rust availability 与主仓库回归复核
+
+- 先在主仓库 HEAD `4ed95ce` 上创建恢复分支/标签
+  `MrYu/reader-optimization-before-final-review-20260831` /
+  `reader-optimization-before-final-review-20260831`；保留所有 dirty 文件，未执行
+  reset、checkout、clean 或强制覆盖。
+- 在独立 worktree `D:\Cat\jm3\worktrees\m5-availability-contract` 完成
+  `dl_image_local_availability` 路由：参数兼容 scalar/object，使用与 canonical
+  page fetch 相同的 `page_<chapter>_<name>_decoded_v1` key，有限 header probe 加
+  `image_dimensions` 校验，拒绝 missing/empty/HTML/损坏文件，并返回显式
+  `local_path/local_available/local_state`。提交为 `a7a8015`，标签为
+  `reader-optimization-m5-availability-20260831`；原 Rust 工作树
+  `D:\Cat\jmcomic3-rust-backend` 的用户 dirty `rust/README.md` 和 `invoke.rs`
+  未修改。
+- Rust 隔离 worktree 的 `cargo fmt --check` 通过，`cargo test --offline` 为
+  126/126 通过（含 availability 合约测试）；本机未安装 `cargo-clippy`，因此
+  clippy 保持“未执行”，不能写成通过。
+- 主仓库定向 reader 回归命令
+  `flutter test test/page_pairing_test.dart test/widget_test.dart test/reader_pages_test.dart --no-pub`
+  为 13/13 通过；`flutter analyze --no-pub` 为 0 error，退出码 1 仅来自项目既有
+  140 条 info/lint。所有命令使用锁定 Flutter 3.41.2，未触发 GitHub workflow。
+- 逻辑复核发现两个必须先修正再扩大灰度的风险：offline descriptor 的稀疏/重复
+  `imageIndex` 会与 `chapter.images` 的 0-based 索引错配；ReaderSystemUiLease 的
+  异步 enter 在 release 后可能覆盖恢复状态。下一步按增量补丁修复并增加回归测试。
+- M6 offline owner 仍未完成：没有下载文件复制→校验→原子 rename→completed 的
+  链路、manifest、迁移中断恢复或 fetch/read/clean 共享锁；`readerOfflineOwnerV1`
+  继续默认 OFF。M0 真机/网络基线、正式签名、Android 双 ABI 发布矩阵和 M7
+  golden/崩溃持久化也继续标记为待执行。
+
+### 2026-08-31 阅读优化增量审查（持续记录）
+
+- `reader_viewlog_queue.dart` 新增有界内存队列：`maxPending` 默认 256，达到上限时丢弃最旧 snapshot，并通过 `droppedCount` 暴露诊断；失败重放同样受容量限制。该实现不等同于崩溃持久化，进程退出前仍须显式 flush 或接受丢失风险。
+- `images.dart` 的尺寸缓存现拒绝 `w/h <= 0`，抛出 `FormatException` 并允许后续有效尺寸重试，避免零尺寸污染布局/cache。metadata-only 或本地文件不可读的离线页显示明确“离线图片不可用，请重新下载”占位，不得偷偷回退在线请求；真实 widget/UI 回归仍待补。
+- 上述代码修改后，原有 119/119 默认与全 flags 测试、analyzer 结果均需重新执行；旧证据不能覆盖本轮变更（已在 03:35 门禁中重跑，更新结果见 0.5 与最终门禁记录）。验证命令和产物仍必须使用锁定 Flutter 环境及 `D:\Cat\jm3\build`，不触发 GitHub Actions。
+- 未完成/高风险边界再次确认：M0 真机与网络性能基线、真实 scrambled fixture、正式签名和 Android 双 ABI 发布矩阵；M6 offline owner（复制/校验/原子 rename、manifest、迁移恢复、fetch/read/clean 共享锁）；M7 双页窗口化 golden、真实 list reader 和崩溃持久化。所有对应开关保持 OFF。
+- Rust availability 提交 `a7a8015` 及 M6 helper 仅存在隔离 worktree `D:\Cat\jm3\worktrees\m5-availability-contract`；原 Rust 工作树 `D:\Cat\jmcomic3-rust-backend` 的 `rust/README.md`、`rust/src/api/invoke.rs` 用户 dirty 修改不得覆盖，未获维护者审查前不宣称已合并。
+- 一致性复核快照：主仓库当时为 `MrYu/reader-optimization-m1`、HEAD `4ed95ce`，相对远端领先 16 个提交；工作区仍包含功能代码、测试及未跟踪文件，另有 Flutter/Windows 生成文件（不得顺手提交）。因此本文件中的 69/69、旧 analyzer 数字和历史 HEAD 仅代表当时证据，不是当前门禁结果；已在后续提交 `b59e139`/`fe83871` 后重新执行门禁。
+
+### 2026-08-31 03:35 最终本地门禁（提交前）
+
+- 在主仓库保持 dirty 变更不变的前提下，创建恢复分支/标签
+  `MrYu/reader-optimization-pre-finalize-20260831-032500`；未执行 reset、clean、
+  force-push，也未触发 GitHub Actions。
+- 使用 `D:\Cat\jm3\scripts\enter_build_env.ps1` 加载 Flutter 3.41.2/Dart 3.11.0、
+  Rust 1.98、JDK 21、NDK 25.2.9519653；Flutter 测试日志和诊断输出写入
+  `D:\Cat\jm3\build\reader-optimization-validation-final`。
+- 默认与全部 reader flags 两组 `flutter test --no-pub` 均为 123/123；新增批量
+  响应非字符串字段回归后再次通过。功能提交为 `b59e139`，测试提交为 `fe83871`；
+  `dart format --set-exit-if-changed`（28 个文件）
+  与 `git diff --check` 通过。
+- `flutter analyze --no-pub` 发现 0 error、137 条项目既有 info/lint（退出码 1）；
+  analyzer 不接受 `--dart-define`，故没有把“不支持该参数”误记为全 flags analyzer 结果。
+- Rust availability 仍只在隔离 worktree 的提交 `a7a8015` 中验证：`cargo fmt --check`
+  通过，`cargo test --offline` 128/128；原 Rust 工作树及隔离 worktree 的未提交
+  M6 helper 均保留，未合并或覆盖。
+- 当前可交付边界：安全回滚的 M1/M2/M3/M4/M5/M7 实现子集及回归测试已具备；
+  M0 真机/网络/签名、M2 真实 scrambled fixture 与跨设备内存、M4 真实取消、M5
+  跨版本 smoke、M6 offline owner 复制/校验/原子迁移/共享锁、M7 golden/真实 list
+  reader/崩溃持久化仍是待执行项，相关开关保持默认关闭。构建脚本仍可能把 JNI/
+  Windows staging 文件写入其 checkout；因此不宣称“所有平台产物已完全外置”，只
+  认可本记录中明确的 `D:\Cat\jm3\build` 测试/诊断输出。
 
 每次继续工作时，按以下顺序更新本文档：
 
