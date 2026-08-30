@@ -165,7 +165,7 @@
 | M7 双页窗口化 | 待开始 | 先固定封面、奇偶和 RTL/LTR 配对规则 | 需要独立 widget/golden 回归 |
 | M7 垂直精确进度 | 待开始 | 定义可见页规则和远跳二次校正算法 | 需要 PageDescriptor 尺寸或可靠 fallback |
 | M7 阅读记录队列 | 待开始 | 在现有 debounce 外加单写者队列和 lifecycle flush | 需要明确本地存储的崩溃恢复能力 |
-| P2 测试/CI/观测 | 待开始 | 先固定版本，再添加 PR 门禁和结构化指标 | CI 当前不自动触发且版本漂移 |
+| P2 测试/CI/观测 | 已增加轻量 CI（待远端运行） | 观察 `flutter analyze`/`flutter test` 结果，再补 reader 专项回归和结构化指标 | CI 使用 `.fvmrc` 的 Flutter 版本；本地仍无 Flutter/Dart，结果不能预先宣称通过 |
 
 ### 本轮继续执行记录（2026-08-30）
 
@@ -173,6 +173,7 @@
 - 对 M1 两个代码提交完成第二轮只读复核：确认空章节在父层被拦截、索引被统一 clamp、Future identity/generation 防护和监听事实记录已覆盖主要路径。
 - 发现并列入下一独立修复提交的低风险项：`JMPageImage` 旧请求在 generation 失效后仍可能发起尺寸查询；FutureBuilder 类型应显式化；reader 复用章节时应补齐加载器/章节身份与阅读记录语义；初始化专辑请求需收敛异常。
 - 当前未运行 Flutter/Dart/Cargo；上述问题不能以“编译通过”表述，修复后仍须在工具链可用时执行 analyzer、widget test 和 Rust contract test。
+- 新增 `.github/workflows/CI.yml`：仅执行无签名副作用的 `flutter pub get`、`flutter analyze` 和 `flutter test`，触发于 PR、主分支及 `MrYu/**` 分支；不改变现有 Build/Release 手动发布流程。
 
 ### M0：基线与工具链冻结（0.5–1 天）
 
