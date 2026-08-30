@@ -198,7 +198,8 @@ Future<String> _cachePathFuture<K>({
   if (cached != null) {
     return cached;
   }
-  final future = loader().then((path) async {
+  Future<String>? currentFuture;
+  currentFuture = loader().then((path) async {
     final normalized = path.trim();
     if (normalized.isEmpty) {
       throw StateError("empty image path");
@@ -212,10 +213,15 @@ Future<String> _cachePathFuture<K>({
     }
     return normalized;
   }).catchError((Object error, StackTrace stackTrace) {
-    cache.remove(key);
-    throw error;
+    // A forced refresh may have replaced this Future while the old request
+    // was still in flight. Only evict when the cache still points at the
+    // failing Future; otherwise an old failure could remove the new value.
+    if (identical(cache[key], currentFuture)) {
+      cache.remove(key);
+    }
+    Error.throwWithStackTrace(error, stackTrace);
   });
-  return _putCacheWithLimit(cache, key, future, limit);
+  return _putCacheWithLimit(cache, key, currentFuture!, limit);
 }
 
 Future<String> _cachedJm3x4CoverPath(
@@ -294,17 +300,20 @@ Future<Size> _cachedPageImageTrueSize(
   if (cached != null) {
     return cached;
   }
-  final future = methods.imageSize(path).then((imageSize) {
+  Future<Size>? currentFuture;
+  currentFuture = methods.imageSize(path).then((imageSize) {
     return Size(imageSize.w.toDouble(), imageSize.h.toDouble());
   }).catchError((Object error, StackTrace stackTrace) {
-    _pageImageTrueSizeFutureCache.remove(key);
+    if (identical(_pageImageTrueSizeFutureCache[key], currentFuture)) {
+      _pageImageTrueSizeFutureCache.remove(key);
+    }
     Error.throwWithStackTrace(error, stackTrace);
   });
   // 阅读器同一页可能被预加载、当前页和双页模式同时请求尺寸；缓存 Future 可以合并并发桥接调用。
   return _putCacheWithLimit(
     _pageImageTrueSizeFutureCache,
     key,
-    future,
+    currentFuture!,
     _pageImageTrueSizeCacheLimit,
   );
 }
@@ -602,6 +611,7 @@ class JMPageImage extends StatefulWidget {
 
 class _JMPageImageState extends State<JMPageImage> {
   late Future<String> _future;
+  int _generation = 0;
   int _autoRetryCount = 0;
   bool _autoRetryQueued = false;
 
@@ -615,6 +625,7 @@ class _JMPageImageState extends State<JMPageImage> {
   void didUpdateWidget(covariant JMPageImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.id != widget.id || oldWidget.imageName != widget.imageName) {
+      _generation++;
       _autoRetryCount = 0;
       _autoRetryQueued = false;
       _future = _init();
@@ -622,24 +633,41 @@ class _JMPageImageState extends State<JMPageImage> {
   }
 
   Future<String> _init({bool forceRefresh = false}) async {
+    final generation = _generation;
+    final id = widget.id;
+    final imageName = widget.imageName;
+    final onTrueSize = widget.onTrueSize;
     final _path = await _cachedPageImagePath(
-      widget.id,
-      widget.imageName,
+      id,
+      imageName,
       forceRefresh: forceRefresh,
     );
-    if (widget.onTrueSize != null) {
+    // A newer widget/reload may have replaced this request while the path was
+    // loading. Do not start a force-refresh size lookup from the stale
+    // request, since it could evict the newer size Future for the same key.
+    if (!mounted || generation != _generation ||
+        widget.id != id || widget.imageName != imageName) {
+      return _path;
+    }
+    if (onTrueSize != null) {
       final size = await _cachedPageImageTrueSize(
-        widget.id,
-        widget.imageName,
+        id,
+        imageName,
         _path,
         forceRefresh: forceRefresh,
       );
-      widget.onTrueSize!(size);
+      // Do not let an old request publish into a reused State whose widget
+      // identity has changed while the request was in flight.
+      if (mounted && generation == _generation &&
+          widget.id == id && widget.imageName == imageName) {
+        onTrueSize(size);
+      }
     }
     return _path;
   }
 
   void _reload() {
+    _generation++;
     _evictPageImageCache(widget.id, widget.imageName);
     if (!mounted) {
       return;
