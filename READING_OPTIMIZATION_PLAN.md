@@ -20,8 +20,8 @@
 | 环境入口脚本 | `D:\Cat\jm3\scripts\enter_build_env.ps1` |
 | 环境自检脚本 | `D:\Cat\jm3\scripts\verify_build_env.ps1` |
 | 当前功能分支 | `MrYu/reader-optimization-m1` |
-| 本次快照 HEAD | `3fbe800`（后续提交后以 `git rev-parse --short HEAD` 刷新） |
-| 远端同步 | 本地当时领先 `origin/MrYu/reader-optimization-m1` 5 个提交，尚未 push |
+| 文档写入前 HEAD | `3fbe800`（文档提交后以 `git rev-parse --short HEAD` 为当前值） |
+| 远端同步（文档写入前） | 本地当时领先 `origin/MrYu/reader-optimization-m1` 5 个提交，尚未 push；push 后重新核对 |
 | Draft PR | GitHub PR #2，保持 Draft；GitHub 只作代码评审，不作本地构建验收 |
 | 恢复点 | `reader-optimization-m1-checkpoint-*` 标签；禁止改写已有提交历史 |
 | 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
