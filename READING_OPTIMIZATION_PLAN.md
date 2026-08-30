@@ -155,7 +155,7 @@
 | 任务 | 状态 | 下一动作 | 进入条件/阻塞 |
 |---|---|---|---|
 | 二次逻辑/边界审查 | 已完成（本轮） | 将新增风险和发布门禁纳入本文档 | 只读审查；未修改业务代码 |
-| M0 基线与工具链冻结 | 部分完成（分支/PR/本地环境） | 采集三类设备基线并固定产物命名 | 分支 `MrYu/reader-optimization-m1`、Draft PR #2、基线 tag 和 `D:\Cat\jm3` 工具链已建立；设备基线仍待采集 |
+| M0 基线与工具链冻结 | 部分完成（分支/PR/工具链已验；Android 输出隔离待处理） | 固定已验证的 NDK 25.2，完成外部构建目录 smoke build；之后采集三类设备基线并固定产物命名 | 分支 `MrYu/reader-optimization-m1`、Draft PR #2、基线 tag 和 `D:\Cat\jm3` 工具链已建立；`verify_build_env.ps1`/`flutter doctor -v` 通过；Windows 外部目录构建和 Android arm64 构建均已通过，但 Flutter Android Gradle 模板仍把 APK 输出落到当前仓库 `build`，设备基线仍待采集 |
 | M1 低风险稳定性修复 | 已实现子集（本地验证通过） | 补同一 State 切章/快速 pop 的专项 widget 回归；再决定是否继续全屏状态恢复 | Flutter 3.41.2 analyzer 无 error（仅既有 lint/deprecation 信息），全量 Flutter test 通过；target-size/离线 owner 未混入 |
 | M2 目标尺寸解码 | 待验证 | 用 known scrambled fixture 检查 codec 实际输出尺寸 | 必须证明 target 不会在 provider 内被忽略 |
 | M3 PageDescriptor/Repository | 待开始 | 先增加兼容转换，不改变现有 UI | 需要确认在线 chapter 响应的旧/新格式 |
@@ -617,6 +617,14 @@ Rust 仓库已有用户未提交修改，至少包括：
 - 本地验证补充：使用 `D:\Cat\jm3\_flutter\flutter`（Flutter 3.41.2/Dart 3.11.0）执行全量 `flutter test --no-pub`，69 个测试通过；`flutter analyze --no-pub` 发现 0 个 error，退出码 1 仅由项目既有 137 条 info/deprecation lint 触发。
 - 新增 reader widget 回归用例（空章节占位、章节加载失败、越界初始索引），并为直挂 reader 的测试夹具显式初始化配置；修复 analyzer 报出的 reader key 插值错误和不必要的非空断言。
 - 按用户要求停止依赖 GitHub 构建：`.github/workflows/CI.yml` 改为仅手动诊断触发；本地测试/平台构建输出统一指向 `D:\Cat\jm3\build` 的隔离子目录，避免覆盖已有构建缓存。
+- 本轮先完成本地环境证据核验：`D:\Cat\jm3\scripts\verify_build_env.ps1` 全部工具/SDK 检查通过，`flutter doctor -v` 为 `No issues found!`；使用 Flutter 3.41.2 对当前分支执行 `flutter build windows --release --no-pub`，产物写入 `D:\Cat\jm3\build\reader-optimization-m1\windows\x64\runner\Release`。
+- Android smoke build 暴露配置阻塞：当前分支 `android/gradle.properties` 写死 `C:\\Program Files\\ojdkbuild\\...`，该目录不存在；在修改前不把“工具链齐全”误报为“Android 构建已通过”。下一步仅移除该开发机专属覆盖，改由已验证的 `JAVA_HOME`（JDK 21）提供 Gradle JDK，再重跑构建。
+- 移除 JDK 覆盖后，Android smoke build 又确认 `flutter.ndkVersion` 在 Flutter 3.41.2 下解析为 `28.2.13676358`；`D:\Cat\jm3\toolchains\android-sdk\ndk\28.2.13676358` 仅有 `.installer`、缺少 `source.properties`。本地 Rust JNI/SDK 验证矩阵实际固定为 NDK `25.2.9519653`，因此下一步在 app 配置中显式固定 25.2，并在构建后核对 JNI 文件 hash 未被改写。
+- Android 构建在显式 NDK 25.2 后成功生成 arm64 Release APK，但 Flutter 3.41.2 的 Android Gradle 模板仍把 Gradle 输出根硬编码为仓库 `../build`，因此本次 APK/中间文件落在 `D:\Cat\jmcomic3\build`，没有把这一点误记为“已完全外置到 `D:\Cat\jm3\build`”。后续需单独设计可回滚的 Android 输出重定向，再纳入本地构建脚本。
+- 对当前工作树执行 `flutter pub get --offline` 时，依赖缓存可解析但插件 symlink 创建被 Windows 权限拒绝（提示启用 Developer Mode/管理员权限），退出码为 1；该命令产生的 `pubspec.lock` 镜像/传递版本改写只属于本轮验证副作用，已计划撤销，不作为功能变更提交。
+- 使用外部 target 目录运行 Rust 后端 `cargo test --offline`：120 个单元测试、doc-test 和 smoke binary 均通过；Rust 工作树仍保留用户原有未提交修改，测试未写入源文件。
+- Flutter 回归门禁再次通过：`flutter test --no-pub` 69/69；`flutter analyze --no-pub` 0 error，但因既有 137 条 info/deprecation lint 返回 1。Windows Release 产物已核验包含 exe、`flutter_windows.dll`、插件 DLL 和 `data` 目录；Android arm64 APK 已核验 manifest/version/ABI 与 `lib/arm64-v8a/librust.so`。
+- Android 构建仍有非阻塞提示：file_picker 等插件声明 NDK 27.0.12077973，而本地已验证 Rust 构建使用 NDK 25.2.9519653；在本机 25.2 下构建成功。发布前应决定是否补装/切换 NDK 27，并重新跑两 ABI smoke，不把该 warning 当作跨机器兼容性证明。
 
 ## 13. 后续更新规则
 
