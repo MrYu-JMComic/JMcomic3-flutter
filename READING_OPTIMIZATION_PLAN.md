@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-08-30（二次逻辑/后果审查）
 >
-> 当前状态：方案审查完成，已补充切章/模式切换/监听生命周期/缓存 owner/发布门禁审查；尚未修改阅读器代码，所有任务仍需按阶段验证。
+> 当前状态：方案审查完成；M1 已提交一个可回滚子集，正在进行提交后的静态复核。Flutter/Dart/Rust 运行时验证仍待工具链准备，所有后续任务继续按阶段门禁执行。
 
 ## 1. 目标与边界
 
@@ -156,7 +156,7 @@
 |---|---|---|---|
 | 二次逻辑/边界审查 | 已完成（本轮） | 将新增风险和发布门禁纳入本文档 | 只读审查；未修改业务代码 |
 | M0 基线与工具链冻结 | 部分完成（分支/PR） | 准备目标 Flutter/Rust 工具链，采集三类设备基线 | 分支 `MrYu/reader-optimization-m1`、Draft PR #2 和基线 tag 已建立；2026-08-30 检查仍未找到 `flutter`、`dart`、`cargo`、`fvm`、`rustup` |
-| M1 低风险稳定性修复 | 已实现子集（待运行时验证） | 安装/锁定工具链后补 widget 回归；再决定是否继续 M1 全屏状态恢复 | 已提交生命周期/缓存竞态子集；本环境无法运行 Flutter 测试，target-size/离线 owner 未混入 |
+| M1 低风险稳定性修复 | 已实现子集（待运行时验证） | 安装/锁定工具链后补 widget 回归；再决定是否继续 M1 全屏状态恢复 | 已提交生命周期/缓存竞态子集及异步错误/索引防护补强；本环境无法运行 Flutter 测试，target-size/离线 owner 未混入 |
 | M2 目标尺寸解码 | 待验证 | 用 known scrambled fixture 检查 codec 实际输出尺寸 | 必须证明 target 不会在 provider 内被忽略 |
 | M3 PageDescriptor/Repository | 待开始 | 先增加兼容转换，不改变现有 UI | 需要确认在线 chapter 响应的旧/新格式 |
 | M4 ReaderSession/generation 与预取调度器 | 待开始 | 先定义 chapter identity、取消/丢弃语义，再只在在线 Gallery 实验 | 需要 M2、M3 的页面 key/尺寸语义；不得与双页重构同批发布 |
@@ -166,6 +166,13 @@
 | M7 垂直精确进度 | 待开始 | 定义可见页规则和远跳二次校正算法 | 需要 PageDescriptor 尺寸或可靠 fallback |
 | M7 阅读记录队列 | 待开始 | 在现有 debounce 外加单写者队列和 lifecycle flush | 需要明确本地存储的崩溃恢复能力 |
 | P2 测试/CI/观测 | 待开始 | 先固定版本，再添加 PR 门禁和结构化指标 | CI 当前不自动触发且版本漂移 |
+
+### 本轮继续执行记录（2026-08-30）
+
+- 在 `715c469` 上创建并推送可恢复检查点标签 `reader-optimization-m1-checkpoint-715c469`；不改写已有提交历史。
+- 对 M1 两个代码提交完成第二轮只读复核：确认空章节在父层被拦截、索引被统一 clamp、Future identity/generation 防护和监听事实记录已覆盖主要路径。
+- 发现并列入下一独立修复提交的低风险项：`JMPageImage` 旧请求在 generation 失效后仍可能发起尺寸查询；FutureBuilder 类型应显式化；reader 复用章节时应补齐加载器/章节身份与阅读记录语义；初始化专辑请求需收敛异常。
+- 当前未运行 Flutter/Dart/Cargo；上述问题不能以“编译通过”表述，修复后仍须在工具链可用时执行 analyzer、widget test 和 Rust contract test。
 
 ### M0：基线与工具链冻结（0.5–1 天）
 
@@ -600,7 +607,7 @@ Rust 仓库已有用户未提交修改，至少包括：
 - 增加硬依赖图、各阶段完成定义、能力开关矩阵、缓存迁移/进度 schema 草案、灰度回滚 runbook、兼容矩阵和隐私约束。
 - 记录主仓库与 Rust 基线 SHA；确认 Rust 工作树仍有用户未提交修改，未运行 Flutter/Dart/Cargo 验证。
 - 按可回溯要求创建分支 `MrYu/reader-optimization-m1`、基线提交 `c7b8498`、本地基线 tag，并推送 Draft PR #2；M1 仅启动生命周期/缓存竞态子集。
-- M1 子集已拆分并推送：`cfaf5f4`（Future/cache generation）和 `6474b38`（reader 生命周期、边界、导航、FocusNode/音量监听）；已执行 `git diff --check`/`git show --check`，未执行 Flutter/Dart 运行时测试。
+- M1 子集已拆分并推送：`cfaf5f4`（Future/cache generation）和 `6474b38`（reader 生命周期、边界、导航、FocusNode/音量监听）；后续补强正在独立提交中；已执行 `git diff --check`/`git show --check`，未执行 Flutter/Dart 运行时测试。
 
 ## 13. 后续更新规则
 
