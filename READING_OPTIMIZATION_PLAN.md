@@ -22,6 +22,7 @@
 | 当前功能分支 | `MrYu/reader-optimization-m1` |
 | 文档写入前 HEAD | `3fbe800`（文档提交后以 `git rev-parse --short HEAD` 为当前值） |
 | 远端同步（文档写入前） | 本地当时领先 `origin/MrYu/reader-optimization-m1` 5 个提交，尚未 push；push 后重新核对 |
+| 最近同步后 HEAD | `6d73c8c`；本次上下文提交已 push，后续以 `git status --short --branch` 复核 |
 | Draft PR | GitHub PR #2，保持 Draft；GitHub 只作代码评审，不作本地构建验收 |
 | 恢复点 | `reader-optimization-m1-checkpoint-*` 标签；禁止改写已有提交历史 |
 | 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
@@ -692,6 +693,7 @@ Rust 仓库已有用户未提交修改，至少包括：
 
 - 增加“固定工作上下文”章节，持久记录源代码工作区与独立构建根、环境加载命令、分支/PR/恢复点、禁止事项、M1/M2 状态、构建产物路径和未验证风险，供上下文压缩或换代理后恢复。
 - 2026-08-30 23:26（+08:00）再次执行 `D:\Cat\jm3\scripts\verify_build_env.ps1`：工具链、SDK、MSVC、Rust metadata 和 `flutter doctor -v` 全部通过；本次仅做只读核验，未触发 GitHub 构建、未改动外部 Rust 工作树。
+- 将上下文记录提交为 `2717aaa`/`6d73c8c`，创建并推送恢复标签 `reader-optimization-m1-checkpoint-context`，并将功能分支同步到 Draft PR #2；未使用 force-push，未触发任何 GitHub workflow。
 - 创建本文档，记录阅读链路和初版优化方案。
 - 完成前端、Rust 后端、质量/交付三路只读审查。
 - 将“目标尺寸解码”明确为“解扰后的 Flutter codec 下采样”，禁止解扰前缩放。
