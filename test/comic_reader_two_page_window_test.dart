@@ -10,6 +10,7 @@ import 'package:jmcomic3/configs/reader_controller_type.dart';
 import 'package:jmcomic3/configs/reader_direction.dart';
 import 'package:jmcomic3/configs/reader_slider_position.dart';
 import 'package:jmcomic3/configs/reader_type.dart';
+import 'package:jmcomic3/configs/reader_feature_flags.dart';
 import 'package:jmcomic3/configs/two_page_direction.dart';
 import 'package:jmcomic3/configs/volume_key_control.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
@@ -119,6 +120,13 @@ void main() {
     final gallery = tester.widget<PhotoViewGallery>(
       find.byType(PhotoViewGallery),
     );
+    if (!readerTwoPageWindowV1) {
+      // The default build intentionally keeps the legacy static gallery.
+      expect(gallery.itemCount, isNull);
+      expect(gallery.pageOptions, hasLength(3));
+      expect(tester.takeException(), isNull);
+      return;
+    }
     expect(gallery.itemCount, 3);
     expect(gallery.reverse, isTrue);
     expect(gallery.pageController?.initialPage, 1);
@@ -146,6 +154,12 @@ void main() {
     final gallery = tester.widget<PhotoViewGallery>(
       find.byType(PhotoViewGallery),
     );
+    if (!readerTwoPageWindowV1) {
+      expect(gallery.itemCount, isNull);
+      expect(gallery.pageOptions, hasLength(1));
+      expect(tester.takeException(), isNull);
+      return;
+    }
     expect(gallery.itemCount, 1);
     expect(gallery.pageController?.initialPage, 0);
     expect(tester.takeException(), isNull);
