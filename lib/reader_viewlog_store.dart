@@ -36,7 +36,7 @@ class ReaderViewlogPropertyStore implements ReaderViewlogStore {
 
   static String _validateKey(String key) {
     final normalized = key.trim();
-    final prefix = 'reader_viewlog_v$schemaVersion:';
+    const prefix = 'reader_viewlog_v$schemaVersion:';
     if (!normalized.startsWith(prefix)) {
       throw ArgumentError.value(key, 'key', 'invalid reader view-log key');
     }
