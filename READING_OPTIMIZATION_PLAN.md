@@ -199,6 +199,7 @@
 | R-37 | `chapter.images` 未统一过滤空名/重复名并保留服务端索引映射 | [D:/Cat/jmcomic3/lib/screens/comic_reader_screen.dart](D:/Cat/jmcomic3/lib/screens/comic_reader_screen.dart:1260)、[D:/Cat/jmcomic3/lib/screens/download_album_screen.dart](D:/Cat/jmcomic3/lib/screens/download_album_screen.dart:333) | 空名路径请求失败；重复名共享 provider/cache，错误重载一个页可能影响另一个页，页码与服务端顺序脱节 | P1 |
 | R-38 | `reload`/`onChangeEp` 在异步导航回调中没有统一的 `mounted`、串行化和重复触发保护 | [D:/Cat/jmcomic3/lib/screens/comic_reader_screen.dart](D:/Cat/jmcomic3/lib/screens/comic_reader_screen.dart:120) | 快速切章/返回时对已卸载 context 调 Navigator，抛导航生命周期异常或叠加多个 replacement | P0/P1 |
 | R-39 | `DownloadCreate.initialChapterId` 在章节列表为空时回退为 `album.id`，下载页仍允许进入 reader | [D:/Cat/jmcomic3/lib/basic/entities.dart](D:/Cat/jmcomic3/lib/basic/entities.dart:1231)、[D:/Cat/jmcomic3/lib/screens/download_album_screen.dart](D:/Cat/jmcomic3/lib/screens/download_album_screen.dart:268) | album id 被当作 chapter id 请求，空下载任务进入黑屏/错误重试；“兼容旧数据”反而掩盖数据损坏 | P0/P1 |
+| R-40 | `ccd4391` 将通用 `buildFile` 的两条显示尺寸分别向上取 decode bucket，但该函数也被浏览页 `JM3x4Cover`/方形封面使用，且不受 reader flag 控制。随后它把两个 bucket 同时传给默认 `ResizeImagePolicy.exact`，会把源图解码成精确两维而非保持比例；例如 3:4 的约 `300×400` 目标会成为 `512×512`，使 3:4 源封面约横向拉伸 33%。`BoxFit.cover` 发生在已变形 bitmap 之后，不能修复像素比例。启用 `reader_target_decode_v1` 后的 `PageImageProvider` 在双目标非空时也有同类风险 | [D:/Cat/jmcomic3/lib/screens/components/images.dart](D:/Cat/jmcomic3/lib/screens/components/images.dart:1193)、[D:/Cat/jmcomic3/lib/screens/components/images.dart](D:/Cat/jmcomic3/lib/screens/components/images.dart:1293)、[D:/Cat/jmcomic3/lib/screens/components/comic_list.dart](D:/Cat/jmcomic3/lib/screens/components/comic_list.dart:85)、提交 `ccd4391` 与 Flutter `ResizeImage` 默认策略 | 本轮优化泄漏到未计划的封面路径；封面/路径图片会随设备尺寸、DPR 与 bucket 组合被压扁或拉长；当前 reader target flag 默认 OFF，但未来灰度开启后阅读页也可能复现 | P0（可见回归） |
 
 ## 4. 关键不变量（任何实现都不能破坏）
 
@@ -212,6 +213,7 @@
 8. **解扰失败不可伪装成功**：行重排/重新编码失败时不得把原始 scrambled bytes 写入 `decoded_v1`；必须返回可分类错误或进入未验证临时态。
 9. **请求目标必须受信任**：图片 metadata 中的 URL 只能命中允许的 CDN/代理 host；向非允许 host 请求时不得附带全局 cookie 或 referer。
 10. **清理与写入互斥**：缓存清理、下载落盘、读取/校验必须通过同一 owner 锁或原子版本协议协调，不能让清理穿过正在提交的文件。
+11. **目标解码必须保持原图比例**：除非来源本身已验证为同一比例，不能把非空的宽和高作为 exact codec target 同时传入；有两个布局上限时须计算 aspect-preserving fit target，或使用 Flutter 的 `ResizeImagePolicy.fit`。
 
 ## 5. 对原计划逐项逻辑与后果审查
 
@@ -1031,3 +1033,25 @@ Rust 仓库已有用户未提交修改，至少包括：
   而项目/Rust 矩阵固定 `25.2.9519653`；本机双 ABI 构建成功，但该 warning 仍记录为
   发布前兼容性风险，不能据此声称跨机器发布矩阵已完成。GitHub workflow 未触发，所有
   产物和验证继续留在 `D:\Cat\jm3\build`。
+
+### 2026-09-01 16:47 封面拉伸诊断（未修改功能代码）
+
+- 用户提供的旧/新浏览截图都使用 3:4 封面网格；`ComicList` 的 `childAspectRatio=3/4`
+  自初版一直未修改，因此外层 Card 不是本次视觉差异的根因。当前分支也没有修改
+  `comic_list.dart`。
+- 直接引入差异的是 `ccd4391`：它将通用 `buildFile` 的显示框宽高分别乘 DPR、分别
+  向上取 bucket，却没有限制在 reader feature flag 内。以常见 3:4 的约 `300×400`
+  物理目标为例，两个值都会变为 `512`，因而把应为 3:4 的 decode target 变成 1:1。
+  Flutter 3.41.2 的 `ResizeImage.resizeIfNeeded` 默认构造 `ResizeImagePolicy.exact`，
+  当宽高都非空时 codec 将图片解码到精确宽和高；上例会使 3:4 源封面约横向拉伸 33%。
+  只有其中一维为空时 Flutter 才保证保持源图比例。`BoxFit.cover` 只能裁剪/缩放已经
+  解码出的 bitmap，不能纠正已经发生的拉伸。此通用路径由 `JM3x4Cover` 使用，因此
+  浏览、搜索和其他封面列表均受影响；不同设备的 DPR/bucket 组合会让问题程度不同。
+- 这不是本轮 `JM_READER_TARGET_DECODE_V1` 默认开关造成的：该开关在当前 APK 为 OFF，
+  浏览封面本来也不走 reader provider。不过同一“同时给 exact 宽高”的逻辑存在于
+  flag-on 的 `PageImageProvider`，必须在修复时一起处理，不能只修封面后让阅读页在
+  灰度时复现。
+- 建议的独立可回滚修复：先撤出 `buildFile` 的 shared bucket 行为，或显式使用
+  `ResizeImage(..., policy: ResizeImagePolicy.fit)`；reader provider 根据 intrinsic ratio
+  将两个布局上限计算为保持比例的最终 target；增加双维 target 的 fixture 测试和封面
+  widget/golden 回归，再在 Android 实机重新截图。尚未按该方案修改代码或重新打包。
