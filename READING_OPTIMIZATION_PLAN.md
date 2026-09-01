@@ -2,9 +2,9 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-09-01 14:04（PR #3 创建及远端同步核对）
+> 最后更新：2026-09-01 14:10（M2 最终本地门禁及 PR #3 状态核对）
 >
-> 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；当前阶段分支 `MrYu/reader-optimization-m2` 在此基础上增加了默认关闭的 view-log 版本化持久化适配器、恢复/重试回归和双页窗口 widget 回归，并在 HEAD `85034cf` 通过默认/全 flags 132/132 测试。该持久化适配器复用现有属性桥接，能在正常重启后重放 pending 事件，但尚未完成 native 原子文件写入、强杀窗口和跨设备恢复演练，不能替代完整 M6/M7 发布证据。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线、M2 真实 scrambled fixture 及 M7 golden/真实 list reader 仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
+> 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；当前阶段分支 `MrYu/reader-optimization-m2` 在此基础上增加了默认关闭的 view-log 版本化持久化适配器、恢复/重试回归和双页窗口 widget 回归，并在当前 HEAD `0fc4251`（代码行为自 `85034cf` 后未变，仅追加文档）通过默认/全 flags 132/132 测试。该持久化适配器复用现有属性桥接，能在正常重启后重放 pending 事件，但尚未完成 native 原子文件写入、强杀窗口和跨设备恢复演练，不能替代完整 M6/M7 发布证据。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线、M2 真实 scrambled fixture 及 M7 golden/真实 list reader 仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
 ## 0. 固定工作上下文（压缩/换代理后先读）
 
@@ -21,9 +21,9 @@
 | 环境自检脚本 | `D:\Cat\jm3\scripts\verify_build_env.ps1` |
 | 当前功能分支 | `MrYu/reader-optimization-m2` |
 | 合并状态 | PR #2 已合并到 `main`；merge commit `c1cd690410b27ef0fa842a7ed781beafb4dcf647`；源分支和 checkpoint 分支均保留 |
-| 代码/测试基线 | `85034cf`（本阶段代码提交 `1270602`、测试提交 `8b96fd5`、key 校验提交 `85034cf`）；当前 HEAD 默认/全 flags 均为 132/132 |
+| 代码/测试基线 | 代码基线 `85034cf`（本阶段代码提交 `1270602`、测试提交 `8b96fd5`、key 校验提交 `85034cf`）；当前 HEAD `0fc4251` 仅追加文档，默认/全 flags 均为 132/132 |
 | 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b` → `1fe2088`；本阶段文档提交将在当前分支追加；代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
-| 远端同步 | `origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `94a8bcc`；阶段分支 `MrYu/reader-optimization-m2` 与 `origin` 同步至 `9600298`，PR #3 为 Draft；本轮没有主动触发 GitHub 构建 |
+| 远端同步 | `origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `94a8bcc`；阶段分支 `MrYu/reader-optimization-m2` 与 `origin` 同步至 `0fc4251`，PR #3 为 Draft；本轮没有主动触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
 | PR #2 | `MERGED`，原 head `9d9873b`，base `main` 原为 `9f79d73`；merge commit 为 `c1cd690`；GitHub 只作代码评审，不作本地构建验收 |
 | 恢复点 | `reader-optimization-m2-start-20260901-133345`（本阶段起点）、`reader-optimization-pre-merge-20260901-132232`（PR #2 合并前 head）、`reader-optimization-post-merge-docs-20260901-132900`（main 文档同步后）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
@@ -84,7 +84,7 @@
 | 检查 | 结果/产物 |
 |---|---|
 | `D:\Cat\jm3\scripts\verify_build_env.ps1` | 全部工具/SDK 检查通过；`flutter doctor -v` 为 `No issues found!` |
-| Flutter tests | 在固定环境、当前 HEAD `85034cf` 下默认 `flutter test --no-pub` 132/132 通过；全部 8 个 reader flags 同样 132/132 通过；完整日志位于 `D:\Cat\jm3\build\reader-optimization-m2-validation\flutter-test-default-final.log` 和 `flutter-test-all-reader-flags-final.log` |
+| Flutter tests | 在固定环境、当前 HEAD `0fc4251` 下重新运行默认 `flutter test --no-pub` 及全部 8 个 reader flags，均为 132/132 通过；最新日志位于 `D:\Cat\jm3\build\reader-optimization-m2-validation\flutter-test-default-final-rerun.log` 和 `flutter-test-all-reader-flags-final-rerun.log` |
 | Flutter analyze | 当前 0 error；137 条既有 info/lint，命令按 Flutter 约定以退出码 1 结束；`flutter analyze` 不支持 `--dart-define`，全 flags 代码路径由上述测试编译覆盖 |
 | Dart format / diff | 本阶段 6 个目标 Dart 文件 `dart format --set-exit-if-changed` 通过（0 changed）；`git diff --check` 通过 |
 | Rust | 隔离 worktree `a7a8015` 上 `cargo fmt --check` 通过，`cargo test --offline` 128/128 通过（含 doc/smoke；仅既有 dead_code/linker warning） |
@@ -951,6 +951,26 @@ Rust 仓库已有用户未提交修改，至少包括：
   `windows/flutter/generated_plugin_registrant.{cc,h}`、
   `windows/flutter/generated_plugins.cmake` 和 `windows/rust.h` 的用户/生成差异，
   均未纳入 PR；外部 Rust 工作树 dirty 文件也未触碰。
+
+### 2026-09-01 14:10 M2 最终门禁与只读审查
+
+- 在固定环境重新运行默认全量测试和全部 8 个 reader flags 全量测试，当前代码行为
+  均为 **132/132**；最新日志为
+  `D:\Cat\jm3\build\reader-optimization-m2-validation\flutter-test-default-final-rerun.log`
+  和 `flutter-test-all-reader-flags-final-rerun.log`。
+- `verify_build_env.ps1` 通过；目标文件 `dart format --set-exit-if-changed` 为 0 changed；
+  `git diff --check`、`git show --check` 通过。`flutter analyze --no-pub` 报 0 error、
+  137 条仓库既有 info/lint（项目现状导致退出码 1），没有新增 analyzer error。
+- 对 `ReaderViewlogQueue` 的恢复/重排、flush/close 并发、持久化请求合并和失败保留，及
+  `ReaderViewlogPropertyStore` 的 key/schema/大小边界进行了只读审查，未发现当前阶段
+  阻塞问题。稳定 chapter key 的多实例覆盖、属性桥非原子写入和 dispose 后异步落盘仍是
+  已知风险，必须由后续 native atomic/共享锁与 crash 演练阶段处理。
+- PR #3 当前仍为 Draft：base=`main`、head=`0fc4251`、`state=OPEN`、
+  `statusCheckRollup=[]`；本轮没有触发 GitHub workflow。后续最终标签应指向文档收尾提交，
+  并继续使用普通 push，不得 force-push。
+- 本阶段交付边界仍是默认关闭、可独立回滚的 M2/M7 实现子集；M0 真机/网络/签名、M2
+  真实 scrambled fixture、M4 真实取消、M5 跨版本 smoke、M6 offline owner/迁移/锁、
+  M7 native crash/golden/list-reader，以及 Rust R-32/R-33 仍未完成，不得标记为计划全部完成。
 
 每次继续工作时，按以下顺序更新本文档：
 
