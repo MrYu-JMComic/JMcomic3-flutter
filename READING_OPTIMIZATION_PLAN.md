@@ -2,9 +2,9 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-09-01 13:28（PR #2 合并及文档同步后核对）
+> 最后更新：2026-09-01 13:58（M2 持久化队列/双页回归及本地门禁核对）
 >
-> 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位，并在测试基线 `015fcf9` 通过默认/全 flags 124/124 回归。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
+> 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；当前阶段分支 `MrYu/reader-optimization-m2` 在此基础上增加了默认关闭的 view-log 版本化持久化适配器、恢复/重试回归和双页窗口 widget 回归，并在 HEAD `85034cf` 通过默认/全 flags 132/132 测试。该持久化适配器复用现有属性桥接，能在正常重启后重放 pending 事件，但尚未完成 native 原子文件写入、强杀窗口和跨设备恢复演练，不能替代完整 M6/M7 发布证据。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线、M2 真实 scrambled fixture 及 M7 golden/真实 list reader 仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
 ## 0. 固定工作上下文（压缩/换代理后先读）
 
@@ -19,14 +19,14 @@
 | 所有平台构建输出根 | `D:\Cat\jm3\build` |
 | 环境入口脚本 | `D:\Cat\jm3\scripts\enter_build_env.ps1` |
 | 环境自检脚本 | `D:\Cat\jm3\scripts\verify_build_env.ps1` |
-| 当前功能分支 | `MrYu/reader-optimization-m1` |
+| 当前功能分支 | `MrYu/reader-optimization-m2` |
 | 合并状态 | PR #2 已合并到 `main`；merge commit `c1cd690410b27ef0fa842a7ed781beafb4dcf647`；源分支和 checkpoint 分支均保留 |
-| 代码/测试基线 | `015fcf9`（功能提交 `b59e139` + 测试提交 `fe83871` + 门禁文档提交）；本轮 124/124 测试均针对该基线，之后仅追加文档提交，代码未变 |
-| 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b` → `1fe2088`；代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
-| 远端同步 | `MrYu/reader-optimization-m1` 与 `origin/MrYu/reader-optimization-m1` 同步（`9d9873b`）；`origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `1fe2088`；本轮没有主动触发 GitHub 构建 |
+| 代码/测试基线 | `85034cf`（本阶段代码提交 `1270602`、测试提交 `8b96fd5`、key 校验提交 `85034cf`）；当前 HEAD 默认/全 flags 均为 132/132 |
+| 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b` → `1fe2088`；本阶段文档提交将在当前分支追加；代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
+| 远端同步 | `origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `94a8bcc`；阶段分支 `MrYu/reader-optimization-m2` 当前尚未推送；本轮没有主动触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
 | PR #2 | `MERGED`，原 head `9d9873b`，base `main` 原为 `9f79d73`；merge commit 为 `c1cd690`；GitHub 只作代码评审，不作本地构建验收 |
-| 恢复点 | `reader-optimization-pre-merge-20260901-132232`（合并前 head）、`reader-optimization-post-merge-20260901-132400`（合并后 main）、`reader-optimization-post-merge-docs-20260901-132800`（文档同步后 main）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
+| 恢复点 | `reader-optimization-m2-start-20260901-133345`（本阶段起点）、`reader-optimization-pre-merge-20260901-132232`（PR #2 合并前 head）、`reader-optimization-post-merge-docs-20260901-132900`（main 文档同步后）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
 | 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
 | 构建 checkout | `D:\Cat\jm3` 有独立且可能 dirty 的工作树；不要假定它自动等于功能分支，构建前先核对 commit/diff |
 | 未跟踪生成物 | `D:\Cat\jmcomic3\windows\rust.h`；保留并先确认来源，不要擅自删除或提交 |
@@ -75,7 +75,7 @@
 - M4：generation/session 与 scheduler 最小接入已实现；真实网络中止和资源预算未验证。
 - M5：Dart 批量 adapter 与 Rust availability 合约测试已实现；Rust availability 独立提交 `a7a8015`（tag `reader-optimization-m5-availability-20260831`），尚未安全合并到原 Rust dirty 工作树，跨版本 smoke 待执行。
 - M6：Flutter availability 最小接线已实现；真实 offline owner、复制/校验/原子提交、迁移和清理锁未实现，开关保持关闭。
-- M7：双页配对、可变高度进度模型和内存 view-log 重试队列已有模型实现；队列现有 `maxPending` 容量上限与 `droppedCount` 诊断，但仍无崩溃持久化；窗口化/golden、真实 list reader 仍待执行。
+- M7：双页配对、可变高度进度模型和内存 view-log 重试队列已有模型实现；本阶段新增默认关闭的版本化属性 journal，可在正常重启后恢复 pending 事件并受 `maxPending`/字节上限约束；强杀窗口、native 原子提交和 golden/真实 list reader 仍待执行。
 - 离线文件必须与普通 reader cache 隔离；`dl_status=1` 不等于本机文件可读；普通清理不得删除 offline assets。
 - 当前页优先于预取；旧 Future/旧章节结果不得写入新 generation；任何新能力必须可独立关闭和回退。
 
@@ -84,9 +84,9 @@
 | 检查 | 结果/产物 |
 |---|---|
 | `D:\Cat\jm3\scripts\verify_build_env.ps1` | 全部工具/SDK 检查通过；`flutter doctor -v` 为 `No issues found!` |
-| Flutter tests | 在固定环境、当前 HEAD `015fcf9` 下默认 `flutter test --no-pub` 124/124 通过；全部 8 个 reader flags 同样 124/124 通过；日志位于 `D:\Cat\jm3\build\reader-optimization-validation-final-20260831` |
-| Flutter analyze | 本轮 0 error；137 条既有 info/lint，命令按 Flutter 约定以退出码 1 结束；`flutter analyze` 不支持 `--dart-define`，全 flags 代码路径由上述测试编译覆盖 |
-| Dart format / diff | 28 个变更 Dart 文件 `dart format --set-exit-if-changed` 通过（0 changed）；`git diff --check` 通过 |
+| Flutter tests | 在固定环境、当前 HEAD `85034cf` 下默认 `flutter test --no-pub` 132/132 通过；全部 8 个 reader flags 同样 132/132 通过；完整日志位于 `D:\Cat\jm3\build\reader-optimization-m2-validation\flutter-test-default-final.log` 和 `flutter-test-all-reader-flags-final.log` |
+| Flutter analyze | 当前 0 error；137 条既有 info/lint，命令按 Flutter 约定以退出码 1 结束；`flutter analyze` 不支持 `--dart-define`，全 flags 代码路径由上述测试编译覆盖 |
+| Dart format / diff | 本阶段 6 个目标 Dart 文件 `dart format --set-exit-if-changed` 通过（0 changed）；`git diff --check` 通过 |
 | Rust | 隔离 worktree `a7a8015` 上 `cargo fmt --check` 通过，`cargo test --offline` 128/128 通过（含 doc/smoke；仅既有 dead_code/linker warning） |
 | Windows Release | 历史 smoke 产物位于 `D:\Cat\jm3\build\reader-optimization-m1\windows\x64\runner\Release\jmcomic3.exe`；本轮代码提交后未重新生成平台包 |
 | Android Release | 历史 arm64-v8a/armeabi-v7a smoke APK 已核对 ABI 与 `librust.so`；本轮未重新生成，且 Gradle/JNI staging 仍可能触碰 checkout |
@@ -258,9 +258,9 @@
 | M4 ReaderSession/generation 与预取调度器 | 已完成最小 UI generation 接入；资源预算/真实 scheduler 灰度待补 | 增加真实队列接入、并发/取消/错误专项测试 | 当前页与旧行为保持兼容；取消的网络中止仍待实测 |
 | M5 Rust 批量与网络协议 | Dart adapter 已实现；availability 路由在隔离 worktree 提交 | 补新旧契约 smoke、脱敏审查，并决定是否由后端维护者合并 `a7a8015` | 原 Rust 工作树 `rust/README.md`/`invoke.rs` 有用户 dirty 修改，不能直接合并或覆盖 |
 | M6 离线缓存隔离 | Flutter availability 与 metadata-only 占位已实现；真实 owner/迁移/清理隔离待补 | 接入 DownloadAlbumScreen/Reader，增加文件复制、校验、原子提交和 manifest 演练 | 不触碰外部 dirty Rust 文件；未完成迁移前保持旧目录只读兼容 |
-| M7 双页窗口化 | 配对模型/RTL 语义已实现；窗口化仍未接入 | 完成真实 widget/golden 回归后再评估灰度 | 现有整章 options 仍是默认路径 |
+| M7 双页窗口化 | builder 窗口路径已接入且默认关闭；新增默认/flag 两种 widget 回归（cover/RTL/奇数/单页） | 完成真实设备和 golden 回归后再评估灰度 | legacy static options 仍是默认路径；测试未替代 golden |
 | M7 垂直精确进度 | `ReaderExtentIndex` 已实现并有边界测试 | 补真实 list reader/动态尺寸回归 | 未知尺寸仍使用保守 fallback |
-| M7 阅读记录队列 | 内存单写者队列、失败重试及 `maxPending`/`droppedCount` 已实现 | 增加崩溃恢复持久化或明确不纳入首发；重跑新增回归 | 当前失败事件只在实例生命周期内保留，超限丢弃最旧 snapshot 并计数 |
+| M7 阅读记录队列 | 单写者、失败重试、`maxPending`/`droppedCount` 及默认关闭的版本化属性 journal 已实现 | 进行 native 原子写入/强杀窗口演练、恢复指标和隐私审查后再评估灰度 | 当前适配器复用属性桥接；属性写入本身的原子性由 Rust store 保证范围外，跨设备合并仍未定义 |
 | P2 测试/CI/观测 | 本地门禁已执行；远端自动构建暂停 | 继续补 reader 专项回归和结构化指标 | 使用 `D:\Cat\jm3\_flutter\flutter`（Flutter 3.41.2/Dart 3.11.0），输出根为 `D:\Cat\jm3\build`；workflow 仅保留手动触发，不把 GitHub 结果当验收依据 |
 
 ### 本轮继续执行记录（2026-08-30）
@@ -911,6 +911,32 @@ Rust 仓库已有用户未提交修改，至少包括：
   `reader-optimization-post-merge-docs-20260901-132800` 均保留。
 - 本次仅变更文档，未重新执行代码测试；此前针对代码/测试基线 `015fcf9` 的默认与全 flags
   124/124 门禁证据继续有效。生成文件和外部 Rust dirty 修改未纳入。
+
+### 2026-09-01 13:58 M2 阶段：view-log 持久化契约与双页回归
+
+- 从 `origin/main`/`94a8bcc` 创建阶段分支 `MrYu/reader-optimization-m2`，并创建本地
+  起点 tag `reader-optimization-m2-start-20260901-133345`；没有改写 PR #2 历史，
+  主仓库生成文件和外部 Rust dirty 修改继续保留。
+- 提交 `1270602` 增加 `ReaderViewlogStore` 与版本化的
+  `ReaderViewlogPropertyStore`：session key 使用窄字符白名单，journal 校验 schema、
+  事件字段、256 条/64 KiB 上限，读取失败只保留内存事件并记录错误；`ReaderViewlogQueue`
+  在 `JM_READER_VIEWLOG_QUEUE_V1=true` 时恢复同 session 的 pending 事件，ack 后清空，
+  失败事件跨实例保留。默认 flag 仍为 OFF。
+- 提交 `8b96fd5` 增加双页窗口 widget 回归：默认 legacy static gallery 与实验 builder
+  分支分别校验，实验分支覆盖 cover、RTL、奇数页、单页和初始 slot；同一测试还捕获并
+  修复了双页 legacy `initState` 提前依赖 `MediaQuery` 的 Flutter 生命周期断言。
+- `1270602` 同时收紧 journal key 校验，避免任意属性 key 被持久化适配器使用；
+  `85034cf` 仅将 schema prefix 声明收紧为编译期常量。
+- 定向持久化/双页测试通过；固定环境下当前 HEAD `85034cf` 的默认全量测试和 8 个 reader
+  flags 全量测试均为 **132/132**，日志位于
+  `D:\Cat\jm3\build\reader-optimization-m2-validation`。目标文件 format 检查通过，
+  analyzer 0 error/137 条既有 info-lint，`git diff --check` 通过。
+- 逻辑后果和边界：该 journal 解决正常进程重启前后的 pending 事件恢复，不证明操作系统
+  强杀瞬间的原子落盘，也不定义 WebDAV/跨设备事件合并；因此 M7 崩溃持久化只标记为
+  “契约与本地属性适配已完成，真实 crash/native 原子演练待执行”，不能将 M6 offline
+  owner 或 Rust R-32/R-33 安全项标记完成。
+- 本阶段 PR 只包含上述六个文件/测试变更；工作区已有 `README.md`、`docs/`、
+  `scripts/setup_android_emulator.ps1` 和 Windows generated files 未纳入提交。
 
 每次继续工作时，按以下顺序更新本文档：
 
