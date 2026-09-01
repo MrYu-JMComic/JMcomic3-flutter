@@ -2,7 +2,7 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-09-01 13:27（PR #2 合并后核对）
+> 最后更新：2026-09-01 13:28（PR #2 合并及文档同步后核对）
 >
 > 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位，并在测试基线 `015fcf9` 通过默认/全 flags 124/124 回归。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
@@ -12,7 +12,7 @@
 
 ### 0.1 路径与版本控制快照
 
-| 字段 | 固定值/当前记录（2026-09-01 13:27） |
+| 字段 | 固定值/当前记录（2026-09-01 13:28） |
 |---|---|
 | 功能代码工作区 | `D:\Cat\jmcomic3` |
 | 本地构建/工具链根 | `D:\Cat\jm3` |
@@ -22,11 +22,11 @@
 | 当前功能分支 | `MrYu/reader-optimization-m1` |
 | 合并状态 | PR #2 已合并到 `main`；merge commit `c1cd690410b27ef0fa842a7ed781beafb4dcf647`；源分支和 checkpoint 分支均保留 |
 | 代码/测试基线 | `015fcf9`（功能提交 `b59e139` + 测试提交 `fe83871` + 门禁文档提交）；本轮 124/124 测试均针对该基线，之后仅追加文档提交，代码未变 |
-| 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b`；本次合并后文档同步提交将在 `main` 上追加，代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
-| 远端同步 | `MrYu/reader-optimization-m1` 与 `origin/MrYu/reader-optimization-m1` 同步（`9d9873b`）；`origin/main` 已包含 merge commit `c1cd690`；本轮没有主动触发 GitHub 构建 |
+| 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b` → `1fe2088`；代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
+| 远端同步 | `MrYu/reader-optimization-m1` 与 `origin/MrYu/reader-optimization-m1` 同步（`9d9873b`）；`origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `1fe2088`；本轮没有主动触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
 | PR #2 | `MERGED`，原 head `9d9873b`，base `main` 原为 `9f79d73`；merge commit 为 `c1cd690`；GitHub 只作代码评审，不作本地构建验收 |
-| 恢复点 | `reader-optimization-pre-merge-20260901-132232`（合并前 head）、`reader-optimization-post-merge-20260901-132400`（合并后 main）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
+| 恢复点 | `reader-optimization-pre-merge-20260901-132232`（合并前 head）、`reader-optimization-post-merge-20260901-132400`（合并后 main）、`reader-optimization-post-merge-docs-20260901-132800`（文档同步后 main）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
 | 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
 | 构建 checkout | `D:\Cat\jm3` 有独立且可能 dirty 的工作树；不要假定它自动等于功能分支，构建前先核对 commit/diff |
 | 未跟踪生成物 | `D:\Cat\jmcomic3\windows\rust.h`；保留并先确认来源，不要擅自删除或提交 |
@@ -901,6 +901,16 @@ Rust 仓库已有用户未提交修改，至少包括：
 - 合并边界不变：只合并安全可回滚子集；R-02/R-08/R-14/R-18/R-26/R-27/R-29/
   R-32/R-33 等未完成或阻塞风险，以及真实设备/网络/解扰 fixture/签名/golden/崩溃
   持久化证据，仍需后续独立阶段处理，高风险开关保持默认关闭。
+
+### 2026-09-01 13:28 合并后文档同步
+
+- 将合并状态、merge commit `c1cd690`、源分支保留策略和 post-merge 回滚点写回本文件。
+- 文档同步提交为 `1fe20882d2290f94b612c39415845b57f3588df5`（短 SHA `1fe2088`），
+  已从 `origin/main` 的 merge commit 快进推送到 `main`；独立备份分支
+  `MrYu/reader-optimization-post-merge-docs-20260901-132500` 和 tag
+  `reader-optimization-post-merge-docs-20260901-132800` 均保留。
+- 本次仅变更文档，未重新执行代码测试；此前针对代码/测试基线 `015fcf9` 的默认与全 flags
+  124/124 门禁证据继续有效。生成文件和外部 Rust dirty 修改未纳入。
 
 每次继续工作时，按以下顺序更新本文档：
 
