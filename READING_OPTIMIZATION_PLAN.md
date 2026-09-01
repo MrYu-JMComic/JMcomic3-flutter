@@ -2,9 +2,9 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-08-31 03:57（最终文档语义与回滚快照核对）
+> 最后更新：2026-09-01 13:27（PR #2 合并后核对）
 >
-> 当前状态：已完成可安全回滚的 M1/M2/M3/M4/M5/M7 实现子集；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位，并在测试基线 `015fcf9` 重新通过默认/全 flags 124/124 回归。门禁文档提交已推送，Draft PR #2 保持打开。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
+> 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位，并在测试基线 `015fcf9` 通过默认/全 flags 124/124 回归。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
 ## 0. 固定工作上下文（压缩/换代理后先读）
 
@@ -12,7 +12,7 @@
 
 ### 0.1 路径与版本控制快照
 
-| 字段 | 固定值/当前记录（2026-08-31 03:57） |
+| 字段 | 固定值/当前记录（2026-09-01 13:27） |
 |---|---|
 | 功能代码工作区 | `D:\Cat\jmcomic3` |
 | 本地构建/工具链根 | `D:\Cat\jm3` |
@@ -20,12 +20,13 @@
 | 环境入口脚本 | `D:\Cat\jm3\scripts\enter_build_env.ps1` |
 | 环境自检脚本 | `D:\Cat\jm3\scripts\verify_build_env.ps1` |
 | 当前功能分支 | `MrYu/reader-optimization-m1` |
+| 合并状态 | PR #2 已合并到 `main`；merge commit `c1cd690410b27ef0fa842a7ed781beafb4dcf647`；源分支和 checkpoint 分支均保留 |
 | 代码/测试基线 | `015fcf9`（功能提交 `b59e139` + 测试提交 `fe83871` + 门禁文档提交）；本轮 124/124 测试均针对该基线，之后仅追加文档提交，代码未变 |
-| 文档收尾提交链 | `dba86f7` → `f4f0565`；当前分支与远端同步状态以本表下方最新 tag 和 `git status --short --branch` 复核；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
-| 远端同步 | `MrYu/reader-optimization-m1` 已与 `origin/MrYu/reader-optimization-m1` 同步（`dba86f7`）；普通 push 已完成，不触发 GitHub 构建 |
+| 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b`；本次合并后文档同步提交将在 `main` 上追加，代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
+| 远端同步 | `MrYu/reader-optimization-m1` 与 `origin/MrYu/reader-optimization-m1` 同步（`9d9873b`）；`origin/main` 已包含 merge commit `c1cd690`；本轮没有主动触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
-| Draft PR | GitHub PR #2，保持 Draft；GitHub 只作代码评审，不作本地构建验收 |
-| 恢复点 | `reader-optimization-pre-finalize-20260831-032500`、`reader-optimization-post-functional-20260831-033700`、`reader-optimization-final-local-gates-20260831-033900`、`reader-optimization-final-local-gates-20260831-035300`、`reader-optimization-final-local-gates-20260831-035600`，以及既有 `reader-optimization-before-final-review-20260831`、`reader-optimization-before-queue-20260831-continue`；本条收尾提交后另创建 `reader-optimization-final-local-gates-20260831-035800`；禁止改写已有提交历史 |
+| PR #2 | `MERGED`，原 head `9d9873b`，base `main` 原为 `9f79d73`；merge commit 为 `c1cd690`；GitHub 只作代码评审，不作本地构建验收 |
+| 恢复点 | `reader-optimization-pre-merge-20260901-132232`（合并前 head）、`reader-optimization-post-merge-20260901-132400`（合并后 main）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
 | 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
 | 构建 checkout | `D:\Cat\jm3` 有独立且可能 dirty 的工作树；不要假定它自动等于功能分支，构建前先核对 commit/diff |
 | 未跟踪生成物 | `D:\Cat\jmcomic3\windows\rust.h`；保留并先确认来源，不要擅自删除或提交 |
@@ -878,6 +879,28 @@ Rust 仓库已有用户未提交修改，至少包括：
   Rust 用户 dirty 修改均未清理、未覆盖、未提交。
 - 目标完成判定采用“安全可回滚子集完成 + 阻塞项显式保留”，不是把整个长期计划
   误报为完成。若后续继续，先读取本文件，再从未完成项和最新 tag 分支恢复。
+
+### 2026-09-01 13:27 PR #2 合并后核对
+
+- 合并前已创建并推送 checkpoint 分支/tag：
+  `MrYu/reader-optimization-pre-merge-20260901-132232` /
+  `reader-optimization-pre-merge-20260901-132232`，指向功能分支 head
+  `9d9873b`；外部 Rust 工作树用户 dirty 修改和主仓库生成文件未触碰。
+- PR #2 先从 Draft 转为 Ready，再使用 `--merge --match-head-commit
+  9d9873b0a6b78c49c4c19fe7f8268af4e210528a` 合并；GitHub 返回成功，merge commit
+  为 `c1cd690410b27ef0fa842a7ed781beafb4dcf647`，没有删除源分支或改写历史。
+- `git fetch --prune origin` 后，`origin/main` 指向 `c1cd690`，且
+  `git merge-base --is-ancestor 9d9873b origin/main` 通过；源分支和合并前 checkpoint
+  仍指向 `9d9873b`。合并后回滚 tag
+  `reader-optimization-post-merge-20260901-132400` 已创建并推送，指向 `c1cd690`。
+- PR 只读状态为 `state=MERGED`、`isDraft=false`；主分支无保护规则，合并时没有
+  required checks，`statusCheckRollup=[]`。本地门禁证据仍是固定环境下默认/全 flags
+  124/124；本轮没有重新跑平台构建，也没有主动触发 GitHub Actions。
+- 远端历史中可见的是 2026-08-30 的旧 `Flutter CI` 失败记录；它们发生在本次合并前，
+  不是本次合并触发的构建。仓库 workflow 均保持 `workflow_dispatch`，本轮没有新增运行。
+- 合并边界不变：只合并安全可回滚子集；R-02/R-08/R-14/R-18/R-26/R-27/R-29/
+  R-32/R-33 等未完成或阻塞风险，以及真实设备/网络/解扰 fixture/签名/golden/崩溃
+  持久化证据，仍需后续独立阶段处理，高风险开关保持默认关闭。
 
 每次继续工作时，按以下顺序更新本文档：
 
