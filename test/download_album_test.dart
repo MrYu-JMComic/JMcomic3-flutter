@@ -247,7 +247,8 @@ void main() {
     });
 
     expect(create.hasChapters, isFalse);
-    expect(create.initialChapterId, 7);
+    expect(create.firstChapterId, isNull);
+    expect(create.initialChapterId, 0);
     expect(create.containsChapterId(7), isFalse);
     expect(create.chapterById(7), isNull);
     expect(create.readerSeries, isEmpty);

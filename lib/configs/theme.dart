@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 import '../basic/commons.dart';
+import '../basic/log.dart';
 import '../basic/methods.dart';
+import '../basic/reader_system_ui.dart';
 import 'string_property.dart';
 
 const _seedColor = Color(0xFFECEFF2);
@@ -314,10 +316,21 @@ TextTheme _buildTextTheme(TextTheme base, ColorScheme scheme) {
 }
 
 Future initTheme() async {
-  SystemChrome.setEnabledSystemUIMode(
-    SystemUiMode.edgeToEdge,
-    overlays: SystemUiOverlay.values,
-  );
+  try {
+    // System UI is an optional platform capability. A desktop/web embedder
+    // may not implement the channel; initialization must still continue with
+    // the selected theme instead of redirecting the whole app to an error
+    // screen.
+    await setTrackedSystemUiMode(
+      SystemUiMode.edgeToEdge,
+      overlays: SystemUiOverlay.values,
+    );
+  } catch (error, stackTrace) {
+    debugPrient(
+      'system-ui initialization unavailable: '
+      '${error.runtimeType}/${stackTrace.runtimeType}',
+    );
+  }
   theme = normalizeThemeCode(await methods.loadProperty(_propertyName));
   themeEvent.broadcast();
   _reloadBarColor();

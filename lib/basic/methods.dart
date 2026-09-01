@@ -6,6 +6,9 @@ import 'package:jmcomic3/basic/log.dart';
 
 import 'method_response_decoder.dart';
 import 'entities.dart';
+import 'page_image_batch.dart';
+
+export 'page_image_batch.dart';
 
 export 'entities.dart';
 
@@ -108,7 +111,7 @@ class Methods {
             _CacheEntry(current.value, DateTime.now().millisecondsSinceEpoch);
         if (debugName != null) {
           debugPrient(
-            "[api-cache-stale-fallback] method=$debugName key=$cacheKey error=$e",
+            "[api-cache-stale-fallback] method=$debugName key=$cacheKey errorType=${e.runtimeType}",
           );
         }
         return current.value;
@@ -166,7 +169,9 @@ class Methods {
   Future<String> _invoke(String method, dynamic params) async {
     final shouldDebug = _downloadDebugMethods.contains(method);
     if (shouldDebug) {
-      debugPrient("[download-api:req] method=$method params=${_brief(params)}");
+      debugPrient(
+        "[download-api:req] method=$method params=${_briefSafe(params)}",
+      );
     }
     final resp = await _invokeRaw(method, params);
     final response = _Response.fromJson(jsonDecode(resp));
@@ -174,19 +179,19 @@ class Methods {
     if (response.errorMessage.isNotEmpty) {
       if (shouldDebug) {
         debugPrient(
-          "[download-api:err] method=$method error=${response.errorMessage}",
+          "[download-api:err] method=$method errorClass=${_errorClass(response.errorMessage)}",
         );
       }
       if (_isLikelyProGateError(method, response.errorMessage)) {
         debugPrient(
-          "backend-pro-gate method=$method params=$params error=${response.errorMessage}",
+          "backend-pro-gate method=$method errorClass=${_errorClass(response.errorMessage)}",
         );
       }
       throw StateError(response.errorMessage);
     }
     if (shouldDebug) {
       debugPrient(
-        "[download-api:rsp] method=$method data=${_brief(response.responseData)}",
+        "[download-api:rsp] method=$method data=${_briefSafe(response.responseData)}",
       );
     }
     return response.responseData;
@@ -198,6 +203,40 @@ class Methods {
       return raw;
     }
     return "${raw.substring(0, 320)}...";
+  }
+
+  String _briefSafe(dynamic value) {
+    dynamic sanitize(dynamic v, [String? key]) {
+      if (key != null &&
+          RegExp(r'(url|cookie|token|path|image_size)', caseSensitive: false)
+              .hasMatch(key)) {
+        return '<redacted>';
+      }
+      if (v is Map) {
+        return v.map((k, val) => MapEntry(k, sanitize(val, '$k')));
+      }
+      if (v is Iterable) return v.map((item) => sanitize(item)).toList();
+      if (v is String &&
+          (v.contains('://') || v.contains('\\') || v.contains('/'))) {
+        return '<redacted-string>';
+      }
+      return v;
+    }
+
+    return _brief(sanitize(value));
+  }
+
+  String _errorClass(String message) {
+    final lower = message.toLowerCase();
+    if (lower.contains('vip') ||
+        lower.contains('pro') ||
+        message.contains('发电')) {
+      return 'pro-gate';
+    }
+    if (lower.contains('network') || lower.contains('timeout')) {
+      return 'network';
+    }
+    return 'backend-error';
   }
 
   /// 后端整数响应历史上偶发过空串/非数字脏值；这里集中兜底，
@@ -634,6 +673,60 @@ class Methods {
     return _invoke("jm_page_image", {"id": id, "image_name": imageName});
   }
 
+  /// Batch page fetch adapter. Backend support is opt-in; failed/malformed
+  /// batches transparently fall back to the existing single-page API.
+  Future<List<JmPageImageBatchItem>> jmPageImageBatch(
+    List<JmPageImageRequest> pages, {
+    bool enabled = false,
+  }) async {
+    Future<List<JmPageImageBatchItem>> fallback() async => Future.wait(
+          pages.map((p) async {
+            try {
+              return JmPageImageBatchItem(
+                id: p.id,
+                path: await jmPageImage(p.id, p.imageName),
+              );
+            } catch (e) {
+              return JmPageImageBatchItem(
+                id: p.id,
+                error: JmPageImageBatchItem.safeErrorCode(e),
+              );
+            }
+          }),
+        );
+    if (!enabled || pages.isEmpty) return fallback();
+    try {
+      final output = <JmPageImageBatchItem>[];
+      for (var offset = 0; offset < pages.length; offset += 16) {
+        final chunk =
+            pages.sublist(offset, (offset + 16).clamp(0, pages.length));
+        final raw = await _invoke("jm_page_image_batch",
+            {"pages": chunk.map((p) => p.toJson()).toList()});
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map ||
+            decoded["version"] != 1 ||
+            decoded["items"] is! List) {
+          return fallback();
+        }
+        // Parse every element strictly.  Filtering non-map values would let a
+        // malformed response appear valid when the remaining item count still
+        // happened to match the request.
+        final items = (decoded["items"] as List)
+            .map(JmPageImageBatchItem.fromJson)
+            .toList(growable: false);
+        if (items.length != chunk.length ||
+            !List.generate(items.length, (i) => items[i].id == chunk[i].id)
+                .every((v) => v)) {
+          return fallback();
+        }
+        output.addAll(items);
+      }
+      return output;
+    } catch (_) {
+      return fallback();
+    }
+  }
+
   Future<String> jmPhotoImage(String imageName) {
     return _invoke("jm_photo_image", imageName);
   }
@@ -816,6 +909,18 @@ class Methods {
     );
   }
 
+  /// Optional, read-only local availability probe. Older backends may not
+  /// implement it; callers must treat errors/unknown payloads as unavailable.
+  Future<List<DlImage>> dlImageLocalAvailability(int id) async {
+    try {
+      final raw = await _invoke("dl_image_local_availability", "$id");
+      return _decodeEntityListResponse(
+          raw, "dl_image_local_availability", DlImage.fromJson);
+    } catch (_) {
+      return const <DlImage>[];
+    }
+  }
+
   Future<dynamic> deleteDownload(int id) async {
     return _invoke("delete_download", id);
   }
@@ -831,7 +936,8 @@ class Methods {
       return _normalizePlatformStringList(raw, "androidGetModes");
     } on PlatformException catch (e, s) {
       // 刷新率模式只影响设置页展示；通道异常时降级为空列表，避免应用初始化被阻断。
-      debugPrient("androidGetModes fallback []: $e\n$s");
+      debugPrient(
+          "androidGetModes fallback []: ${e.runtimeType}/${s.runtimeType}");
       return const <String>[];
     }
   }
@@ -949,17 +1055,17 @@ class Methods {
   }
 
   Future import_jm_zip(String path) {
-    debugPrient(path);
+    debugPrient('[import] type=zip pathProvided=${path.isNotEmpty}');
     return _invoke("import_jm_zip", path);
   }
 
   Future import_jm_jmi(String path) {
-    debugPrient(path);
+    debugPrient('[import] type=jmi pathProvided=${path.isNotEmpty}');
     return _invoke("import_jm_jmi", path);
   }
 
   Future import_jm_dir(String path) {
-    debugPrient(path);
+    debugPrient('[import] type=dir pathProvided=${path.isNotEmpty}');
     return _invoke("import_jm_dir", path);
   }
 
@@ -1112,7 +1218,8 @@ class Methods {
         return name;
       }
     } catch (e, s) {
-      debugPrient("get_pro_server_name fallback HK: $e\n$s");
+      debugPrient(
+          "get_pro_server_name fallback HK: ${e.runtimeType}/${s.runtimeType}");
     }
     return "HK";
   }
@@ -1121,7 +1228,8 @@ class Methods {
     try {
       return await _invoke("set_pro_server_name", serverName);
     } catch (e, s) {
-      debugPrient("set_pro_server_name ignored: $e\n$s");
+      debugPrient(
+          "set_pro_server_name ignored: ${e.runtimeType}/${s.runtimeType}");
       return "";
     }
   }

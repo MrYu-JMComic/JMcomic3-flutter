@@ -5,6 +5,7 @@ import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/log.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:jmcomic3/basic/methods.dart';
@@ -91,7 +92,51 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
   final String imageName;
   final double scale;
 
-  PageImageProvider(this.id, this.imageName, {this.scale = 1.0});
+  /// Optional source-page identity.  The transport still uses [imageName],
+  /// but the source index keeps two malformed/legacy entries with the same
+  /// name from sharing a Flutter image-cache key.
+  final int? pageIndex;
+
+  /// Optional codec target in physical pixels.  This is deliberately a
+  /// property of the Flutter provider only: the file resolved by
+  /// [_cachedPageImagePath] is still the canonical, fully decrypted image.
+  final int? cacheWidth;
+  final int? cacheHeight;
+
+  /// Optional already-resolved canonical path, used by offline readers and
+  /// tests.  It is never a network URL and is validated for existence before
+  /// handing bytes to the codec.
+  final String? localPath;
+
+  /// When true, a missing [localPath] is a hard local-only failure.  This is
+  /// used by the opt-in offline owner so metadata-only pages never silently
+  /// fall back to an online bridge request.
+  final bool localOnly;
+
+  PageImageProvider(
+    this.id,
+    this.imageName, {
+    this.scale = 1.0,
+    int? pageIndex,
+    int? cacheWidth,
+    int? cacheHeight,
+    String? localPath,
+    this.localOnly = false,
+  })  : pageIndex = _normalizePageIndex(pageIndex),
+        cacheWidth = _normalizeDecodeTarget(cacheWidth),
+        cacheHeight = _normalizeDecodeTarget(cacheHeight),
+        localPath = _normalizeLocalPath(localPath);
+
+  Future<String> _pathForKey(PageImageProvider key) async {
+    final supplied = key.localPath;
+    if (supplied != null) {
+      return _validateLocalImagePath(supplied);
+    }
+    if (key.localOnly) {
+      throw StateError('local image unavailable');
+    }
+    return _cachedPageImagePath(key.id, key.imageName);
+  }
 
   @override
   ImageStreamCompleter loadBuffer(
@@ -103,6 +148,15 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
       scale: key.scale,
     );
   }
+
+  /// Direct codec hook for deterministic fixture tests. Production callers
+  /// should resolve the provider through [Image] so Flutter's image cache and
+  /// lifecycle remain in charge.
+  @visibleForTesting
+  Future<ui.Codec> loadCodecForTest() => _loadAsyncWithImage(
+        this,
+        PaintingBinding.instance.instantiateImageCodecWithSize,
+      );
 
   @override
   ImageStreamCompleter loadImage(
@@ -125,10 +179,27 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
     DecoderBufferCallback decode,
   ) async {
     assert(key == this);
-    final bytes =
-        await File(await _cachedPageImagePath(id, imageName)).readAsBytes();
+    final bytes = await File(await _pathForKey(key)).readAsBytes();
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    return decode(buffer);
+    final width = key.cacheWidth;
+    final height = key.cacheHeight;
+    if (width == null && height == null) {
+      return decode(buffer);
+    }
+    try {
+      return await decode(
+        buffer,
+        cacheWidth: width,
+        cacheHeight: height,
+        allowUpscaling: false,
+      );
+    } catch (_) {
+      // A decoder/plugin may reject a target-size request even though the
+      // canonical image is valid. Retry the same canonical bytes without a
+      // target so an optimization failure cannot turn into a page failure.
+      final fallbackBuffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      return decode(fallbackBuffer);
+    }
   }
 
   Future<ui.Codec> _loadAsyncWithImage(
@@ -136,10 +207,38 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
     ImageDecoderCallback decode,
   ) async {
     assert(key == this);
-    final bytes =
-        await File(await _cachedPageImagePath(id, imageName)).readAsBytes();
+    final bytes = await File(await _pathForKey(key)).readAsBytes();
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    return decode(buffer);
+    final width = key.cacheWidth;
+    final height = key.cacheHeight;
+    if (width == null && height == null) {
+      return decode(buffer);
+    }
+    try {
+      return await decode(
+        buffer,
+        getTargetSize: (int intrinsicWidth, int intrinsicHeight) {
+          // Never request an upscale. The codec still owns aspect-ratio
+          // fitting; bounding each supplied dimension by the source keeps a
+          // large viewport/DPR from creating a pointless larger bitmap.
+          final requestedWidth = width;
+          final requestedHeight = height;
+          final boundedWidth = requestedWidth == null
+              ? null
+              : math.min(requestedWidth, intrinsicWidth);
+          final boundedHeight = requestedHeight == null
+              ? null
+              : math.min(requestedHeight, intrinsicHeight);
+          return ui.TargetImageSize(
+            width: boundedWidth,
+            height: boundedHeight,
+          );
+        },
+      );
+    } catch (_) {
+      final fallbackBuffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      return decode(fallbackBuffer);
+    }
   }
 
   @override
@@ -148,17 +247,28 @@ class PageImageProvider extends ImageProvider<PageImageProvider> {
     final PageImageProvider typedOther = other as PageImageProvider;
     return id == typedOther.id &&
         imageName == typedOther.imageName &&
-        scale == typedOther.scale;
+        scale == typedOther.scale &&
+        pageIndex == typedOther.pageIndex &&
+        cacheWidth == typedOther.cacheWidth &&
+        cacheHeight == typedOther.cacheHeight &&
+        localPath == typedOther.localPath &&
+        localOnly == typedOther.localOnly;
   }
 
   @override
-  int get hashCode => Object.hash(id, imageName, scale);
+  int get hashCode => Object.hash(id, imageName, scale, pageIndex, cacheWidth,
+      cacheHeight, localPath, localOnly);
 
   @override
   String toString() => '$runtimeType('
       ' id: ${describeIdentity(id)},'
       ' imageName: ${describeIdentity(imageName)},'
-      ' scale: $scale'
+      ' scale: $scale,'
+      ' pageIndex: $pageIndex,'
+      ' cacheWidth: $cacheWidth,'
+      ' cacheHeight: $cacheHeight,'
+      ' localPath: ${localPath == null ? '<cache>' : describeIdentity(localPath)},'
+      ' localOnly: $localOnly'
       ')';
 }
 
@@ -167,13 +277,51 @@ const _pageImageTrueSizeCacheLimit = 800;
 const _coverPathCacheLimit = 400;
 const _photoPathCacheLimit = 400;
 
+const _decodeTargetBuckets = <int>[
+  256,
+  512,
+  768,
+  1024,
+  1536,
+  2048,
+  3072,
+  4096,
+];
+
+int? _normalizeDecodeTarget(int? value) {
+  if (value == null || value <= 0) {
+    return null;
+  }
+  for (final bucket in _decodeTargetBuckets) {
+    if (value <= bucket) {
+      return bucket;
+    }
+  }
+  // Never let a caller create an unbounded image-cache key or request a
+  // decoder target larger than the largest supported profile.
+  return _decodeTargetBuckets.last;
+}
+
+int? _normalizePageIndex(int? value) =>
+    value != null && value >= 0 ? value : null;
+
+String? _normalizeLocalPath(String? value) {
+  final trimmed = value?.trim();
+  return trimmed == null || trimmed.isEmpty ? null : trimmed;
+}
+
 final Map<int, Future<String>> _jm3x4CoverPathFutureCache = {};
 final Map<int, Future<String>> _jmSquareCoverPathFutureCache = {};
 final Map<String, Future<String>> _photoPathFutureCache = {};
 final Map<String, Future<String>> _pageImagePathFutureCache = {};
 final Map<String, Future<Size>> _pageImageTrueSizeFutureCache = {};
 
-String _pageImageCacheKey(int id, String imageName) => "$id/$imageName";
+String _pageImageCacheKey(int id, String imageName, {String? path}) {
+  final normalizedPath = _normalizeLocalPath(path);
+  return normalizedPath == null
+      ? "$id/$imageName"
+      : "$id/$imageName|$normalizedPath";
+}
 
 T _putCacheWithLimit<K, T>(
   Map<K, T> cache,
@@ -198,24 +346,34 @@ Future<String> _cachePathFuture<K>({
   if (cached != null) {
     return cached;
   }
-  final future = loader().then((path) async {
+  Future<String>? currentFuture;
+  currentFuture = Future<String>.sync(loader).then((path) async {
     final normalized = path.trim();
     if (normalized.isEmpty) {
       throw StateError("empty image path");
     }
     final file = File(normalized);
-    if (!await file.exists()) {
-      throw StateError("image file not found: $normalized");
-    }
-    if (await file.length() <= 0) {
-      throw StateError("image file empty: $normalized");
+    try {
+      final stat = await file.stat();
+      if (stat.type != FileSystemEntityType.file || stat.size <= 0) {
+        throw const FileSystemException('image file unavailable');
+      }
+    } catch (_) {
+      // Keep local paths out of error text; callers can classify this as a
+      // missing/invalid image without exposing filesystem details.
+      throw StateError("image file unavailable");
     }
     return normalized;
   }).catchError((Object error, StackTrace stackTrace) {
-    cache.remove(key);
-    throw error;
+    // A forced refresh may have replaced this Future while the old request
+    // was still in flight. Only evict when the cache still points at the
+    // failing Future; otherwise an old failure could remove the new value.
+    if (identical(cache[key], currentFuture)) {
+      cache.remove(key);
+    }
+    Error.throwWithStackTrace(error, stackTrace);
   });
-  return _putCacheWithLimit(cache, key, future, limit);
+  return _putCacheWithLimit(cache, key, currentFuture, limit);
 }
 
 Future<String> _cachedJm3x4CoverPath(
@@ -286,7 +444,7 @@ Future<Size> _cachedPageImageTrueSize(
   String path, {
   bool forceRefresh = false,
 }) async {
-  final key = _pageImageCacheKey(id, imageName);
+  final key = _pageImageCacheKey(id, imageName, path: path);
   if (forceRefresh) {
     _pageImageTrueSizeFutureCache.remove(key);
   }
@@ -294,17 +452,27 @@ Future<Size> _cachedPageImageTrueSize(
   if (cached != null) {
     return cached;
   }
-  final future = methods.imageSize(path).then((imageSize) {
+  Future<Size>? currentFuture;
+  currentFuture =
+      Future<ImageSize>.sync(() => methods.imageSize(path)).then((imageSize) {
+    if (imageSize.w <= 0 || imageSize.h <= 0) {
+      // A successful bridge response with zero/negative dimensions is still a
+      // malformed image contract. Do not let it poison the true-size cache or
+      // make a list reader construct a zero-sized page.
+      throw const FormatException('invalid image dimensions');
+    }
     return Size(imageSize.w.toDouble(), imageSize.h.toDouble());
   }).catchError((Object error, StackTrace stackTrace) {
-    _pageImageTrueSizeFutureCache.remove(key);
+    if (identical(_pageImageTrueSizeFutureCache[key], currentFuture)) {
+      _pageImageTrueSizeFutureCache.remove(key);
+    }
     Error.throwWithStackTrace(error, stackTrace);
   });
   // 阅读器同一页可能被预加载、当前页和双页模式同时请求尺寸；缓存 Future 可以合并并发桥接调用。
   return _putCacheWithLimit(
     _pageImageTrueSizeFutureCache,
     key,
-    future,
+    currentFuture,
     _pageImageTrueSizeCacheLimit,
   );
 }
@@ -312,7 +480,13 @@ Future<Size> _cachedPageImageTrueSize(
 void _evictPageImageCache(int id, String imageName) {
   final key = _pageImageCacheKey(id, imageName);
   _pageImagePathFutureCache.remove(key);
-  _pageImageTrueSizeFutureCache.remove(key);
+  // True-size entries include the resolved canonical path. Evict all variants
+  // for this logical page so a migrated/offline file cannot reuse stale
+  // dimensions from the previous path.
+  final prefix = '$key|';
+  _pageImageTrueSizeFutureCache.removeWhere(
+    (cacheKey, _) => cacheKey == key || cacheKey.startsWith(prefix),
+  );
 }
 
 /// Evict one page image's in-memory path and size cache.
@@ -588,12 +762,28 @@ class _JMPhotoImageState extends State<JMPhotoImage> {
 class JMPageImage extends StatefulWidget {
   final int id;
   final String imageName;
+
+  /// Stable source-page identity for duplicate image names.
+  final int? pageIndex;
+
+  /// Optional path already validated by the offline availability contract.
+  /// When present, no network/bridge lookup is performed.
+  final String? localPath;
+
+  /// Prevents a metadata-only offline page from falling back to the network.
+  final bool localOnly;
   final double? width;
   final double? height;
   final Function(Size size)? onTrueSize;
 
   const JMPageImage(this.id, this.imageName,
-      {Key? key, this.width, this.height, this.onTrueSize})
+      {Key? key,
+      this.pageIndex,
+      this.localPath,
+      this.localOnly = false,
+      this.width,
+      this.height,
+      this.onTrueSize})
       : super(key: key);
 
   @override
@@ -602,6 +792,7 @@ class JMPageImage extends StatefulWidget {
 
 class _JMPageImageState extends State<JMPageImage> {
   late Future<String> _future;
+  int _generation = 0;
   int _autoRetryCount = 0;
   bool _autoRetryQueued = false;
 
@@ -614,7 +805,12 @@ class _JMPageImageState extends State<JMPageImage> {
   @override
   void didUpdateWidget(covariant JMPageImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.id != widget.id || oldWidget.imageName != widget.imageName) {
+    if (oldWidget.id != widget.id ||
+        oldWidget.imageName != widget.imageName ||
+        oldWidget.pageIndex != widget.pageIndex ||
+        oldWidget.localOnly != widget.localOnly ||
+        oldWidget.localPath != widget.localPath) {
+      _generation++;
       _autoRetryCount = 0;
       _autoRetryQueued = false;
       _future = _init();
@@ -622,24 +818,72 @@ class _JMPageImageState extends State<JMPageImage> {
   }
 
   Future<String> _init({bool forceRefresh = false}) async {
-    final _path = await _cachedPageImagePath(
-      widget.id,
-      widget.imageName,
-      forceRefresh: forceRefresh,
-    );
-    if (widget.onTrueSize != null) {
+    final generation = _generation;
+    final id = widget.id;
+    final imageName = widget.imageName;
+    final pageIndex = widget.pageIndex;
+    final localOnly = widget.localOnly;
+    final onTrueSize = widget.onTrueSize;
+    final suppliedPath = widget.localPath?.trim();
+    if ((suppliedPath == null || suppliedPath.isEmpty) && localOnly) {
+      throw StateError('local image unavailable');
+    }
+    final _path = suppliedPath == null || suppliedPath.isEmpty
+        ? await _cachedPageImagePath(
+            id,
+            imageName,
+            forceRefresh: forceRefresh,
+          )
+        : await _validateLocalImagePath(suppliedPath);
+    // A newer widget/reload may have replaced this request while the path was
+    // loading. Do not start a force-refresh size lookup from the stale
+    // request, since it could evict the newer size Future for the same key.
+    if (!mounted ||
+        generation != _generation ||
+        widget.id != id ||
+        widget.imageName != imageName ||
+        widget.pageIndex != pageIndex ||
+        widget.localOnly != localOnly ||
+        widget.localPath?.trim() != suppliedPath) {
+      return _path;
+    }
+    if (onTrueSize != null) {
+      // Check again immediately before the size bridge call. The path Future
+      // can complete while a newer widget/reload is being installed; without
+      // this second guard the stale request would still perform I/O and could
+      // populate the size cache for a page that is no longer mounted.
+      if (!mounted ||
+          generation != _generation ||
+          widget.id != id ||
+          widget.imageName != imageName ||
+          widget.pageIndex != pageIndex ||
+          widget.localOnly != localOnly ||
+          widget.localPath?.trim() != suppliedPath) {
+        return _path;
+      }
       final size = await _cachedPageImageTrueSize(
-        widget.id,
-        widget.imageName,
+        id,
+        imageName,
         _path,
         forceRefresh: forceRefresh,
       );
-      widget.onTrueSize!(size);
+      // Do not let an old request publish into a reused State whose widget
+      // identity has changed while the request was in flight.
+      if (mounted &&
+          generation == _generation &&
+          widget.id == id &&
+          widget.imageName == imageName &&
+          widget.pageIndex == pageIndex &&
+          widget.localOnly == localOnly &&
+          widget.localPath?.trim() == suppliedPath) {
+        onTrueSize(size);
+      }
     }
     return _path;
   }
 
   void _reload() {
+    _generation++;
     _evictPageImageCache(widget.id, widget.imageName);
     if (!mounted) {
       return;
@@ -672,10 +916,24 @@ class _JMPageImageState extends State<JMPageImage> {
       _future,
       widget.width,
       widget.height,
+      offlineOnly: widget.localOnly,
       onReload: _reload,
       onDecodeError: _autoRetryOnDecodeError,
     );
   }
+}
+
+Future<String> _validateLocalImagePath(String path) async {
+  final file = File(path);
+  try {
+    final stat = await file.stat();
+    if (stat.type != FileSystemEntityType.file || stat.size <= 0) {
+      throw const FileSystemException('image file unavailable');
+    }
+  } catch (_) {
+    throw StateError('local image unavailable');
+  }
+  return path;
 }
 
 Widget pathFutureImage(
@@ -683,14 +941,23 @@ Widget pathFutureImage(
     {BoxFit fit = BoxFit.cover,
     List<LongPressMenuItem>? longPressMenuItems,
     VoidCallback? onReload,
-    VoidCallback? onDecodeError}) {
+    VoidCallback? onDecodeError,
+    bool offlineOnly = false}) {
   // 使用 FutureBuilder 渲染加载/错误/成功状态
   return FutureBuilder<String>(
       future: future,
       builder: (BuildContext context, AsyncSnapshot<String> snapshot) {
         if (snapshot.hasError) {
-          debugPrient("${snapshot.error}");
-          debugPrient("${snapshot.stackTrace}");
+          debugPrient("image load failed: ${snapshot.error.runtimeType}");
+          debugPrient("image load stack: ${snapshot.stackTrace?.runtimeType}");
+          if (offlineOnly) {
+            return buildOfflineImageUnavailable(
+              context,
+              width,
+              height,
+              onReload: onReload,
+            );
+          }
           return buildError(
             context,
             width,
@@ -700,7 +967,9 @@ Widget pathFutureImage(
           );
         }
         // 检查是否完成
-        if (snapshot.connectionState == ConnectionState.done) {
+        if (snapshot.connectionState == ConnectionState.done &&
+            snapshot.hasData &&
+            snapshot.data!.trim().isNotEmpty) {
           return buildFile(
             context,
             snapshot.data!,
@@ -712,6 +981,24 @@ Widget pathFutureImage(
             onDecodeError: onDecodeError,
           );
         }
+        if (snapshot.connectionState == ConnectionState.done) {
+          debugPrient("image load failed: invalid result");
+          if (offlineOnly) {
+            return buildOfflineImageUnavailable(
+              context,
+              width,
+              height,
+              onReload: onReload,
+            );
+          }
+          return buildError(
+            context,
+            width,
+            height,
+            longPressMenuItems: longPressMenuItems,
+            onReload: onReload,
+          );
+        }
         // 其他状态（waiting/active/none）显示加载状态
         return buildLoading(
           context,
@@ -720,6 +1007,58 @@ Widget pathFutureImage(
           longPressMenuItems: longPressMenuItems,
         );
       });
+}
+
+/// A distinct state for an offline page whose metadata exists but whose
+/// validated local file is missing or unreadable. Keeping this separate from
+/// the generic network error makes the recovery action clear and prevents a
+/// user from assuming that toggling network settings will fix the page.
+Widget buildOfflineImageUnavailable(
+  BuildContext context,
+  double? width,
+  double? height, {
+  VoidCallback? onReload,
+}) {
+  final content = SizedBox(
+    width: width,
+    height: height,
+    child: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.cloud_off_outlined,
+              size: (width != null && height != null)
+                  ? math.min(width, height).clamp(24.0, 56.0).toDouble()
+                  : 32,
+              color: Colors.grey,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              context.l10n.tr(
+                '离线图片不可用，请重新下载',
+                en: 'Offline image unavailable; download again',
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (onReload == null) {
+    return content;
+  }
+  return GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: onReload,
+    child: content,
+  );
 }
 
 // 通用方法
@@ -852,11 +1191,103 @@ Widget buildLoading(BuildContext context, double? width, double? height,
 }
 
 int? _cacheExtent(double? logicalExtent, double devicePixelRatio) {
-  if (logicalExtent == null || logicalExtent <= 0) {
+  if (logicalExtent == null ||
+      !logicalExtent.isFinite ||
+      logicalExtent <= 0 ||
+      !devicePixelRatio.isFinite ||
+      devicePixelRatio <= 0) {
     return null;
   }
   final value = (logicalExtent * devicePixelRatio).round();
-  return value > 0 ? value : null;
+  if (value <= 0) return null;
+  // Keep the codec/cache key space bounded.  The source file remains the
+  // canonical (fully decoded/decrypted) image; this only controls Flutter's
+  // codec sampling target and therefore cannot affect decryption semantics.
+  return _normalizeDecodeTarget(value);
+}
+
+@visibleForTesting
+int? decodeTargetExtentForTest(
+        double? logicalExtent, double devicePixelRatio) =>
+    _cacheExtent(logicalExtent, devicePixelRatio);
+
+/// Exercise the same target-size codec contract as [PageImageProvider] with a
+/// canonical (already decrypted) fixture, without creating an image stream.
+/// This is test-only and never participates in the production cache path.
+@visibleForTesting
+Future<ui.Codec> decodeCanonicalPageBytesForTest(
+  Uint8List bytes, {
+  int? cacheWidth,
+  int? cacheHeight,
+}) async {
+  final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+  return ui.instantiateImageCodecWithSize(
+    buffer,
+    getTargetSize: (int _, int __) => ui.TargetImageSize(
+      width: _normalizeDecodeTarget(cacheWidth),
+      height: _normalizeDecodeTarget(cacheHeight),
+    ),
+  );
+}
+
+/// Build the reader page provider for a concrete layout box.
+///
+/// `width`/`height` are logical Flutter pixels and are converted to bounded
+/// physical codec targets.  The returned provider always resolves the same
+/// canonical file as [PageImageProvider]; target decoding is never applied to
+/// the scrambled network bytes or to the Rust cache writer.
+PageImageProvider readerPageImageProvider(
+  BuildContext context,
+  int id,
+  String imageName, {
+  double? width,
+  double? height,
+  int? pageIndex,
+  String? localPath,
+  bool localOnly = false,
+  bool enabled = true,
+}) {
+  if (!enabled) {
+    return PageImageProvider(
+      id,
+      imageName,
+      pageIndex: pageIndex,
+      localPath: localPath,
+      localOnly: localOnly,
+    );
+  }
+  final devicePixelRatio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
+  return PageImageProvider(
+    id,
+    imageName,
+    pageIndex: pageIndex,
+    cacheWidth: _cacheExtent(width, devicePixelRatio),
+    cacheHeight: _cacheExtent(height, devicePixelRatio),
+    localPath: localPath,
+    localOnly: localOnly,
+  );
+}
+
+@visibleForTesting
+PageImageProvider readerPageImageProviderForTest({
+  required int id,
+  required String imageName,
+  double? width,
+  double? height,
+  int? pageIndex,
+  String? localPath,
+  bool localOnly = false,
+  double devicePixelRatio = 1.0,
+}) {
+  return PageImageProvider(
+    id,
+    imageName,
+    pageIndex: pageIndex,
+    cacheWidth: _cacheExtent(width, devicePixelRatio),
+    cacheHeight: _cacheExtent(height, devicePixelRatio),
+    localPath: localPath,
+    localOnly: localOnly,
+  );
 }
 
 Widget buildFile(
@@ -877,8 +1308,8 @@ Widget buildFile(
     width: width,
     height: height,
     errorBuilder: (a, b, c) {
-      debugPrient("$b");
-      debugPrient("$c");
+      debugPrient("image decode failed: ${b.runtimeType}");
+      debugPrient("image decode stack: ${c.runtimeType}");
       onDecodeError?.call();
       return buildError(
         context,

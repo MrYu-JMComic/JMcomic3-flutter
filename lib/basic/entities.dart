@@ -528,6 +528,7 @@ class ChapterResponse {
     required this.seriesId,
     required this.isFavorite,
     required this.liked,
+    this.offlineImages,
   });
 
   late final int id;
@@ -539,6 +540,10 @@ class ChapterResponse {
   late final bool isFavorite;
   late final bool liked;
 
+  /// Optional local metadata supplied by an offline owner.  It is deliberately
+  /// not serialized as part of the legacy chapter wire response.
+  late final List<DlImage>? offlineImages;
+
   ChapterResponse.fromJson(Map<String, dynamic> json) {
     id = json['id'];
     series = List.from(json['series']).map((e) => Series.fromJson(e)).toList();
@@ -548,6 +553,7 @@ class ChapterResponse {
     seriesId = json['series_id'];
     isFavorite = json['is_favorite'];
     liked = json['liked'];
+    offlineImages = null;
   }
 
   Map<String, dynamic> toJson() {
@@ -1228,8 +1234,15 @@ class DownloadCreate {
 
   bool get hasChapters => chapters.isNotEmpty;
 
-  /// 阅读器入口使用的首个章节 ID；兼容旧下载数据中章节列表为空的情况。
-  int get initialChapterId => hasChapters ? chapters.first.id : album.id;
+  /// Reader entry point when a valid chapter exists.  A missing chapter must
+  /// stay missing; the album id is not a chapter id and must never be used as
+  /// a fallback request target.
+  int? get firstChapterId => hasChapters ? chapters.first.id : null;
+
+  /// Legacy compatibility getter. New UI code must use [firstChapterId] and
+  /// guard [hasChapters]; returning zero keeps old serialized consumers from
+  /// accidentally turning an album id into a chapter request.
+  int get initialChapterId => firstChapterId ?? 0;
 
   /// 历史阅读记录恢复前需要确认章节仍属于当前下载任务。
   bool containsChapterId(int chapterId) =>
@@ -1479,6 +1492,9 @@ class DlImage {
     required this.dlStatus,
     required this.width,
     required this.height,
+    this.localPath,
+    this.localAvailable = false,
+    this.localState,
   });
 
   late final int albumId;
@@ -1490,6 +1506,34 @@ class DlImage {
   late final int width;
   late final int height;
 
+  /// Optional backend-provided path; never inferred from metadata.
+  late final String? localPath;
+  late final bool localAvailable;
+  late final String? localState;
+
+  DlImage copyWithAvailability({
+    String? localPath,
+    bool? localAvailable,
+    String? localState,
+    bool replaceLocalPath = false,
+    bool replaceLocalState = false,
+  }) {
+    return DlImage(
+      albumId: albumId,
+      chapterId: chapterId,
+      imageIndex: imageIndex,
+      name: name,
+      key: key,
+      dlStatus: dlStatus,
+      width: width,
+      height: height,
+      localPath: replaceLocalPath ? localPath : (localPath ?? this.localPath),
+      localAvailable: localAvailable ?? this.localAvailable,
+      localState:
+          replaceLocalState ? localState : (localState ?? this.localState),
+    );
+  }
+
   DlImage.fromJson(Map<String, dynamic> json) {
     // WebDAV/导入恢复可能把数字字段转成字符串；图片列表进入阅读器前先做宽松解析。
     albumId = _toInt(json['album_id']);
@@ -1500,6 +1544,17 @@ class DlImage {
     dlStatus = _toInt(json['dl_status']);
     width = _toInt(json['width']);
     height = _toInt(json['height']);
+    localPath = json['local_path'] is String &&
+            (json['local_path'] as String).trim().isNotEmpty
+        ? (json['local_path'] as String).trim()
+        : null;
+    final rawLocalAvailable = json['local_available'];
+    localAvailable = rawLocalAvailable == true ||
+        (rawLocalAvailable is String &&
+            rawLocalAvailable.trim().toLowerCase() == 'true');
+    final state = json['local_state'];
+    localState =
+        state is String && state.trim().isNotEmpty ? state.trim() : null;
   }
 
   Map<String, dynamic> toJson() {
@@ -1512,6 +1567,18 @@ class DlImage {
     _data['dl_status'] = dlStatus;
     _data['width'] = width;
     _data['height'] = height;
+    // Keep the legacy wire shape compatible when no availability probe has
+    // supplied extra metadata. Do not add `local_available: false` to every
+    // old download record.
+    if (localPath != null) {
+      _data['local_path'] = localPath;
+    }
+    if (localAvailable || localPath != null || localState != null) {
+      _data['local_available'] = localAvailable;
+    }
+    if (localState != null) {
+      _data['local_state'] = localState;
+    }
     return _data;
   }
 }
