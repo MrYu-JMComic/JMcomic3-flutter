@@ -32,6 +32,7 @@ import 'components/images.dart';
 import 'components/right_click_pop.dart';
 import '../reader_session.dart';
 import '../reader_viewlog_queue.dart';
+import '../reader_viewlog_store.dart';
 import '../basic/reader_pages.dart';
 import '../basic/page_pairing.dart';
 import '../reader_progress.dart';
@@ -726,10 +727,15 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       ChapterIdentity('${widget.comicId}:${widget.chapter.id}'),
     );
     if (readerViewLogQueueV1) {
+      // A stable key lets a later reader instance replay events left behind by
+      // a crash. The queue remains opt-in so the legacy direct write path is
+      // unchanged when the experiment is disabled.
+      final sessionId = 'reader-${widget.comicId}-${widget.chapter.id}';
       _viewLogQueue = ReaderViewlogQueue(
-        sessionId:
-            'reader-${widget.comicId}-${widget.chapter.id}-${identityHashCode(this)}',
+        sessionId: sessionId,
         sink: _sendQueuedViewLog,
+        store: ReaderViewlogPropertyStore(),
+        persistenceKey: ReaderViewlogPropertyStore.keyForSession(sessionId),
       );
     }
   }
@@ -2762,7 +2768,20 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
       return;
     }
     for (var index = 0; index < widget.chapter.images.length; index++) {
-      ips.add(_readerPageProvider(index));
+      // initState cannot depend on MediaQuery. The legacy gallery only uses
+      // these providers as stable eviction handles; actual page cells resolve
+      // their viewport-sized provider during build.
+      final descriptor = _descriptorAt(index);
+      ips.add(
+        PageImageProvider(
+          widget.chapter.id,
+          descriptor?.name ?? widget.chapter.images[index],
+          pageIndex: index,
+          localPath:
+              descriptor?.localAvailable == true ? descriptor?.localPath : null,
+          localOnly: _isLocalOnlyChapter(),
+        ),
+      );
     }
     _buildOptions();
     _buildView();
