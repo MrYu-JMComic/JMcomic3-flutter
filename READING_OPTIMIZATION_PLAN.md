@@ -2,7 +2,7 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-09-01 13:58（M2 持久化队列/双页回归及本地门禁核对）
+> 最后更新：2026-09-01 14:04（PR #3 创建及远端同步核对）
 >
 > 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；当前阶段分支 `MrYu/reader-optimization-m2` 在此基础上增加了默认关闭的 view-log 版本化持久化适配器、恢复/重试回归和双页窗口 widget 回归，并在 HEAD `85034cf` 通过默认/全 flags 132/132 测试。该持久化适配器复用现有属性桥接，能在正常重启后重放 pending 事件，但尚未完成 native 原子文件写入、强杀窗口和跨设备恢复演练，不能替代完整 M6/M7 发布证据。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线、M2 真实 scrambled fixture 及 M7 golden/真实 list reader 仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
@@ -23,7 +23,7 @@
 | 合并状态 | PR #2 已合并到 `main`；merge commit `c1cd690410b27ef0fa842a7ed781beafb4dcf647`；源分支和 checkpoint 分支均保留 |
 | 代码/测试基线 | `85034cf`（本阶段代码提交 `1270602`、测试提交 `8b96fd5`、key 校验提交 `85034cf`）；当前 HEAD 默认/全 flags 均为 132/132 |
 | 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b` → `1fe2088`；本阶段文档提交将在当前分支追加；代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
-| 远端同步 | `origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `94a8bcc`；阶段分支 `MrYu/reader-optimization-m2` 当前尚未推送；本轮没有主动触发 GitHub 构建 |
+| 远端同步 | `origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `94a8bcc`；阶段分支 `MrYu/reader-optimization-m2` 与 `origin` 同步至 `9600298`，PR #3 为 Draft；本轮没有主动触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
 | PR #2 | `MERGED`，原 head `9d9873b`，base `main` 原为 `9f79d73`；merge commit 为 `c1cd690`；GitHub 只作代码评审，不作本地构建验收 |
 | 恢复点 | `reader-optimization-m2-start-20260901-133345`（本阶段起点）、`reader-optimization-pre-merge-20260901-132232`（PR #2 合并前 head）、`reader-optimization-post-merge-docs-20260901-132900`（main 文档同步后）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
@@ -937,6 +937,20 @@ Rust 仓库已有用户未提交修改，至少包括：
   owner 或 Rust R-32/R-33 安全项标记完成。
 - 本阶段 PR 只包含上述六个文件/测试变更；工作区已有 `README.md`、`docs/`、
   `scripts/setup_android_emulator.ps1` 和 Windows generated files 未纳入提交。
+
+### 2026-09-01 14:04 PR #3 创建后核对
+
+- 文档提交 `9600298` 之后创建并推送恢复 tag
+  `reader-optimization-m2-final-local-gates-20260901-140139`；阶段分支
+  `MrYu/reader-optimization-m2` 与 `origin` 同步，未使用 force-push。
+- 已创建 Draft PR #3：
+  `https://github.com/MrYu-JMComic/JMcomic3-flutter/pull/3`，base=`main`、
+  head=`9600298`、`state=OPEN`、`isDraft=true`、`statusCheckRollup=[]`。
+  仓库 workflow 仍仅 `workflow_dispatch`，没有因 push/建 PR 触发 GitHub 构建。
+- 本地工作区继续保留 `README.md`、`docs/`、`scripts/setup_android_emulator.ps1`、
+  `windows/flutter/generated_plugin_registrant.{cc,h}`、
+  `windows/flutter/generated_plugins.cmake` 和 `windows/rust.h` 的用户/生成差异，
+  均未纳入 PR；外部 Rust 工作树 dirty 文件也未触碰。
 
 每次继续工作时，按以下顺序更新本文档：
 
