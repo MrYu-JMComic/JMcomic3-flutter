@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-09-01 16:16（Android 双 ABI release 打包与模拟器 smoke 核对）
 >
-> 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；当前阶段分支 `MrYu/reader-optimization-m2` 在此基础上增加了默认关闭的 view-log 版本化持久化适配器、恢复/重试回归和双页窗口 widget 回归，并在代码基线 `85034cf` 通过默认/全 flags 132/132 测试；当前本地分支最新提交为文档收尾提交，推送前以 `git rev-parse --short HEAD` 核对。该持久化适配器复用现有属性桥接，能在正常重启后重放 pending 事件，但尚未完成 native 原子文件写入、强杀窗口和跨设备恢复演练，不能替代完整 M6/M7 发布证据。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线、M2 真实 scrambled fixture 及 M7 golden/真实 list reader 仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
+> 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；当前阶段分支 `MrYu/reader-optimization-m2` 在此基础上增加了默认关闭的 view-log 版本化持久化适配器、恢复/重试回归和双页窗口 widget 回归，并在代码基线 `85034cf` 通过默认/全 flags 132/132 测试；当前分支最新文档/打包证据提交为 `914c24e`，已普通 push 到远端并由 Draft PR #3 跟踪。该持久化适配器复用现有属性桥接，能在正常重启后重放 pending 事件，但尚未完成 native 原子文件写入、强杀窗口和跨设备恢复演练，不能替代完整 M6/M7 发布证据。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线、M2 真实 scrambled fixture 及 M7 golden/真实 list reader 仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
 ## 0. 固定工作上下文（压缩/换代理后先读）
 
@@ -22,8 +22,8 @@
 | 当前功能分支 | `MrYu/reader-optimization-m2` |
 | 合并状态 | PR #2 已合并到 `main`；merge commit `c1cd690410b27ef0fa842a7ed781beafb4dcf647`；源分支和 checkpoint 分支均保留 |
 | 代码/测试基线 | 代码基线 `85034cf`（本阶段代码提交 `1270602`、测试提交 `8b96fd5`、key 校验提交 `85034cf`）；其后仅追加文档收尾提交，默认/全 flags 均为 132/132 |
-| 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b` → `1fe2088`；本阶段文档提交将在当前分支追加；代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
-| 远端同步 | `origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `94a8bcc`；阶段分支 `MrYu/reader-optimization-m2` 当前待将最终文档收尾提交普通 push 到 `origin`，PR #3 为 Draft；本轮没有主动触发 GitHub 构建 |
+| 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b` → `1fe2088` → `6a48515` → `b6ada0d` → `914c24e`；代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
+| 远端同步 | `origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `94a8bcc`；阶段分支 `MrYu/reader-optimization-m2` 已将 `914c24e` 普通 push 到 `origin`，PR #3 为 Draft；本轮没有主动触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
 | PR #2 | `MERGED`，原 head `9d9873b`，base `main` 原为 `9f79d73`；merge commit 为 `c1cd690`；GitHub 只作代码评审，不作本地构建验收 |
 | 恢复点 | `reader-optimization-m2-start-20260901-133345`（本阶段起点）、`reader-optimization-pre-merge-20260901-132232`（PR #2 合并前 head）、`reader-optimization-post-merge-docs-20260901-132900`（main 文档同步后）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
@@ -1007,7 +1007,9 @@ Rust 仓库已有用户未提交修改，至少包括：
   | ARMv7 32-bit | `jmcomic3-1.7.25+53-armeabi-v7a-release-unsigned.apk` | 18,716,931 B（17.85 MiB） | 92 entries；原始 19,638,052 B，entry 压缩后 18,663,283 B（约 4.96%） | `armeabi-v7a`；`librust.so` 2,654,624 B；ELF32/machine 40 |
 
   两个 APK 均通过 `zipalign -c -P 16 -v 4`。ARMv7 包比 ARM64 小 4,119,442 B（约
- 18.04%）；该差异是架构 native 库差异，不能直接当作图片或 Dart 资源压缩收益。
+  18.04%）；该差异是架构 native 库差异，不能直接当作图片或 Dart 资源压缩收益。
+  未签名 APK 的 SHA-256 分别为 ARM64 `72ed822baeb7a220753da5b2f9a97c01d7a85d8f3bc8605e4e3ffb6ccb717c2c`
+  和 ARMv7 `35f0a877b225a48aca03bcbf20dbe59a1d1ed737f69606b205fb30219ab566b0`。
   `aapt2 dump badging` 确认两者均为 package `com.jmcomic3.yee`、versionName `1.7.25`、
   target/compile SDK 36，且每个 split 只包含对应 ABI。项目当前只跟踪 ARM64 与 ARMv7
   Rust JNI，因此没有生成 x86/x86_64 发布 split；x86_64 模拟器只能用于 ARM64 翻译 smoke。
