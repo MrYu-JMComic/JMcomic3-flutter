@@ -2,7 +2,7 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-09-01 14:14（M2 文档收尾、回滚标签及 PR #3 状态核对）
+> 最后更新：2026-09-01 16:16（Android 双 ABI release 打包与模拟器 smoke 核对）
 >
 > 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；当前阶段分支 `MrYu/reader-optimization-m2` 在此基础上增加了默认关闭的 view-log 版本化持久化适配器、恢复/重试回归和双页窗口 widget 回归，并在代码基线 `85034cf` 通过默认/全 flags 132/132 测试；当前本地分支最新提交为文档收尾提交，推送前以 `git rev-parse --short HEAD` 核对。该持久化适配器复用现有属性桥接，能在正常重启后重放 pending 事件，但尚未完成 native 原子文件写入、强杀窗口和跨设备恢复演练，不能替代完整 M6/M7 发布证据。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线、M2 真实 scrambled fixture 及 M7 golden/真实 list reader 仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
@@ -990,3 +990,42 @@ Rust 仓库已有用户未提交修改，至少包括：
 3. 若任务的优先级、依赖、后果或回滚方式改变，先修改对应审查表。
 4. 实现后补充实际测试命令、设备、结果和失败样本；未运行的项目保持“待执行”。
 5. 完成一个阶段后再开启下一个阶段，避免同时发布多个高风险开关。
+
+### 2026-09-01 16:16 Android 双 ABI release 打包与实际安装核验
+
+- 使用当前阶段代码提交 `6a4851533c1df0f3cdaa9eb76c2ccc0f4923fe8f` 的隔离 checkout
+  `D:\Cat\jm3\worktrees\m2-apk-package` 构建；该 checkout 的 `build` 是 junction，
+  实际输出根为 `D:\Cat\jm3\build\reader-optimization-m2-apk`，没有把本轮 APK 输出
+  写入主仓库的 `build`。执行的两个命令均为 `flutter build apk --release --split-per-abi
+  --no-pub --obfuscate --split-debug-info=...`，分别使用
+  `--target-platform android-arm64` 和 `--target-platform android-arm`。
+- 未签名 release 产物（可复现、用于发布前检查）：
+
+  | ABI | 文件 | 大小 | 压缩统计 | native ELF |
+  |---|---|---:|---:|---|
+  | ARM64 | `jmcomic3-1.7.25+53-arm64-v8a-release-unsigned.apk` | 22,836,373 B（21.78 MiB） | 92 entries；原始 23,767,564 B，entry 压缩后 22,792,802 B（约 4.10%） | `arm64-v8a`；`librust.so` 4,316,464 B；ELF64/machine 183 |
+  | ARMv7 32-bit | `jmcomic3-1.7.25+53-armeabi-v7a-release-unsigned.apk` | 18,716,931 B（17.85 MiB） | 92 entries；原始 19,638,052 B，entry 压缩后 18,663,283 B（约 4.96%） | `armeabi-v7a`；`librust.so` 2,654,624 B；ELF32/machine 40 |
+
+  两个 APK 均通过 `zipalign -c -P 16 -v 4`。ARMv7 包比 ARM64 小 4,119,442 B（约
+ 18.04%）；该差异是架构 native 库差异，不能直接当作图片或 Dart 资源压缩收益。
+  `aapt2 dump badging` 确认两者均为 package `com.jmcomic3.yee`、versionName `1.7.25`、
+  target/compile SDK 36，且每个 split 只包含对应 ABI。项目当前只跟踪 ARM64 与 ARMv7
+  Rust JNI，因此没有生成 x86/x86_64 发布 split；x86_64 模拟器只能用于 ARM64 翻译 smoke。
+- 为不混淆发布状态，另用本机 debug keystore 生成两份**仅测试用**签名副本：
+  `dist\jmcomic3-1.7.25+53-arm64-v8a-release-local-test-signed.apk`（22,851,304 B）和
+  `dist\jmcomic3-1.7.25+53-armeabi-v7a-release-local-test-signed.apk`（18,734,830 B）。
+  两份均通过 `apksigner verify`（v2/v3）与 zipalign；它们不是正式发布签名包。当前仓库
+  没有正式 `key.properties`/release keystore，因此正式签名与签名后产物仍是阻塞项。
+- 实际设备核验使用 API 35 AVD `jmcomic3-api35-x86_64`（`emulator-5554`）：
+  `ro.product.cpu.abilist=x86_64,arm64-v8a`，native bridge 为 `libndk_translation.so`。
+  ARM64 测试副本安装成功，`com.jmcomic3.yee/.MainActivity` 启动并保持前台，等待 10 秒
+  的 crash buffer 为 0，截图和 logcat 保存在
+  `D:\Cat\jm3\build\reader-optimization-m2-validation`。尝试安装 ARMv7 副本时，
+  Android 明确返回 `INSTALL_FAILED_NO_MATCHING_ABIS`；这是该 AVD 不提供
+  `armeabi-v7a` 的预期结果，不等价于 ARMv7 真机运行通过。尚未连接 ARMv7 真机/AVD，
+  所以 ARMv7 运行时 reader 回归仍待执行。
+- 构建过程中 Flutter 提示 `file_picker`、`flutter_plugin_android_lifecycle`、
+  `permission_handler_android`、`url_launcher_android` 声明需要 NDK `27.0.12077973`，
+  而项目/Rust 矩阵固定 `25.2.9519653`；本机双 ABI 构建成功，但该 warning 仍记录为
+  发布前兼容性风险，不能据此声称跨机器发布矩阵已完成。GitHub workflow 未触发，所有
+  产物和验证继续留在 `D:\Cat\jm3\build`。
