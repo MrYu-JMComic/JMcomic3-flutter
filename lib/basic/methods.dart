@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:jmcomic3/basic/log.dart';
 
+import 'backend_invoker.dart';
 import 'method_response_decoder.dart';
 import 'entities.dart';
 import 'page_image_batch.dart';
@@ -49,8 +50,10 @@ class Methods {
   static final Map<String, Future<String>> _comicsInflight = {};
   static final Map<String, Future<String>> _albumInflight = {};
   static final Map<String, Future<String>> _coverInflight = {};
+  static int _cacheEpoch = 0;
 
   void _clearResponseCaches() {
+    _cacheEpoch++;
     _categoriesCache.clear();
     _comicsCache.clear();
     _albumCache.clear();
@@ -64,6 +67,14 @@ class Methods {
   void _evictAlbumCache(int comicId) {
     _albumCache.removeWhere((key, _) => key.startsWith("$comicId|"));
     _albumInflight.removeWhere((key, _) => key.startsWith("$comicId|"));
+  }
+
+  bool _isLegacyArgumentContractError(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('invalid-params') ||
+        message.contains('invalid params') ||
+        message.contains('unknown method') ||
+        message.contains('not implemented in rust-frb backend');
   }
 
   Future<String> _loadCachedString({
@@ -94,21 +105,30 @@ class Methods {
     }
 
     final future = loader();
+    final epoch = _cacheEpoch;
     inflight[cacheKey] = future;
     try {
       final value = await future;
-      cache[cacheKey] =
-          _CacheEntry(value, DateTime.now().millisecondsSinceEpoch);
+      // A cache clear/account switch may have happened while this request was
+      // in flight. Do not let the stale response repopulate the new session.
+      if (epoch == _cacheEpoch && identical(inflight[cacheKey], future)) {
+        cache[cacheKey] = _CacheEntry(
+          value,
+          DateTime.now().millisecondsSinceEpoch,
+        );
+      }
       if (debugName != null) {
         debugPrient("[api-cache-store] method=$debugName key=$cacheKey");
       }
       return value;
     } catch (e) {
-      if (allowStaleOnError && current != null) {
+      if (allowStaleOnError && current != null && epoch == _cacheEpoch) {
         // 类别/封面等展示型接口在网络抖动时允许回退陈旧缓存，避免页面直接报错闪退。
         // 回退成功后刷新缓存时间戳，避免离线期间每次进入页面都立即重试并重复报错。
-        cache[cacheKey] =
-            _CacheEntry(current.value, DateTime.now().millisecondsSinceEpoch);
+        cache[cacheKey] = _CacheEntry(
+          current.value,
+          DateTime.now().millisecondsSinceEpoch,
+        );
         if (debugName != null) {
           debugPrient(
             "[api-cache-stale-fallback] method=$debugName key=$cacheKey errorType=${e.runtimeType}",
@@ -118,7 +138,10 @@ class Methods {
       }
       rethrow;
     } finally {
-      inflight.remove(cacheKey);
+      // Only remove our own request; a newer request may already occupy key.
+      if (identical(inflight[cacheKey], future)) {
+        inflight.remove(cacheKey);
+      }
       if (cache.length > 600) {
         final removeCount = cache.length - 500;
         final keys = cache.keys.take(removeCount).toList();
@@ -145,6 +168,10 @@ class Methods {
   }
 
   Future<String> _invokeRaw(String method, dynamic params) async {
+    final injected = BackendInvokerRegistry.handler;
+    if (injected != null) {
+      return injected(method, params);
+    }
     late String resp;
     // if (Platform.isLinux) {
     //   var req = await httpClient.post("127.0.0.1", 52764, "invoke");
@@ -157,11 +184,12 @@ class Methods {
     // } else
     {
       resp = await _channel.invokeMethod(
-          "invoke",
-          jsonEncode({
-            "method": method,
-            "params": params is String ? params : jsonEncode(params),
-          }));
+        "invoke",
+        jsonEncode({
+          "method": method,
+          "params": params is String ? params : jsonEncode(params),
+        }),
+      );
     }
     return resp;
   }
@@ -208,8 +236,10 @@ class Methods {
   String _briefSafe(dynamic value) {
     dynamic sanitize(dynamic v, [String? key]) {
       if (key != null &&
-          RegExp(r'(url|cookie|token|path|image_size)', caseSensitive: false)
-              .hasMatch(key)) {
+          RegExp(
+            r'(url|cookie|token|path|image_size)',
+            caseSensitive: false,
+          ).hasMatch(key)) {
         return '<redacted>';
       }
       if (v is Map) {
@@ -241,11 +271,7 @@ class Methods {
 
   /// 后端整数响应历史上偶发过空串/非数字脏值；这里集中兜底，
   /// 避免调用点散落 `int.parse` 导致页面因单个字段异常直接抛错。
-  int _parseBackendInt(
-    String raw,
-    String method, {
-    required int fallback,
-  }) {
+  int _parseBackendInt(String raw, String method, {required int fallback}) {
     final trimmed = raw.trim();
     final parsed = int.tryParse(trimmed);
     if (parsed != null) {
@@ -326,7 +352,7 @@ class Methods {
         "mode_list",
         "modeList",
         "items",
-        "data"
+        "data",
       ];
       dynamic listPayload;
       for (final key in listKeys) {
@@ -524,7 +550,10 @@ class Methods {
       debugName: "categories",
     );
     return _decodeEntityResponse(
-        rsp, "categories", CategoriesResponse.fromJson);
+      rsp,
+      "categories",
+      CategoriesResponse.fromJson,
+    );
   }
 
   Future saveImageFileToGallery(String path) {
@@ -542,10 +571,8 @@ class Methods {
       ttl: _albumCacheTtl,
       cache: _albumCache,
       inflight: _albumInflight,
-      loader: () => _invoke("album", {
-        "id": id,
-        "ignore_view_log": ignoreViewLog,
-      }),
+      loader: () =>
+          _invoke("album", {"id": id, "ignore_view_log": ignoreViewLog}),
       allowStaleOnError: true,
       debugName: "album",
     );
@@ -575,11 +602,7 @@ class Methods {
 
   Future<Favorite> favorites(int folderId, int page, String o) async {
     return _decodeEntityResponse(
-      await _invoke("favorites", {
-        "folder_id": folderId,
-        "page": page,
-        "o": o,
-      }),
+      await _invoke("favorites", {"folder_id": folderId, "page": page, "o": o}),
       "favorites",
       Favorite.fromJson,
     );
@@ -680,28 +703,31 @@ class Methods {
     bool enabled = false,
   }) async {
     Future<List<JmPageImageBatchItem>> fallback() async => Future.wait(
-          pages.map((p) async {
-            try {
-              return JmPageImageBatchItem(
-                id: p.id,
-                path: await jmPageImage(p.id, p.imageName),
-              );
-            } catch (e) {
-              return JmPageImageBatchItem(
-                id: p.id,
-                error: JmPageImageBatchItem.safeErrorCode(e),
-              );
-            }
-          }),
-        );
+      pages.map((p) async {
+        try {
+          return JmPageImageBatchItem(
+            id: p.id,
+            path: await jmPageImage(p.id, p.imageName),
+          );
+        } catch (e) {
+          return JmPageImageBatchItem(
+            id: p.id,
+            error: JmPageImageBatchItem.safeErrorCode(e),
+          );
+        }
+      }),
+    );
     if (!enabled || pages.isEmpty) return fallback();
     try {
       final output = <JmPageImageBatchItem>[];
       for (var offset = 0; offset < pages.length; offset += 16) {
-        final chunk =
-            pages.sublist(offset, (offset + 16).clamp(0, pages.length));
-        final raw = await _invoke("jm_page_image_batch",
-            {"pages": chunk.map((p) => p.toJson()).toList()});
+        final chunk = pages.sublist(
+          offset,
+          (offset + 16).clamp(0, pages.length),
+        );
+        final raw = await _invoke("jm_page_image_batch", {
+          "pages": chunk.map((p) => p.toJson()).toList(),
+        });
         final decoded = jsonDecode(raw);
         if (decoded is! Map ||
             decoded["version"] != 1 ||
@@ -715,8 +741,10 @@ class Methods {
             .map(JmPageImageBatchItem.fromJson)
             .toList(growable: false);
         if (items.length != chunk.length ||
-            !List.generate(items.length, (i) => items[i].id == chunk[i].id)
-                .every((v) => v)) {
+            !List.generate(
+              items.length,
+              (i) => items[i].id == chunk[i].id,
+            ).every((v) => v)) {
           return fallback();
         }
         output.addAll(items);
@@ -801,10 +829,7 @@ class Methods {
 
   Future<CommentResponse> commentResponse(int aid, String comment) async {
     return _decodeEntityResponse(
-      await _invoke("comment", {
-        "aid": aid,
-        "comment": comment,
-      }),
+      await _invoke("comment", {"aid": aid, "comment": comment}),
       "comment",
       CommentResponse.fromJson,
     );
@@ -812,10 +837,7 @@ class Methods {
 
   Future<CommentResponse> comment(int aid, String comment) async {
     return _decodeEntityResponse(
-      await _invoke("comment", {
-        "aid": aid,
-        "comment": comment,
-      }),
+      await _invoke("comment", {"aid": aid, "comment": comment}),
       "comment",
       CommentResponse.fromJson,
     );
@@ -859,8 +881,9 @@ class Methods {
       return const <SearchHistory>[];
     }
     // 后端当前最多返回 200 条；提前在前端裁剪可减少桥接 payload，保持行为兼容。
-    final normalizedCount =
-        count > _maxSearchHistoryCountHint ? _maxSearchHistoryCountHint : count;
+    final normalizedCount = count > _maxSearchHistoryCountHint
+        ? _maxSearchHistoryCountHint
+        : count;
     return _decodeEntityListResponse(
       await _invoke("last_search_histories", "$normalizedCount"),
       "last_search_histories",
@@ -901,9 +924,20 @@ class Methods {
   }
 
   /// Download image list
-  Future<List<DlImage>> dlImageByChapterId(int id) async {
+  Future<List<DlImage>> dlImageByChapterId(int id, {int? albumId}) async {
+    final params = albumId == null
+        ? "$id"
+        : {"chapter_id": id, "album_id": albumId};
+    dynamic raw;
+    try {
+      raw = await _invoke("dl_image_by_chapter_id", params);
+    } catch (e) {
+      final retryable = albumId != null && _isLegacyArgumentContractError(e);
+      if (!retryable) rethrow;
+      raw = await _invoke("dl_image_by_chapter_id", "$id");
+    }
     return _decodeEntityListResponse(
-      await _invoke("dl_image_by_chapter_id", "$id"),
+      raw,
       "dl_image_by_chapter_id",
       DlImage.fromJson,
     );
@@ -911,11 +945,23 @@ class Methods {
 
   /// Optional, read-only local availability probe. Older backends may not
   /// implement it; callers must treat errors/unknown payloads as unavailable.
-  Future<List<DlImage>> dlImageLocalAvailability(int id) async {
+  Future<List<DlImage>> dlImageLocalAvailability(int id, {int? albumId}) async {
     try {
-      final raw = await _invoke("dl_image_local_availability", "$id");
+      final params = albumId == null
+          ? "$id"
+          : {"chapter_id": id, "album_id": albumId};
+      dynamic raw;
+      try {
+        raw = await _invoke("dl_image_local_availability", params);
+      } catch (e) {
+        if (albumId == null || !_isLegacyArgumentContractError(e)) rethrow;
+        raw = await _invoke("dl_image_local_availability", "$id");
+      }
       return _decodeEntityListResponse(
-          raw, "dl_image_local_availability", DlImage.fromJson);
+        raw,
+        "dl_image_local_availability",
+        DlImage.fromJson,
+      );
     } catch (_) {
       return const <DlImage>[];
     }
@@ -937,7 +983,8 @@ class Methods {
     } on PlatformException catch (e, s) {
       // 刷新率模式只影响设置页展示；通道异常时降级为空列表，避免应用初始化被阻断。
       debugPrient(
-          "androidGetModes fallback []: ${e.runtimeType}/${s.runtimeType}");
+        "androidGetModes fallback []: ${e.runtimeType}/${s.runtimeType}",
+      );
       return const <String>[];
     }
   }
@@ -973,7 +1020,11 @@ class Methods {
   }
 
   Future export_jm_zip_single(
-      int id, String folder, String? rename, bool deleteExported) {
+    int id,
+    String folder,
+    String? rename,
+    bool deleteExported,
+  ) {
     return _invoke("export_jm_zip_single", {
       "id": id,
       "folder": folder,
@@ -983,7 +1034,11 @@ class Methods {
   }
 
   Future export_jm_jpegs_zip_single(
-      int id, String folder, String? rename, bool deleteExported) {
+    int id,
+    String folder,
+    String? rename,
+    bool deleteExported,
+  ) {
     return _invoke("export_jm_jpegs_zip_single", {
       "id": id,
       "folder": folder,
@@ -1001,7 +1056,11 @@ class Methods {
   }
 
   Future export_jm_jmi_single(
-      int id, String folder, String? rename, bool deleteExported) {
+    int id,
+    String folder,
+    String? rename,
+    bool deleteExported,
+  ) {
     return _invoke("export_jm_jmi_single", {
       "id": id,
       "folder": folder,
@@ -1011,7 +1070,11 @@ class Methods {
   }
 
   Future export_cbzs_zip_single(
-      int id, String folder, String? rename, bool deleteExported) {
+    int id,
+    String folder,
+    String? rename,
+    bool deleteExported,
+  ) {
     return _invoke("export_cbzs_zip_single", {
       "id": id,
       "folder": folder,
@@ -1045,7 +1108,11 @@ class Methods {
   }
 
   Future export_jm_epub_single(
-      int id, String folder, String? rename, bool deleteExported) {
+    int id,
+    String folder,
+    String? rename,
+    bool deleteExported,
+  ) {
     return _invoke("export_jm_epub_single", {
       "id": id,
       "folder": folder,
@@ -1099,11 +1166,9 @@ class Methods {
 
   Future bindPatAccount(String accessKey, String username) {
     return _invoke(
-        "bind_pat",
-        jsonEncode({
-          "access_key": accessKey,
-          "username": username,
-        }));
+      "bind_pat",
+      jsonEncode({"access_key": accessKey, "username": username}),
+    );
   }
 
   Future reloadPatAccount() {
@@ -1125,8 +1190,10 @@ class Methods {
 
   Future set_download_thread(int count) {
     // 与后端线程约束保持一致，避免无效值反复跨桥接往返。
-    final normalized =
-        _normalizeDownloadThreadCount(count, "set_download_thread");
+    final normalized = _normalizeDownloadThreadCount(
+      count,
+      "set_download_thread",
+    );
     return _invoke("set_download_thread", "$normalized");
   }
 
@@ -1202,13 +1269,10 @@ class Methods {
   }
 
   Future<String> copyPictureToFolder(String folder, String path) async {
-    return await _invoke(
-      "copyPictureToFolder",
-      {
-        "folder": folder,
-        "path": path,
-      },
-    );
+    return await _invoke("copyPictureToFolder", {
+      "folder": folder,
+      "path": path,
+    });
   }
 
   Future<String> getProServerName() async {
@@ -1219,7 +1283,8 @@ class Methods {
       }
     } catch (e, s) {
       debugPrient(
-          "get_pro_server_name fallback HK: ${e.runtimeType}/${s.runtimeType}");
+        "get_pro_server_name fallback HK: ${e.runtimeType}/${s.runtimeType}",
+      );
     }
     return "HK";
   }
@@ -1229,7 +1294,8 @@ class Methods {
       return await _invoke("set_pro_server_name", serverName);
     } catch (e, s) {
       debugPrient(
-          "set_pro_server_name ignored: ${e.runtimeType}/${s.runtimeType}");
+        "set_pro_server_name ignored: ${e.runtimeType}/${s.runtimeType}",
+      );
       return "";
     }
   }
@@ -1244,16 +1310,17 @@ class Methods {
 
   Future<WeekData> week(int page) async {
     return _decodeEntityResponse(
-      await _invoke("week", {
-        "page": page,
-      }),
+      await _invoke("week", {"page": page}),
       "week",
       WeekData.fromJson,
     );
   }
 
   Future<WeekFilterResponse> weekFilter(
-      String categoryId, String typeId, int page) async {
+    String categoryId,
+    String typeId,
+    int page,
+  ) async {
     return _decodeEntityResponse(
       await _invoke("week_filter", {
         "category_id": categoryId,
@@ -1270,10 +1337,7 @@ class _Response {
   final String errorMessage;
   final String responseData;
 
-  const _Response({
-    required this.errorMessage,
-    required this.responseData,
-  });
+  const _Response({required this.errorMessage, required this.responseData});
 
   factory _Response.fromJson(dynamic json) {
     if (json is! Map) {
@@ -1288,10 +1352,7 @@ class _Response {
         "Unexpected invoke response payload: expect string fields",
       );
     }
-    return _Response(
-      errorMessage: errorMessage,
-      responseData: responseData,
-    );
+    return _Response(errorMessage: errorMessage, responseData: responseData);
   }
 }
 

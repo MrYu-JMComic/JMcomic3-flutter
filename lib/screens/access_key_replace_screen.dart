@@ -10,7 +10,7 @@ class AccessKeyReplaceScreen extends StatefulWidget {
   final String accessKey;
 
   const AccessKeyReplaceScreen({Key? key, required this.accessKey})
-      : super(key: key);
+    : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _AccessKeyReplaceScreenState();
@@ -26,8 +26,8 @@ class _AccessKeyReplaceScreenState extends State<AccessKeyReplaceScreen> {
 
   @override
   void initState() {
-    _load();
     super.initState();
+    _load();
   }
 
   Future _load() async {
@@ -37,6 +37,7 @@ class _AccessKeyReplaceScreenState extends State<AccessKeyReplaceScreen> {
       });
       _username = await methods.loadLastLoginUsername();
       final checkResult = await methods.checkPat(widget.accessKey);
+      if (!mounted) return;
       final check = jsonDecode(checkResult);
       setState(() {
         _patId = check["email"] ?? "";
@@ -47,6 +48,7 @@ class _AccessKeyReplaceScreenState extends State<AccessKeyReplaceScreen> {
       });
     } catch (e, s) {
       debugPrient("$e\n$s");
+      if (!mounted) return;
       defaultToast(context, "验证失败: $e");
       Navigator.of(context).pop();
     }
@@ -97,10 +99,7 @@ class _AccessKeyReplaceScreenState extends State<AccessKeyReplaceScreen> {
           const Divider(),
           const SizedBox(height: 20),
           if (_bindUid.isEmpty)
-            ElevatedButton(
-              onPressed: _bind,
-              child: const Text("绑定到当前账号"),
-            )
+            ElevatedButton(onPressed: _bind, child: const Text("绑定到当前账号"))
           else if (_bindUid != _username)
             Column(
               children: [
@@ -122,10 +121,7 @@ class _AccessKeyReplaceScreenState extends State<AccessKeyReplaceScreen> {
               ],
             )
           else
-            ElevatedButton(
-              onPressed: _save,
-              child: const Text("保存密钥"),
-            ),
+            ElevatedButton(onPressed: _save, child: const Text("保存密钥")),
         ],
       ),
     );
@@ -135,11 +131,14 @@ class _AccessKeyReplaceScreenState extends State<AccessKeyReplaceScreen> {
     try {
       defaultToast(context, "绑定中...");
       await methods.bindPatAccount(widget.accessKey, _username);
+      if (!mounted) return;
       defaultToast(context, "绑定成功");
       await reloadIsPro();
+      if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e, s) {
       debugPrient("$e\n$s");
+      if (!mounted) return;
       defaultToast(context, "绑定失败: $e");
     }
   }
@@ -148,11 +147,14 @@ class _AccessKeyReplaceScreenState extends State<AccessKeyReplaceScreen> {
     try {
       defaultToast(context, "保存中...");
       await methods.bindPatAccount(widget.accessKey, _username);
+      if (!mounted) return;
       defaultToast(context, "保存成功");
       await reloadIsPro();
+      if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e, s) {
       debugPrient("$e\n$s");
+      if (!mounted) return;
       defaultToast(context, "保存失败: $e");
     }
   }

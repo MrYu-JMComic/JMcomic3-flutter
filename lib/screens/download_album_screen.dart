@@ -143,30 +143,30 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
                 _future = methods.downloadById(_album.id);
               });
             },
-            successBuilder: (BuildContext context,
-                AsyncSnapshot<DownloadCreate?> snapshot) {
-              var data = snapshot.data;
-              if (data == null) {
-                return MyFlatButton(
-                  title: context.l10n.tr(
-                    "下载任务不存在",
-                    en: "Download task not found",
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _future = methods.downloadById(_album.id);
-                    });
-                    _refreshAlbum();
-                  },
-                );
-              }
-              return Column(
-                children: [
-                  _buildContinueButton(data),
-                  _buildSeries(data),
-                ],
-              );
-            },
+            successBuilder:
+                (
+                  BuildContext context,
+                  AsyncSnapshot<DownloadCreate?> snapshot,
+                ) {
+                  var data = snapshot.data;
+                  if (data == null) {
+                    return MyFlatButton(
+                      title: context.l10n.tr(
+                        "下载任务不存在",
+                        en: "Download task not found",
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _future = methods.downloadById(_album.id);
+                        });
+                        _refreshAlbum();
+                      },
+                    );
+                  }
+                  return Column(
+                    children: [_buildContinueButton(data), _buildSeries(data)],
+                  );
+                },
           ),
         ],
       ),
@@ -184,9 +184,11 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
               return InkWell(
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (BuildContext context) {
-                      return ComicSearchScreen(initKeywords: e);
-                    }),
+                    MaterialPageRoute(
+                      builder: (BuildContext context) {
+                        return ComicSearchScreen(initKeywords: e);
+                      },
+                    ),
                   );
                 },
                 child: Container(
@@ -212,13 +214,8 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
                   ),
                   child: Text(
                     e,
-                    style: TextStyle(
-                      color: Colors.pink.shade500,
-                      height: 1.4,
-                    ),
-                    strutStyle: const StrutStyle(
-                      height: 1.4,
-                    ),
+                    style: TextStyle(color: Colors.pink.shade500, height: 1.4),
+                    strutStyle: const StrutStyle(height: 1.4),
                   ),
                 ),
               );
@@ -243,10 +240,7 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
           );
         }
         if (snapshot.connectionState != ConnectionState.done) {
-          return MyFlatButton(
-            title: context.l10n.loading,
-            onPressed: null,
-          );
+          return MyFlatButton(title: context.l10n.loading, onPressed: null);
         }
         var log = snapshot.data;
         if (log != null && create.containsChapterId(log.lastViewChapterId)) {
@@ -300,11 +294,7 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
     return Container(padding: const EdgeInsets.all(10), child: list);
   }
 
-  void _push(
-    DownloadCreate create,
-    int seriesId,
-    int initRank,
-  ) {
+  void _push(DownloadCreate create, int seriesId, int initRank) {
     if (!create.hasChapters || !create.containsChapterId(seriesId)) {
       // Never use an album id as a chapter id when an imported task has no
       // chapters or a stale view-log points outside this task.
@@ -333,12 +323,14 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
   }
 
   Future<ChapterResponse> _loadChapter(
-      DownloadCreate create, int seriesId) async {
+    DownloadCreate create,
+    int seriesId,
+  ) async {
     if (!create.containsChapterId(seriesId)) {
       throw StateError('download chapter is unavailable');
     }
     final images = ReaderPageRepository.orderOfflineImages(
-      await methods.dlImageByChapterId(seriesId),
+      await methods.dlImageByChapterId(seriesId, albumId: create.album.id),
     );
     final chapter = create.chapterById(seriesId);
     if (chapter == null) {
@@ -349,11 +341,20 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
       // Availability is an explicit backend contract.  An empty/error
       // response is treated as metadata-only; no path is guessed from the
       // persisted image name or dl_status.
-      final available = await methods.dlImageLocalAvailability(seriesId);
+      final available = await methods.dlImageLocalAvailability(
+        seriesId,
+        albumId: create.album.id,
+      );
       if (available.isNotEmpty) {
         resolvedImages = ReaderPageRepository.mergeLocalAvailability(
           images,
-          available.where((item) => item.chapterId == seriesId).toList(),
+          available
+              .where(
+                (item) =>
+                    item.chapterId == seriesId &&
+                    item.albumId == create.album.id,
+              )
+              .toList(),
         );
       }
     }

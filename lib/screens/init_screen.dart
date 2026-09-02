@@ -34,9 +34,7 @@ class _InitScreenState extends State<InitScreen> {
     return Scaffold(
       body: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          return Center(
-            child: Text(context.l10n.initializing),
-          );
+          return Center(child: Text(context.l10n.initializing));
         },
       ),
     );
@@ -46,46 +44,64 @@ class _InitScreenState extends State<InitScreen> {
     try {
       await methods.init();
       await initConfigs(context);
+      if (!mounted) return;
       debugPrient("STATE : ${loginStatus}");
       if (!currentPassed()) {
         await firstPassed();
+        if (!mounted) return;
       }
       if (currentAuthentication()) {
         Future.delayed(Duration.zero, () async {
+          if (!mounted) return;
           await webDavSyncAuto(context);
+          if (!mounted) return;
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (BuildContext context) {
-              return const AuthScreen();
-            }),
+            MaterialPageRoute(
+              builder: (BuildContext context) {
+                return const AuthScreen();
+              },
+            ),
           );
         });
       } else if (loginStatus == LoginStatus.notSet) {
         Future.delayed(Duration.zero, () async {
+          if (!mounted) return;
           await webDavSyncAuto(context);
+          if (!mounted) return;
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (BuildContext context) {
-              return firstLoginScreen;
-            }),
+            MaterialPageRoute(
+              builder: (BuildContext context) {
+                return firstLoginScreen;
+              },
+            ),
           );
         });
       } else {
         Future.delayed(Duration.zero, () async {
+          if (!mounted) return;
           await webDavSyncAuto(context);
+          if (!mounted) return;
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (BuildContext context) {
-              return const AppScreen();
-            }),
+            MaterialPageRoute(
+              builder: (BuildContext context) {
+                return const AppScreen();
+              },
+            ),
           );
         });
       }
     } catch (e, st) {
       debugPrient("$e\n$st");
+      if (!mounted) return;
       defaultToast(context, context.l10n.initFailedSetNetwork);
       Future.delayed(Duration.zero, () {
+        if (!mounted) return;
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (BuildContext context) {
-            return const NetworkSettingScreen();
-          }),
+          MaterialPageRoute(
+            builder: (BuildContext context) {
+              return const NetworkSettingScreen();
+            },
+          ),
         );
       });
     }
@@ -110,10 +126,13 @@ class _AuthScreenState extends State<AuthScreen> {
 
   test() async {
     if (await verifyAuthentication(context)) {
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (BuildContext context) {
-          return const AppScreen();
-        }),
+        MaterialPageRoute(
+          builder: (BuildContext context) {
+            return const AppScreen();
+          },
+        ),
       );
     }
   }
@@ -121,9 +140,7 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(context.l10n.authTitle),
-      ),
+      appBar: AppBar(title: Text(context.l10n.authTitle)),
       body: Center(
         child: Container(
           padding: const EdgeInsets.all(20),

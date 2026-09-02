@@ -15,7 +15,7 @@ class DownloadsExportingScreen extends StatefulWidget {
   final List<int> idList;
 
   const DownloadsExportingScreen({Key? key, required this.idList})
-      : super(key: key);
+    : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _DownloadsExportingScreenState();
@@ -31,8 +31,9 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
 
   Widget _body() {
     final l10n = context.l10n;
-    final proSuffix =
-        !hasProAccess ? '\n${l10n.tr('(发电后使用)', en: '(Pro required)')}' : '';
+    final proSuffix = !hasProAccess
+        ? '\n${l10n.tr('(发电后使用)', en: '(Pro required)')}'
+        : '';
     if (exporting) {
       return ContentLoading(
         label: exportMessage.isEmpty
@@ -118,10 +119,7 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
             color:
                 (Theme.of(context).textTheme.bodyMedium?.color ?? Colors.black)
                     .withOpacity(.05),
-            child: Text(
-              text,
-              textAlign: TextAlign.center,
-            ),
+            child: Text(text, textAlign: TextAlign.center),
           );
         },
       ),
@@ -132,15 +130,24 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
     required String confirmContent,
     required bool allowRename,
     required Future<void> Function(int id, String path, String? rename)
-        exporter,
+    exporter,
   }) async {
+    if (!mounted) {
+      return;
+    }
     final l10n = context.l10n;
     if (!await ensureProAccess()) {
+      if (!mounted) {
+        return;
+      }
       defaultToast(context, l10n.tr('请先发电鸭', en: 'Please activate Pro first'));
       return;
     }
     if (Platform.isMacOS) {
       await chooseEx(context);
+      if (!mounted) {
+        return;
+      }
     }
     if (!await confirmDialog(
       context,
@@ -149,17 +156,23 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
     )) {
       return;
     }
+    if (!mounted) {
+      return;
+    }
     try {
       setState(() {
         exporting = true;
       });
       final path = await attachExportPath(context);
+      if (!mounted) {
+        return;
+      }
       for (var value in widget.idList) {
         final ab = await methods.downloadById(value);
-        final albumName = ab?.album.name ?? '';
         if (!mounted) {
           return;
         }
+        final albumName = ab?.album.name ?? '';
         setState(() {
           exportMessage = l10n.tr('正在导出', en: 'Exporting') + ' : $albumName';
         });
@@ -170,13 +183,28 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
             title: l10n.tr('导出重命名', en: 'Export rename'),
             src: albumName,
           );
+          if (!mounted) {
+            return;
+          }
         }
         await exporter(value, path, rename);
+        if (!mounted) {
+          return;
+        }
       }
-      exported = true;
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        exported = true;
+      });
     } catch (err) {
-      e = err;
-      exportFail = true;
+      if (mounted) {
+        setState(() {
+          e = err;
+          exportFail = true;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -193,12 +221,8 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
         en: 'Export selected comics as JMI',
       ),
       allowRename: true,
-      exporter: (id, path, rename) => methods.export_jm_jmi_single(
-        id,
-        path,
-        rename,
-        deleteExport,
-      ),
+      exporter: (id, path, rename) =>
+          methods.export_jm_jmi_single(id, path, rename, deleteExport),
     );
   }
 
@@ -209,11 +233,7 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
         en: 'Export selected comics as PDF',
       ),
       allowRename: false,
-      exporter: (id, path, _) => methods.export_jm_pdf(
-        id,
-        path,
-        deleteExport,
-      ),
+      exporter: (id, path, _) => methods.export_jm_pdf(id, path, deleteExport),
     );
   }
 
@@ -224,12 +244,8 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
         en: 'Export selected comics as cbzs.zip',
       ),
       allowRename: true,
-      exporter: (id, path, rename) => methods.export_cbzs_zip_single(
-        id,
-        path,
-        rename,
-        deleteExport,
-      ),
+      exporter: (id, path, rename) =>
+          methods.export_cbzs_zip_single(id, path, rename, deleteExport),
     );
   }
 
@@ -240,12 +256,8 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
         en: 'Export selected comics as ZIP',
       ),
       allowRename: true,
-      exporter: (id, path, rename) => methods.export_jm_zip_single(
-        id,
-        path,
-        rename,
-        deleteExport,
-      ),
+      exporter: (id, path, rename) =>
+          methods.export_jm_zip_single(id, path, rename, deleteExport),
     );
   }
 
@@ -256,12 +268,8 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
         en: 'Export selected comics as JPEGS.ZIP',
       ),
       allowRename: true,
-      exporter: (id, path, rename) => methods.export_jm_jpegs_zip_single(
-        id,
-        path,
-        rename,
-        deleteExport,
-      ),
+      exporter: (id, path, rename) =>
+          methods.export_jm_jpegs_zip_single(id, path, rename, deleteExport),
     );
   }
 
@@ -272,12 +280,8 @@ class _DownloadsExportingScreenState extends State<DownloadsExportingScreen> {
         en: 'Export selected comics as EPUB',
       ),
       allowRename: true,
-      exporter: (id, path, rename) => methods.export_jm_epub_single(
-        id,
-        path,
-        rename,
-        deleteExport,
-      ),
+      exporter: (id, path, rename) =>
+          methods.export_jm_epub_single(id, path, rename, deleteExport),
     );
   }
 

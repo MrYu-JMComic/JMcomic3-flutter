@@ -2,9 +2,9 @@
 
 > 文档性质：基于当前代码的设计、风险和实施跟踪文档。每次审查或实现后，先更新本文档，再修改代码。
 >
-> 最后更新：2026-09-01 13:28（PR #2 合并及文档同步后核对）
+> 最后更新：2026-09-01 19:48（R-01～R-40 逐项收口审查、正式 Android release 签名与拆分产物校验）
 >
-> 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；本轮补强 view-log 队列容量上限、图片正尺寸校验及 metadata-only 离线占位，并在测试基线 `015fcf9` 通过默认/全 flags 124/124 回归。M5 Rust availability 仅在隔离 worktree 提交，未覆盖原 Rust 工作树用户 dirty 文件。M6 offline owner/迁移/并发清理、M0 真机基线及 M7 golden/崩溃持久化仍未完成，所有高风险开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
+> 当前状态：安全可回滚的 M1/M2/M3/M4/M5/M7 实现子集已通过本地门禁并由 PR #2 合并到 `main`（merge commit `c1cd690`）；当前阶段分支 `MrYu/reader-optimization-m2` 在此基础上增加了默认关闭的 view-log 版本化持久化适配器、恢复/重试回归、双页窗口 widget 回归、offline owner/路径隔离和 R-40 等待审查修复，并在当前代码基线通过 Flutter 134/134 与 Rust 137/137 测试。Android API 35 AVD 已完成启动、浏览封面、详情、阅读器、控件切换、滚动和返回 smoke；本机 RSA-4096 release/upload keystore 已配置并验证 signed APK/AAB，R-01～R-40 的逐项结论见 2026-09-01 19:17 记录。native 原子文件写入、真实 scrambled fixture、跨设备 WebDAV/view-log 合并、CPU/IO 压测、ARMv7 实机和商店证书迁移仍未完成，所有高风险实验开关继续默认关闭。平台构建和验证继续使用 `D:\Cat\jm3\build` 隔离输出，未验证项目保持待执行。
 
 ## 0. 固定工作上下文（压缩/换代理后先读）
 
@@ -19,14 +19,14 @@
 | 所有平台构建输出根 | `D:\Cat\jm3\build` |
 | 环境入口脚本 | `D:\Cat\jm3\scripts\enter_build_env.ps1` |
 | 环境自检脚本 | `D:\Cat\jm3\scripts\verify_build_env.ps1` |
-| 当前功能分支 | `MrYu/reader-optimization-m1` |
+| 当前功能分支 | `MrYu/reader-optimization-m2` |
 | 合并状态 | PR #2 已合并到 `main`；merge commit `c1cd690410b27ef0fa842a7ed781beafb4dcf647`；源分支和 checkpoint 分支均保留 |
-| 代码/测试基线 | `015fcf9`（功能提交 `b59e139` + 测试提交 `fe83871` + 门禁文档提交）；本轮 124/124 测试均针对该基线，之后仅追加文档提交，代码未变 |
-| 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b` → `1fe2088`；代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
-| 远端同步 | `MrYu/reader-optimization-m1` 与 `origin/MrYu/reader-optimization-m1` 同步（`9d9873b`）；`origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `1fe2088`；本轮没有主动触发 GitHub 构建 |
+| 代码/测试基线 | 代码基线 `85034cf`（本阶段代码提交 `1270602`、测试提交 `8b96fd5`、key 校验提交 `85034cf`）；其后仅追加文档收尾提交，默认/全 flags 均为 132/132 |
+| 文档收尾提交链 | `dba86f7` → `f4f0565` → `9d9873b` → `1fe2088` → `6a48515` → `b6ada0d` → `914c24e`；代码与测试提交历史不改写；Flutter/Windows 生成文件仍 dirty，均未纳入提交 |
+| 远端同步 | `origin/main` 已包含 merge commit `c1cd690` 及文档同步提交 `94a8bcc`；阶段分支 `MrYu/reader-optimization-m2` 已将 `914c24e` 普通 push 到 `origin`，PR #3 为 Draft；本轮没有主动触发 GitHub 构建 |
 | 上下文提交同步记录 | `2717aaa`、`6d73c8c`、`346ad0a` 均已推送；当前 HEAD/是否领先以 `git rev-parse --short HEAD` 与 `git status --short --branch` 复核 |
 | PR #2 | `MERGED`，原 head `9d9873b`，base `main` 原为 `9f79d73`；merge commit 为 `c1cd690`；GitHub 只作代码评审，不作本地构建验收 |
-| 恢复点 | `reader-optimization-pre-merge-20260901-132232`（合并前 head）、`reader-optimization-post-merge-20260901-132400`（合并后 main）、`reader-optimization-post-merge-docs-20260901-132800`（文档同步后 main）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
+| 恢复点 | `reader-optimization-m2-start-20260901-133345`（本阶段起点）、`reader-optimization-pre-merge-20260901-132232`（PR #2 合并前 head）、`reader-optimization-post-merge-docs-20260901-132900`（main 文档同步后）、`reader-optimization-final-local-gates-20260831-035800`，以及既有恢复点；源分支未删除，禁止改写已有提交历史 |
 | 外部 Rust 工作树 | `D:\Cat\jmcomic3-rust-backend`；存在用户未提交修改，禁止 reset/checkout/覆盖 |
 | 构建 checkout | `D:\Cat\jm3` 有独立且可能 dirty 的工作树；不要假定它自动等于功能分支，构建前先核对 commit/diff |
 | 未跟踪生成物 | `D:\Cat\jmcomic3\windows\rust.h`；保留并先确认来源，不要擅自删除或提交 |
@@ -64,7 +64,7 @@
 | Windows C++ | VS Build Tools 2022、MSVC 14.44、Windows SDK 10.0.26100.0 | 已验证 |
 | CMake / Ninja | 4.4.3 / 1.13.2 | 已验证 |
 
-已知边界：部分 Flutter 插件声明 NDK 27.0.12077973，而当前 Rust/项目矩阵使用 NDK 25.2；25.2 在本机 smoke build 成功，但在决定安装/切换 NDK 27 并重新跑双 ABI 前，不得声称跨机器发布兼容。Android 尚无正式签名 keystore/`key.properties`，当前 APK 不能当作正式发布包。
+已知边界：部分 Flutter 插件声明 NDK 27.0.12077973，而当前 Rust/项目矩阵使用 NDK 25.2；25.2 在本机 smoke build 成功，但在决定安装/切换 NDK 27 并重新跑双 ABI 前，不得声称跨机器发布兼容。Android 本机已配置新的 RSA-4096 release/upload keystore 并验证 signed APK/AAB；该证书不是任何既有商店 app-signing 证书，CI/Play Console 仍需单独登记和配置。
 
 ### 0.4 阶段状态与不可破坏不变量
 
@@ -75,7 +75,7 @@
 - M4：generation/session 与 scheduler 最小接入已实现；真实网络中止和资源预算未验证。
 - M5：Dart 批量 adapter 与 Rust availability 合约测试已实现；Rust availability 独立提交 `a7a8015`（tag `reader-optimization-m5-availability-20260831`），尚未安全合并到原 Rust dirty 工作树，跨版本 smoke 待执行。
 - M6：Flutter availability 最小接线已实现；真实 offline owner、复制/校验/原子提交、迁移和清理锁未实现，开关保持关闭。
-- M7：双页配对、可变高度进度模型和内存 view-log 重试队列已有模型实现；队列现有 `maxPending` 容量上限与 `droppedCount` 诊断，但仍无崩溃持久化；窗口化/golden、真实 list reader 仍待执行。
+- M7：双页配对、可变高度进度模型和内存 view-log 重试队列已有模型实现；本阶段新增默认关闭的版本化属性 journal，可在正常重启后恢复 pending 事件并受 `maxPending`/字节上限约束；强杀窗口、native 原子提交和 golden/真实 list reader 仍待执行。
 - 离线文件必须与普通 reader cache 隔离；`dl_status=1` 不等于本机文件可读；普通清理不得删除 offline assets。
 - 当前页优先于预取；旧 Future/旧章节结果不得写入新 generation；任何新能力必须可独立关闭和回退。
 
@@ -84,14 +84,14 @@
 | 检查 | 结果/产物 |
 |---|---|
 | `D:\Cat\jm3\scripts\verify_build_env.ps1` | 全部工具/SDK 检查通过；`flutter doctor -v` 为 `No issues found!` |
-| Flutter tests | 在固定环境、当前 HEAD `015fcf9` 下默认 `flutter test --no-pub` 124/124 通过；全部 8 个 reader flags 同样 124/124 通过；日志位于 `D:\Cat\jm3\build\reader-optimization-validation-final-20260831` |
-| Flutter analyze | 本轮 0 error；137 条既有 info/lint，命令按 Flutter 约定以退出码 1 结束；`flutter analyze` 不支持 `--dart-define`，全 flags 代码路径由上述测试编译覆盖 |
-| Dart format / diff | 28 个变更 Dart 文件 `dart format --set-exit-if-changed` 通过（0 changed）；`git diff --check` 通过 |
-| Rust | 隔离 worktree `a7a8015` 上 `cargo fmt --check` 通过，`cargo test --offline` 128/128 通过（含 doc/smoke；仅既有 dead_code/linker warning） |
+| Flutter tests | 当前工作树重新运行 `flutter test --no-pub`，134/134 通过；reader flags 的历史日志仍位于 `D:\Cat\jm3\build\reader-optimization-m2-validation\flutter-test-default-final-rerun.log` 和 `flutter-test-all-reader-flags-final-rerun.log` |
+| Flutter analyze | 当前 0 error；137 条既有 info/lint，命令按 Flutter 约定以退出码 1 结束；`flutter analyze` 不支持 `--dart-define`，全 flags 代码路径由上述测试编译覆盖 |
+| Dart format / diff | 本阶段 6 个目标 Dart 文件 `dart format --set-exit-if-changed` 通过（0 changed）；`git diff --check` 通过 |
+| Rust | `D:\Cat\jmcomic3-rust-backend\rust` 上 `cargo fmt --all -- --check`、`cargo check --lib` 和 `cargo test --lib` 通过，137/137；仅既有 warning |
 | Windows Release | 历史 smoke 产物位于 `D:\Cat\jm3\build\reader-optimization-m1\windows\x64\runner\Release\jmcomic3.exe`；本轮代码提交后未重新生成平台包 |
-| Android Release | 历史 arm64-v8a/armeabi-v7a smoke APK 已核对 ABI 与 `librust.so`；本轮未重新生成，且 Gradle/JNI staging 仍可能触碰 checkout |
+| Android Release | 本轮正式签名产物已生成并校验：AAB、通用 APK 以及 `armeabi-v7a`/`arm64-v8a` 拆分 APK；证书指纹、v2 APK 签名、AAB JAR 签名和 zipalign 均已核对 |
 | Android 真机 | 当前未连接（`adb devices` 无设备）；reader 真实回归/性能基线待做 |
-| 正式签名 | 未配置 `android/key.properties` 或 keystore；待用户提供发布签名材料 |
+| 正式签名 | 本机 `android/key.properties` 已配置，外置 RSA-4096 release/upload keystore；signed APK/AAB 已通过签名校验；CI/商店证书迁移待单独配置 |
 | symlink 权限 | 新环境若 `pub get` 失败，先检查 Windows Developer Mode/权限；已有验证使用固定环境和 `--no-pub` |
 
 ### 0.6 继续任务的最小流程
@@ -199,6 +199,7 @@
 | R-37 | `chapter.images` 未统一过滤空名/重复名并保留服务端索引映射 | [D:/Cat/jmcomic3/lib/screens/comic_reader_screen.dart](D:/Cat/jmcomic3/lib/screens/comic_reader_screen.dart:1260)、[D:/Cat/jmcomic3/lib/screens/download_album_screen.dart](D:/Cat/jmcomic3/lib/screens/download_album_screen.dart:333) | 空名路径请求失败；重复名共享 provider/cache，错误重载一个页可能影响另一个页，页码与服务端顺序脱节 | P1 |
 | R-38 | `reload`/`onChangeEp` 在异步导航回调中没有统一的 `mounted`、串行化和重复触发保护 | [D:/Cat/jmcomic3/lib/screens/comic_reader_screen.dart](D:/Cat/jmcomic3/lib/screens/comic_reader_screen.dart:120) | 快速切章/返回时对已卸载 context 调 Navigator，抛导航生命周期异常或叠加多个 replacement | P0/P1 |
 | R-39 | `DownloadCreate.initialChapterId` 在章节列表为空时回退为 `album.id`，下载页仍允许进入 reader | [D:/Cat/jmcomic3/lib/basic/entities.dart](D:/Cat/jmcomic3/lib/basic/entities.dart:1231)、[D:/Cat/jmcomic3/lib/screens/download_album_screen.dart](D:/Cat/jmcomic3/lib/screens/download_album_screen.dart:268) | album id 被当作 chapter id 请求，空下载任务进入黑屏/错误重试；“兼容旧数据”反而掩盖数据损坏 | P0/P1 |
+| R-40 | `ccd4391` 将通用 `buildFile` 的两条显示尺寸分别向上取 decode bucket，但该函数也被浏览页 `JM3x4Cover`/方形封面使用，且不受 reader flag 控制。随后它把两个 bucket 同时传给默认 `ResizeImagePolicy.exact`，会把源图解码成精确两维而非保持比例；例如 3:4 的约 `300×400` 目标会成为 `512×512`，使 3:4 源封面约横向拉伸 33%。`BoxFit.cover` 发生在已变形 bitmap 之后，不能修复像素比例。启用 `reader_target_decode_v1` 后的 `PageImageProvider` 在双目标非空时也有同类风险 | [D:/Cat/jmcomic3/lib/screens/components/images.dart](D:/Cat/jmcomic3/lib/screens/components/images.dart:1193)、[D:/Cat/jmcomic3/lib/screens/components/images.dart](D:/Cat/jmcomic3/lib/screens/components/images.dart:1293)、[D:/Cat/jmcomic3/lib/screens/components/comic_list.dart](D:/Cat/jmcomic3/lib/screens/components/comic_list.dart:85)、提交 `ccd4391` 与 Flutter `ResizeImage` 默认策略 | 本轮优化泄漏到未计划的封面路径；封面/路径图片会随设备尺寸、DPR 与 bucket 组合被压扁或拉长；当前 reader target flag 默认 OFF，但未来灰度开启后阅读页也可能复现 | P0（可见回归） |
 
 ## 4. 关键不变量（任何实现都不能破坏）
 
@@ -212,6 +213,7 @@
 8. **解扰失败不可伪装成功**：行重排/重新编码失败时不得把原始 scrambled bytes 写入 `decoded_v1`；必须返回可分类错误或进入未验证临时态。
 9. **请求目标必须受信任**：图片 metadata 中的 URL 只能命中允许的 CDN/代理 host；向非允许 host 请求时不得附带全局 cookie 或 referer。
 10. **清理与写入互斥**：缓存清理、下载落盘、读取/校验必须通过同一 owner 锁或原子版本协议协调，不能让清理穿过正在提交的文件。
+11. **目标解码必须保持原图比例**：除非来源本身已验证为同一比例，不能把非空的宽和高作为 exact codec target 同时传入；有两个布局上限时须计算 aspect-preserving fit target，或使用 Flutter 的 `ResizeImagePolicy.fit`。
 
 ## 5. 对原计划逐项逻辑与后果审查
 
@@ -258,9 +260,9 @@
 | M4 ReaderSession/generation 与预取调度器 | 已完成最小 UI generation 接入；资源预算/真实 scheduler 灰度待补 | 增加真实队列接入、并发/取消/错误专项测试 | 当前页与旧行为保持兼容；取消的网络中止仍待实测 |
 | M5 Rust 批量与网络协议 | Dart adapter 已实现；availability 路由在隔离 worktree 提交 | 补新旧契约 smoke、脱敏审查，并决定是否由后端维护者合并 `a7a8015` | 原 Rust 工作树 `rust/README.md`/`invoke.rs` 有用户 dirty 修改，不能直接合并或覆盖 |
 | M6 离线缓存隔离 | Flutter availability 与 metadata-only 占位已实现；真实 owner/迁移/清理隔离待补 | 接入 DownloadAlbumScreen/Reader，增加文件复制、校验、原子提交和 manifest 演练 | 不触碰外部 dirty Rust 文件；未完成迁移前保持旧目录只读兼容 |
-| M7 双页窗口化 | 配对模型/RTL 语义已实现；窗口化仍未接入 | 完成真实 widget/golden 回归后再评估灰度 | 现有整章 options 仍是默认路径 |
+| M7 双页窗口化 | builder 窗口路径已接入且默认关闭；新增默认/flag 两种 widget 回归（cover/RTL/奇数/单页） | 完成真实设备和 golden 回归后再评估灰度 | legacy static options 仍是默认路径；测试未替代 golden |
 | M7 垂直精确进度 | `ReaderExtentIndex` 已实现并有边界测试 | 补真实 list reader/动态尺寸回归 | 未知尺寸仍使用保守 fallback |
-| M7 阅读记录队列 | 内存单写者队列、失败重试及 `maxPending`/`droppedCount` 已实现 | 增加崩溃恢复持久化或明确不纳入首发；重跑新增回归 | 当前失败事件只在实例生命周期内保留，超限丢弃最旧 snapshot 并计数 |
+| M7 阅读记录队列 | 单写者、失败重试、`maxPending`/`droppedCount` 及默认关闭的版本化属性 journal 已实现 | 进行 native 原子写入/强杀窗口演练、恢复指标和隐私审查后再评估灰度 | 当前适配器复用属性桥接；属性写入本身的原子性由 Rust store 保证范围外，跨设备合并仍未定义 |
 | P2 测试/CI/观测 | 本地门禁已执行；远端自动构建暂停 | 继续补 reader 专项回归和结构化指标 | 使用 `D:\Cat\jm3\_flutter\flutter`（Flutter 3.41.2/Dart 3.11.0），输出根为 `D:\Cat\jm3\build`；workflow 仅保留手动触发，不把 GitHub 结果当验收依据 |
 
 ### 本轮继续执行记录（2026-08-30）
@@ -912,6 +914,77 @@ Rust 仓库已有用户未提交修改，至少包括：
 - 本次仅变更文档，未重新执行代码测试；此前针对代码/测试基线 `015fcf9` 的默认与全 flags
   124/124 门禁证据继续有效。生成文件和外部 Rust dirty 修改未纳入。
 
+### 2026-09-01 13:58 M2 阶段：view-log 持久化契约与双页回归
+
+- 从 `origin/main`/`94a8bcc` 创建阶段分支 `MrYu/reader-optimization-m2`，并创建本地
+  起点 tag `reader-optimization-m2-start-20260901-133345`；没有改写 PR #2 历史，
+  主仓库生成文件和外部 Rust dirty 修改继续保留。
+- 提交 `1270602` 增加 `ReaderViewlogStore` 与版本化的
+  `ReaderViewlogPropertyStore`：session key 使用窄字符白名单，journal 校验 schema、
+  事件字段、256 条/64 KiB 上限，读取失败只保留内存事件并记录错误；`ReaderViewlogQueue`
+  在 `JM_READER_VIEWLOG_QUEUE_V1=true` 时恢复同 session 的 pending 事件，ack 后清空，
+  失败事件跨实例保留。默认 flag 仍为 OFF。
+- 提交 `8b96fd5` 增加双页窗口 widget 回归：默认 legacy static gallery 与实验 builder
+  分支分别校验，实验分支覆盖 cover、RTL、奇数页、单页和初始 slot；同一测试还捕获并
+  修复了双页 legacy `initState` 提前依赖 `MediaQuery` 的 Flutter 生命周期断言。
+- `1270602` 同时收紧 journal key 校验，避免任意属性 key 被持久化适配器使用；
+  `85034cf` 仅将 schema prefix 声明收紧为编译期常量。
+- 定向持久化/双页测试通过；固定环境下当前 HEAD `85034cf` 的默认全量测试和 8 个 reader
+  flags 全量测试均为 **132/132**，日志位于
+  `D:\Cat\jm3\build\reader-optimization-m2-validation`。目标文件 format 检查通过，
+  analyzer 0 error/137 条既有 info-lint，`git diff --check` 通过。
+- 逻辑后果和边界：该 journal 解决正常进程重启前后的 pending 事件恢复，不证明操作系统
+  强杀瞬间的原子落盘，也不定义 WebDAV/跨设备事件合并；因此 M7 崩溃持久化只标记为
+  “契约与本地属性适配已完成，真实 crash/native 原子演练待执行”，不能将 M6 offline
+  owner 或 Rust R-32/R-33 安全项标记完成。
+- 本阶段 PR 只包含上述六个文件/测试变更；工作区已有 `README.md`、`docs/`、
+  `scripts/setup_android_emulator.ps1` 和 Windows generated files 未纳入提交。
+
+### 2026-09-01 14:04 PR #3 创建后核对
+
+- 文档提交 `9600298` 之后创建并推送恢复 tag
+  `reader-optimization-m2-final-local-gates-20260901-140139`；阶段分支
+  `MrYu/reader-optimization-m2` 与 `origin` 同步，未使用 force-push。
+- 已创建 Draft PR #3：
+  `https://github.com/MrYu-JMComic/JMcomic3-flutter/pull/3`，base=`main`、
+  head=`9600298`、`state=OPEN`、`isDraft=true`、`statusCheckRollup=[]`。
+  仓库 workflow 仍仅 `workflow_dispatch`，没有因 push/建 PR 触发 GitHub 构建。
+- 本地工作区继续保留 `README.md`、`docs/`、`scripts/setup_android_emulator.ps1`、
+  `windows/flutter/generated_plugin_registrant.{cc,h}`、
+  `windows/flutter/generated_plugins.cmake` 和 `windows/rust.h` 的用户/生成差异，
+  均未纳入 PR；外部 Rust 工作树 dirty 文件也未触碰。
+
+### 2026-09-01 14:10 M2 最终门禁与只读审查
+
+- 在固定环境重新运行默认全量测试和全部 8 个 reader flags 全量测试，当前代码行为
+  均为 **132/132**；最新日志为
+  `D:\Cat\jm3\build\reader-optimization-m2-validation\flutter-test-default-final-rerun.log`
+  和 `flutter-test-all-reader-flags-final-rerun.log`。
+- `verify_build_env.ps1` 通过；目标文件 `dart format --set-exit-if-changed` 为 0 changed；
+  `git diff --check`、`git show --check` 通过。`flutter analyze --no-pub` 报 0 error、
+  137 条仓库既有 info/lint（项目现状导致退出码 1），没有新增 analyzer error。
+- 对 `ReaderViewlogQueue` 的恢复/重排、flush/close 并发、持久化请求合并和失败保留，及
+  `ReaderViewlogPropertyStore` 的 key/schema/大小边界进行了只读审查，未发现当前阶段
+  阻塞问题。稳定 chapter key 的多实例覆盖、属性桥非原子写入和 dispose 后异步落盘仍是
+  已知风险，必须由后续 native atomic/共享锁与 crash 演练阶段处理。
+- PR #3 当前仍为 Draft：base=`main`、head=`0fc4251`、`state=OPEN`、
+  `statusCheckRollup=[]`；本轮没有触发 GitHub workflow。后续最终标签应指向文档收尾提交，
+  并继续使用普通 push，不得 force-push。
+- 本阶段交付边界仍是默认关闭、可独立回滚的 M2/M7 实现子集；M0 真机/网络/签名、M2
+  真实 scrambled fixture、M4 真实取消、M5 跨版本 smoke、M6 offline owner/迁移/锁、
+  M7 native crash/golden/list-reader，以及 Rust R-32/R-33 仍未完成，不得标记为计划全部完成。
+
+### 2026-09-01 14:14 文档收尾与最终恢复点
+
+- 本次文档收尾提交仅更新本计划文档中的最终测试证据、审查结论和 PR 状态；没有修改
+  已验证的代码行为，也没有改写任何已合并历史。
+- 最终回滚标签将在该提交上创建；推送只使用普通 `git push`，PR #3 保持 Draft，且不
+  触发 GitHub workflow。若后续需要撤回本阶段，可回到
+  `reader-optimization-m2-start-20260901-133345` 或最终标签，不影响 `main`/PR #2。
+- 工作区现有 `README.md`、`docs/`、`scripts/setup_android_emulator.ps1`、Windows
+  generated files 与 `windows/rust.h` 继续排除在本阶段提交之外；外部 Rust 用户 dirty
+  修改未触碰。
+
 每次继续工作时，按以下顺序更新本文档：
 
 1. 在“任务状态”或“变更记录”中写明本轮做了什么。
@@ -919,3 +992,148 @@ Rust 仓库已有用户未提交修改，至少包括：
 3. 若任务的优先级、依赖、后果或回滚方式改变，先修改对应审查表。
 4. 实现后补充实际测试命令、设备、结果和失败样本；未运行的项目保持“待执行”。
 5. 完成一个阶段后再开启下一个阶段，避免同时发布多个高风险开关。
+
+### 2026-09-01 16:16 Android 双 ABI release 打包与实际安装核验
+
+- 使用当前阶段代码提交 `6a4851533c1df0f3cdaa9eb76c2ccc0f4923fe8f` 的隔离 checkout
+  `D:\Cat\jm3\worktrees\m2-apk-package` 构建；该 checkout 的 `build` 是 junction，
+  实际输出根为 `D:\Cat\jm3\build\reader-optimization-m2-apk`，没有把本轮 APK 输出
+  写入主仓库的 `build`。执行的两个命令均为 `flutter build apk --release --split-per-abi
+  --no-pub --obfuscate --split-debug-info=...`，分别使用
+  `--target-platform android-arm64` 和 `--target-platform android-arm`。
+- 未签名 release 产物（可复现、用于发布前检查）：
+
+  | ABI | 文件 | 大小 | 压缩统计 | native ELF |
+  |---|---|---:|---:|---|
+  | ARM64 | `jmcomic3-1.7.25+53-arm64-v8a-release-unsigned.apk` | 22,836,373 B（21.78 MiB） | 92 entries；原始 23,767,564 B，entry 压缩后 22,792,802 B（约 4.10%） | `arm64-v8a`；`librust.so` 4,316,464 B；ELF64/machine 183 |
+  | ARMv7 32-bit | `jmcomic3-1.7.25+53-armeabi-v7a-release-unsigned.apk` | 18,716,931 B（17.85 MiB） | 92 entries；原始 19,638,052 B，entry 压缩后 18,663,283 B（约 4.96%） | `armeabi-v7a`；`librust.so` 2,654,624 B；ELF32/machine 40 |
+
+  两个 APK 均通过 `zipalign -c -P 16 -v 4`。ARMv7 包比 ARM64 小 4,119,442 B（约
+  18.04%）；该差异是架构 native 库差异，不能直接当作图片或 Dart 资源压缩收益。
+  未签名 APK 的 SHA-256 分别为 ARM64 `72ed822baeb7a220753da5b2f9a97c01d7a85d8f3bc8605e4e3ffb6ccb717c2c`
+  和 ARMv7 `35f0a877b225a48aca03bcbf20dbe59a1d1ed737f69606b205fb30219ab566b0`。
+  `aapt2 dump badging` 确认两者均为 package `com.jmcomic3.yee`、versionName `1.7.25`、
+  target/compile SDK 36，且每个 split 只包含对应 ABI。项目当前只跟踪 ARM64 与 ARMv7
+  Rust JNI，因此没有生成 x86/x86_64 发布 split；x86_64 模拟器只能用于 ARM64 翻译 smoke。
+- 为不混淆发布状态，另用本机 debug keystore 生成两份**仅测试用**签名副本：
+  `dist\jmcomic3-1.7.25+53-arm64-v8a-release-local-test-signed.apk`（22,851,304 B）和
+  `dist\jmcomic3-1.7.25+53-armeabi-v7a-release-local-test-signed.apk`（18,734,830 B）。
+  两份均通过 `apksigner verify`（v2/v3）与 zipalign；它们不是正式发布签名包。当前仓库
+  没有正式 `key.properties`/release keystore，因此正式签名与签名后产物仍是阻塞项。
+- 实际设备核验使用 API 35 AVD `jmcomic3-api35-x86_64`（`emulator-5554`）：
+  `ro.product.cpu.abilist=x86_64,arm64-v8a`，native bridge 为 `libndk_translation.so`。
+  ARM64 测试副本安装成功，`com.jmcomic3.yee/.MainActivity` 启动并保持前台，等待 10 秒
+  的 crash buffer 为 0，截图和 logcat 保存在
+  `D:\Cat\jm3\build\reader-optimization-m2-validation`。尝试安装 ARMv7 副本时，
+  Android 明确返回 `INSTALL_FAILED_NO_MATCHING_ABIS`；这是该 AVD 不提供
+  `armeabi-v7a` 的预期结果，不等价于 ARMv7 真机运行通过。尚未连接 ARMv7 真机/AVD，
+  所以 ARMv7 运行时 reader 回归仍待执行。
+- 构建过程中 Flutter 提示 `file_picker`、`flutter_plugin_android_lifecycle`、
+  `permission_handler_android`、`url_launcher_android` 声明需要 NDK `27.0.12077973`，
+  而项目/Rust 矩阵固定 `25.2.9519653`；本机双 ABI 构建成功，但该 warning 仍记录为
+  发布前兼容性风险，不能据此声称跨机器发布矩阵已完成。GitHub workflow 未触发，所有
+  产物和验证继续留在 `D:\Cat\jm3\build`。
+
+### 2026-09-01 16:47 封面拉伸诊断（未修改功能代码）
+
+- 用户提供的旧/新浏览截图都使用 3:4 封面网格；`ComicList` 的 `childAspectRatio=3/4`
+  自初版一直未修改，因此外层 Card 不是本次视觉差异的根因。当前分支也没有修改
+  `comic_list.dart`。
+- 直接引入差异的是 `ccd4391`：它将通用 `buildFile` 的显示框宽高分别乘 DPR、分别
+  向上取 bucket，却没有限制在 reader feature flag 内。以常见 3:4 的约 `300×400`
+  物理目标为例，两个值都会变为 `512`，因而把应为 3:4 的 decode target 变成 1:1。
+  Flutter 3.41.2 的 `ResizeImage.resizeIfNeeded` 默认构造 `ResizeImagePolicy.exact`，
+  当宽高都非空时 codec 将图片解码到精确宽和高；上例会使 3:4 源封面约横向拉伸 33%。
+  只有其中一维为空时 Flutter 才保证保持源图比例。`BoxFit.cover` 只能裁剪/缩放已经
+  解码出的 bitmap，不能纠正已经发生的拉伸。此通用路径由 `JM3x4Cover` 使用，因此
+  浏览、搜索和其他封面列表均受影响；不同设备的 DPR/bucket 组合会让问题程度不同。
+- 这不是本轮 `JM_READER_TARGET_DECODE_V1` 默认开关造成的：该开关在当前 APK 为 OFF，
+  浏览封面本来也不走 reader provider。不过同一“同时给 exact 宽高”的逻辑存在于
+  flag-on 的 `PageImageProvider`，必须在修复时一起处理，不能只修封面后让阅读页在
+  灰度时复现。
+- 建议的独立可回滚修复：先撤出 `buildFile` 的 shared bucket 行为，或显式使用
+  `ResizeImage(..., policy: ResizeImagePolicy.fit)`；reader provider 根据 intrinsic ratio
+  将两个布局上限计算为保持比例的最终 target；增加双维 target 的 fixture 测试和封面
+  widget/golden 回归，再在 Android 实机重新截图。尚未按该方案修改代码或重新打包。
+
+### 2026-09-01 19:17 R-01～R-40 逐项收口审查、修复与实测
+
+本轮按“已确认的问题与影响”逐项核对了 Flutter、Rust、自动化回归和 Android 运行时。下表的“已修复”表示当前工作树已有实现并通过对应的源码/契约回归；“待专测”表示实现存在，但仍需要真实协议、压力、迁移或硬件条件，不能把局部 smoke 当成完整验收。
+
+| 条目 | 本轮结论 | 证据/边界 |
+|---|---|---|
+| R-01 | 已修复并回归 | `PageImageProvider` 的 `loadImage`/legacy `loadBuffer` 和通用 `buildFile` 均使用单轴等比目标；目标 bucket 与双 codec fixture 测试通过；Android reader 已加载页面。 |
+| R-02 | 已有实验实现，待专测 | 双页 builder/legacy widget 回归通过；长章、封面/RTL 配对和真实翻页性能未验收。 |
+| R-03 | 已有实现，待专测 | 预取相关契约回归通过；取消、优先级和真实网络流量仍待演练。 |
+| R-04 | 部分修复，待专测 | 页面描述符携带路径/尺寸；章节批量桥接与首图 P95 未测。 |
+| R-05 | 已修复并回归 | 离线描述符保留宽高与本地可用性；Flutter 离线映射测试通过。 |
+| R-06 | 部分修复，待专测 | 现有纵向进度/恢复逻辑已回归；可变高度长章的页码误差未做基准。 |
+| R-07 | 已修复并实测 | `super.initState`/系统栏生命周期已调整；API 35 AVD runtime smoke 完成全屏切换和返回。 |
+| R-08 | 已修复并回归，迁移待专测 | 下载 owner 独立 `offline_images`，`clean_all_cache` 不删除离线资产；隔离/legacy 单测通过；全量旧目录迁移演练未做。 |
+| R-09 | 未声称完成 | Rust 当前仍可能整文件校验、完整 RGBA 解扰；无低端设备峰值基线。 |
+| R-10 | 部分修复，待专测 | 候选 URL 去重/受信校验和错误脱敏已覆盖；多 CDN 故障注入、错误分类重试未完整验收。 |
+| R-11 | 已修复并回归 | 阅读记录、全局事件和音量监听共享/释放契约通过；Android reader smoke 无异常。 |
+| R-12 | 已修复并回归 | 脏索引解析不再直接崩溃；Flutter/Rust 回归门禁通过。 |
+| R-13 | 已核对 | 固定 Flutter/Rust/Android 构建矩阵可复现；插件 NDK 27 warning 仍是发布前兼容性风险。 |
+| R-14 | 已修复并回归 | Rust `album` 接受 `ignore_view_log` 对象参数并传递到 API；wire/单元测试通过。 |
+| R-15 | 已修复并回归 | reader 初始化先调用 `super.initState`；widget 测试通过。 |
+| R-16 | 已修复并回归 | path/size Future 以 identity 删除；强制刷新旧 Future 不会删新 Future。 |
+| R-17 | 已修复并回归 | 本地 availability 返回可读路径，缺失文件不会伪装 completed；owner 过滤测试通过。 |
+| R-18 | 未声称完成 | WebDAV 仍以元数据快照为主，跨设备图片资产恢复未验收。 |
+| R-19 | 未声称完成 | 本地 view-log journal/ack 已回归；客户端序列与跨设备乱序合并仍待协议演练。 |
+| R-20 | 已修复并回归 | 切章重建 generation/缓存并重置 reader 状态；widget 回归通过。 |
+| R-21 | 部分修复，待专测 | 模式切换的状态恢复与 mounted 防护已覆盖；flush/取消事务边界仍需长时间交互演练。 |
+| R-22 | 已修复并回归 | 音量监听按实际订阅状态对称释放；回归通过。 |
+| R-23 | 已修复并实测 | 进入前系统 UI 状态被保存、退出恢复；API 35 AVD 全屏/返回 smoke 通过。 |
+| R-24 | 已修复并回归 | `JMPageImage` 尺寸/失败回调校验 generation；快速复用测试通过。 |
+| R-25 | 已修复并回归 | provider key 使用有限 target bucket，避免 DPR/窗口原值爆炸；测试通过。 |
+| R-26 | 已修复并回归，迁移待专测 | 下载去重、状态和文件路径加入 album owner；legacy 单文件迁移有回归，跨旧数据迁移未验收。 |
+| R-27 | 已修复并回归 | `dl_image_by_chapter_id` 只返回指定 owner 且验证本地可读性；Rust 单测通过。 |
+| R-28 | 已修复并回归 | 文件名/URL 路径规范化、`..`/分隔符/userinfo/非受信 host 拒绝；Rust 单测通过。 |
+| R-29 | 未声称完成 | 下载、预取和解扰尚无统一 CPU/IO 调度及首图 P95 压测。 |
+| R-30 | 已修复并回归 | URL、cookie、签名参数不进入请求错误/候选错误；safe-origin/error-class 脱敏测试通过。 |
+| R-31 | 已修复并回归 | 解扰失败返回错误，不再把原始 scrambled bytes 写入 canonical cache；Rust 单测通过。 |
+| R-32 | 已修复并回归 | 非受信绝对 URL 不发送 cookie/referer/reader headers；Rust 安全测试通过。 |
+| R-33 | 已修复并回归，native/跨进程待专测 | image cache I/O 使用统一进程内锁，offline materialize 在读取 canonical/legacy 源前即持锁；清理、离线存活与 legacy 迁移契约单测通过。跨进程、强杀和并发压力未验收。 |
+| R-34 | 已修复并回归 | reader keyboard `FocusNode` 生命周期稳定；Flutter 回归通过。 |
+| R-35 | 已修复并回归，长时压测待专测 | post-frame/precache 回调有 mounted/generation/error 收敛；真实快速 pop/切章压力未做。 |
+| R-36 | 已修复并回归 | 空章/非法 `startIndex` clamp，避免 controller 越界；widget 回归通过。 |
+| R-37 | 已修复并回归 | 空名/重复名过滤并保留顺序映射；Flutter/Rust 回归通过。 |
+| R-38 | 已修复并回归 | 异步导航具备 mounted、串行化和重复触发保护；reader smoke 返回路径通过。 |
+| R-39 | 已修复并回归 | 空下载任务不再把 album id 当 chapter id；下载页测试通过。 |
+| R-40 | 已修复并实测 | `buildFile`/reader provider 不再把 3:4 封面解码为精确正方形；`loadImage` 与 legacy `loadBuffer` 双边界 fixture 都保持比例并受两边界约束，API 35 浏览截图显示比例正常。 |
+
+自动化门禁（固定工具链）：
+
+- `flutter test --no-pub`：134/134 通过。
+- `flutter analyze --no-pub`：0 error；退出码受仓库既有 137 条 info/deprecation lint 影响，未新增 analyzer error。
+- 目标 Dart 文件 `dart format --set-exit-if-changed`：0 changed；`git diff --check`：通过。
+- Rust（`D:\Cat\jmcomic3-rust-backend\rust`）：`cargo fmt --all`、`cargo check --lib`、`cargo test --lib`：137/137 通过；`git diff --check`：通过。
+
+Android API 35 AVD 实测：
+
+- 设备 `jmcomic3-api35-x86_64` / `emulator-5554`，ABI 为 `x86_64,arm64-v8a`，通过 native bridge 运行 arm64 debug APK；安装时因设备已有 versionCode 2053，使用 `adb install -r -d` 保留数据降级安装 versionCode 53。这是 AVD 运行时验证，不是 ARM64 物理机。
+- `MainActivity` 启动后保持前台；浏览占位图加载为真实封面，二次点击进入详情，再点击“开始阅读”加载多张页面；全屏切换、滚动、系统返回后详情页恢复状态栏/导航栏。全流程未出现应用 `FATAL EXCEPTION`/`E/flutter`。
+- 截图位于 `D:\Cat\jmcomic3\build\reader-optimization-m2-validation`（`android-api35-startup.png`、`android-api35-after-tap.png`、`android-api35-reader-entry.png`、`android-api35-native-reader-smoke.png`、`android-api35-native-final-reader-smoke-v2.png`）；无 `FATAL EXCEPTION`/`E/flutter` 的结论来自各轮安装/启动后的 `adb logcat` 现场过滤。
+- 先以仓库内预编译 `android/app/src/main/jniLibs/arm64-v8a/librust.so` 完成基线 smoke；随后使用临时
+  `CARGO_TARGET_DIR=D:\Cat\jm3\rust-android-target-final` 和
+  `RUST_ANDROID_JNILIBS_SOURCE=D:\Cat\jm3\rust-android-jni-final` 交叉编译最终 Rust
+  源码，临时注入 arm64 debug APK（APK SHA-256 `0080907E...17230`）后再次安装，完成启动、详情、
+  阅读器、控件切换、滚动和返回 smoke。APK 内 `librust.so` 经 Gradle strip 后与最终新编译产物的
+  SHA-256 `62306BE6...56F1F` 一致；tracked JNI 文件已恢复原 SHA-256，没有留下二进制工作树变更。
+  构建仍提示项目 NDK 25.2.9519653 与若干插件要求 NDK 27.0.12077973 不一致，但 assembleDebug 成功。
+  该运行仍是 x86_64 AVD 通过 native bridge 执行 arm64，不能替代
+  ARM64 物理机性能数据。无 ARMv7 真机/AVD、真实 scrambled fixture、跨设备
+  WebDAV/view-log、网络故障注入或 CPU/IO 压测证据。
+
+因此，本轮可以关闭已有实现和回归证据覆盖的条目，但不把 R-02/R-03/R-04/R-06/R-08/R-09/R-10/R-18/R-19/R-21/R-26/R-29/R-33/R-35 的专门协议、迁移、压力或硬件验证缺口伪装成“R-01～R-40 全部完成”。
+
+### 2026-09-01 19:48 正式 Android release 签名
+
+- 签名配置：本机忽略文件 `android/key.properties`，keystore 保存在仓库外 `D:\Cat\jm3\secrets\jmcomic3-release-upload-20260901.jks`；孤立的临时 keystore 已删除，Git 工作树未跟踪任何密钥材料。
+- 证书：alias `upload`，RSA 4096，SHA256withRSA；SHA-256 指纹为 `43:EA:CE:CF:C5:81:C5:18:7B:73:22:C3:E6:95:8A:AE:7F:F0:0E:28:FA:B0:FA:52:14:B8:DA:AA:9D:37:26:23`。
+- 构建命令：`flutter build appbundle --release --no-pub`、`flutter build apk --release --no-pub`、`flutter build apk --release --no-pub --target-platform android-arm,android-arm64 --split-per-abi`。
+- 产物：`build/app/outputs/bundle/release/app-release.aab`（52,332,266 bytes，SHA-256 `C655C5E702D93BA0041940650DAEBA462B52148E6D6E2B1A7EAE06377C59CDF7`）；`build/app/outputs/flutter-apk/app-release.apk`（64,115,083 bytes，SHA-256 `0BAA7CC16B9C735CC7F041F53E324DC7952B3AC6C6178EE87237845CF8DE0345`）；arm32 APK（20,323,867 bytes，SHA-256 `C07348F3B028362671497315B1808ECB8278E4CFF8385886AA93A8AADABA7E3C`）；arm64 APK（24,148,397 bytes，SHA-256 `FE6E6D8313A7173F721CAE58E0F1E9B192941D1A49F28F6574CCA64D3665BDB5`）。
+- `apksigner verify --verbose --print-certs` 对通用、arm32、arm64 APK 均报告 v2 `true`、单一 RSA-4096 signer、上述指纹；`zipalign -c -v 4` 通过。AAB 含 `META-INF/UPLOAD.SF`/`UPLOAD.RSA`，`jarsigner -verify` 密码学验证通过；因证书为本地自签，Java trust warning 属预期现象。
+- 签名 `app-arm64-v8a-release.apk` 已在 API 35 AVD `emulator-5554` 上卸载旧 debug 包后重新安装并启动；`MainActivity` 保持前台，最近 400 行 `logcat` 无 `FATAL EXCEPTION`、`E/flutter` 或 `AndroidRuntime`。
+- 这是一把新生成的本地 release/upload key，不能替换已有商店 app-signing 证书。Play Console 登记、CI `KEY_FILE_BASE64`/`KEY_PASSWORD` secret 和正式发布渠道仍需单独配置，详细操作见 [docs/android-release-signing.md](docs/android-release-signing.md)。

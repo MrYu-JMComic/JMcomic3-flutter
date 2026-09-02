@@ -36,10 +36,25 @@ void main() {
     );
 
     expect(small.cacheWidth, 256);
+    // Width/height bounds are fit targets; both dimensions are never passed
+    // as an exact codec pair, avoiding aspect-ratio distortion.
     expect(small.cacheHeight, 256);
     expect(small, same);
     expect(small, isNot(different));
     expect(small.hashCode, same.hashCode);
+  });
+
+  test('reader target uses stable fit buckets without exact distortion', () {
+    final bounded = readerPageImageProviderForTest(
+      id: 9,
+      imageName: 'portrait.jpg',
+      width: 300,
+      height: 400,
+    );
+    // Cache keys remain bucketed and deterministic. The codec callback
+    // computes the aspect-preserving fit dimensions from these bounds.
+    expect(bounded.cacheWidth, 512);
+    expect(bounded.cacheHeight, 512);
   });
 
   test('duplicate source pages keep distinct provider identities', () {
@@ -60,19 +75,21 @@ void main() {
     expect(first.hashCode, isNot(second.hashCode));
   });
 
-  test('local-only provider rejects missing availability without bridge call',
-      () async {
-    final provider = readerPageImageProviderForTest(
-      id: 1,
-      imageName: 'missing.jpg',
-      localOnly: true,
-    );
+  test(
+    'local-only provider rejects missing availability without bridge call',
+    () async {
+      final provider = readerPageImageProviderForTest(
+        id: 1,
+        imageName: 'missing.jpg',
+        localOnly: true,
+      );
 
-    await expectLater(
-      provider.loadCodecForTest(),
-      throwsA(isA<StateError>()),
-    );
-  });
+      await expectLater(
+        provider.loadCodecForTest(),
+        throwsA(isA<StateError>()),
+      );
+    },
+  );
 
   test('local-only provider treats blank local path as unavailable', () async {
     final provider = readerPageImageProviderForTest(
@@ -83,9 +100,6 @@ void main() {
     );
 
     expect(provider.localPath, isNull);
-    await expectLater(
-      provider.loadCodecForTest(),
-      throwsA(isA<StateError>()),
-    );
+    await expectLater(provider.loadCodecForTest(), throwsA(isA<StateError>()));
   });
 }

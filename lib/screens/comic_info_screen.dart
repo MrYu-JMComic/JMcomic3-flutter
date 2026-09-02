@@ -39,7 +39,7 @@ class ComicInfoScreen extends StatefulWidget {
   final ComicBasic? simple;
 
   const ComicInfoScreen(this.comicId, this.simple, {Key? key})
-      : super(key: key);
+    : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _ComicInfoScreenState();
@@ -62,6 +62,7 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
 
   @override
   void didPopNext() {
+    if (!mounted) return;
     setState(() {
       _viewFuture = methods.findViewLog(widget.comicId);
     });
@@ -87,70 +88,67 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
             ? Text(simple.name)
             : FutureBuilder(
                 future: _albumFuture,
-                builder: (BuildContext context,
-                    AsyncSnapshot<AlbumResponse> snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done ||
-                      snapshot.hasError) {
-                    return const Text("");
-                  }
-                  return Text(snapshot.requireData.name);
-                },
+                builder:
+                    (
+                      BuildContext context,
+                      AsyncSnapshot<AlbumResponse> snapshot,
+                    ) {
+                      if (snapshot.connectionState != ConnectionState.done ||
+                          snapshot.hasError) {
+                        return const Text("");
+                      }
+                      return Text(snapshot.requireData.name);
+                    },
               ), //
         actions: [
           FutureBuilder(
             future: _albumFuture,
-            builder: (
-              BuildContext context,
-              AsyncSnapshot<AlbumResponse> snapshot,
-            ) {
-              if (snapshot.connectionState != ConnectionState.done ||
-                  snapshot.hasError) {
-                return Container();
-              }
-              return IconButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (BuildContext context) {
-                      return ComicDownloadScreen(
-                        snapshot.requireData,
+            builder:
+                (BuildContext context, AsyncSnapshot<AlbumResponse> snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done ||
+                      snapshot.hasError) {
+                    return Container();
+                  }
+                  return IconButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (BuildContext context) {
+                            return ComicDownloadScreen(snapshot.requireData);
+                          },
+                        ),
                       );
-                    }),
+                    },
+                    icon: const Icon(Icons.download),
                   );
                 },
-                icon: const Icon(Icons.download),
-              );
-            },
           ),
           FutureBuilder(
             future: _albumFuture,
-            builder: (
-              BuildContext context,
-              AsyncSnapshot<AlbumResponse> snapshot,
-            ) {
-              if (snapshot.hasError ||
-                  snapshot.connectionState != ConnectionState.done) {
-                return Container();
-              }
-              if (_favouriteLoading) {
-                return IconButton(
-                  onPressed: () {},
-                  icon: const Icon(
-                    Icons.sync,
-                  ),
-                );
-              }
-              return IconButton(
-                onPressed: () {
-                  _changeFavourite(snapshot.requireData);
+            builder:
+                (BuildContext context, AsyncSnapshot<AlbumResponse> snapshot) {
+                  if (snapshot.hasError ||
+                      snapshot.connectionState != ConnectionState.done) {
+                    return Container();
+                  }
+                  if (_favouriteLoading) {
+                    return IconButton(
+                      onPressed: () {},
+                      icon: const Icon(Icons.sync),
+                    );
+                  }
+                  return IconButton(
+                    onPressed: () {
+                      _changeFavourite(snapshot.requireData);
+                    },
+                    icon: Icon(
+                      snapshot.requireData.isFavorite
+                          ? Icons.bookmark
+                          : Icons.bookmark_border,
+                    ),
+                  );
                 },
-                icon: Icon(
-                  snapshot.requireData.isFavorite
-                      ? Icons.bookmark
-                      : Icons.bookmark_border,
-                ),
-              );
-            },
           ),
         ],
       ),
@@ -168,10 +166,7 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
                 );
               });
             },
-            successBuilder: (
-              BuildContext context,
-              AsyncSnapshot<AlbumResponse> snapshot,
-            ) {
+            successBuilder: (BuildContext context, AsyncSnapshot<AlbumResponse> snapshot) {
               AlbumResponse album = snapshot.requireData;
 
               var _tabs = <Widget>[
@@ -190,11 +185,7 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
               ];
 
               final _views = [
-                _ComicSerials(
-                  albumToSimple(album),
-                  album,
-                  _viewFuture,
-                ),
+                _ComicSerials(albumToSimple(album), album, _viewFuture),
                 ComicCommentsList(mode: "manhua", aid: widget.comicId),
                 _ComicRelatedList(album.relatedList),
               ];
@@ -261,9 +252,11 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
               return InkWell(
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (BuildContext context) {
-                      return ComicSearchScreen(initKeywords: e);
-                    }),
+                    MaterialPageRoute(
+                      builder: (BuildContext context) {
+                        return ComicSearchScreen(initKeywords: e);
+                      },
+                    ),
                   );
                 },
                 child: Container(
@@ -289,13 +282,8 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
                   ),
                   child: Text(
                     e,
-                    style: TextStyle(
-                      color: Colors.pink.shade500,
-                      height: 1.4,
-                    ),
-                    strutStyle: const StrutStyle(
-                      height: 1.4,
-                    ),
+                    style: TextStyle(color: Colors.pink.shade500, height: 1.4),
+                    strutStyle: const StrutStyle(height: 1.4),
                   ),
                 ),
               );
@@ -313,11 +301,13 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
     )) {
       return;
     }
+    if (!mounted) return;
     setState(() {
       _favouriteLoading = true;
     });
     try {
       await methods.setFavorite(data.id);
+      if (!mounted) return;
       setState(() {
         data.isFavorite = !data.isFavorite;
       });
@@ -332,16 +322,22 @@ class _ComicInfoScreenState extends State<ComicInfoScreen> with RouteAware {
           title: context.l10n.tr("移动到资料夹", en: "Move to folder"),
           values: Map.fromEntries(j),
         );
+        if (!mounted) return;
         if (v != null && v != 0) {
           await methods.comicFavoriteFolderMove(data.id, v);
+          if (!mounted) return;
         }
         defaultToast(
-            context, context.l10n.tr("移动成功", en: "Moved successfully"));
+          context,
+          context.l10n.tr("移动成功", en: "Moved successfully"),
+        );
       }
     } finally {
-      setState(() {
-        _favouriteLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _favouriteLoading = false;
+        });
+      }
     }
   }
 }
@@ -402,22 +398,18 @@ class _ComicSerialsState extends State<_ComicSerials> {
           return MaterialButton(
             elevation:
                 Theme.of(context).colorScheme.brightness == Brightness.light
-                    ? 1
-                    : 0,
+                ? 1
+                : 0,
             focusElevation: 0,
             onPressed: () {
               _push(widget.comicSimple, widget.album.series, e.id, 0);
             },
             color: Theme.of(context).colorScheme.brightness == Brightness.light
                 ? Colors.white
-                : Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.color
-                    ?.withOpacity(.17),
-            child: Text(
-              e.sort + (e.name == "" ? "" : (" - ${e.name}")),
-            ),
+                : Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.color?.withOpacity(.17),
+            child: Text(e.sort + (e.name == "" ? "" : (" - ${e.name}"))),
           );
         }).toList(),
       ),
@@ -445,12 +437,7 @@ class _ComicSerialsState extends State<_ComicSerials> {
   }
 
   void _onChoose(int epOrder, int pictureRank) {
-    _push(
-      widget.comicSimple,
-      widget.album.series,
-      epOrder,
-      pictureRank,
-    );
+    _push(widget.comicSimple, widget.album.series, epOrder, pictureRank);
   }
 }
 

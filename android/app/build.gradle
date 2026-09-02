@@ -49,7 +49,7 @@ android {
     // Keep the Android NDK aligned with the Rust cargo-ndk toolchain that is
     // pinned by the local build environment (D:\\Cat\\jm3). Following
     // Flutter's moving default here can select an uninstalled/malformed NDK.
-    ndkVersion "25.2.9519653"
+    ndkVersion providers.gradleProperty('rust.ndkVersion').orElse('27.0.12077973').get()
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

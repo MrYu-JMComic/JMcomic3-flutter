@@ -1,5 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jmcomic3/reader_viewlog_queue.dart';
+import 'package:jmcomic3/reader_viewlog_store.dart';
+
+class _FakeViewlogStore implements ReaderViewlogStore {
+  _FakeViewlogStore([Map<String, List<Map<String, dynamic>>>? initial])
+      : values = initial ?? <String, List<Map<String, dynamic>>>{};
+
+  final Map<String, List<Map<String, dynamic>>> values;
+  int reads = 0;
+  int writes = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> read(String key) async {
+    reads++;
+    return List<Map<String, dynamic>>.from(
+      values[key]?.map((event) => Map<String, dynamic>.from(event)) ??
+          const <Map<String, dynamic>>[],
+    );
+  }
+
+  @override
+  Future<void> write(String key, List<Map<String, dynamic>> events) async {
+    writes++;
+    values[key] = events
+        .map((event) => Map<String, dynamic>.from(event))
+        .toList(growable: false);
+  }
+}
 
 void main() {
   test('sequences events and preserves legacy page field', () async {
@@ -100,4 +129,121 @@ void main() {
     await q.close();
     expect(q.pendingEvents.map((event) => event['page']), [2, 3]);
   });
+
+  test('durable queue restores pending events and clears the journal on ack',
+      () async {
+    final store = _FakeViewlogStore({
+      'reader': [
+        {
+          'page': 7,
+          'client_sequence': 4,
+          'session_id': 's',
+          'comic_id': 1,
+          'chapter_id': 2,
+        },
+      ],
+    });
+    final delivered = <Map<String, dynamic>>[];
+    final q = ReaderViewlogQueue(
+      sessionId: 's',
+      sink: (event) async => delivered.add(event),
+      store: store,
+      persistenceKey: 'reader',
+      debounce: Duration.zero,
+    );
+
+    await q.flush();
+    expect(delivered.single['page'], 7);
+    expect(q.hasPending, isFalse);
+    expect(store.values['reader'], isEmpty);
+    expect(store.reads, 1);
+    expect(store.writes, 1);
+    await q.close();
+  });
+
+  test('failed durable event survives a new queue instance', () async {
+    final store = _FakeViewlogStore();
+    var fail = true;
+    final first = ReaderViewlogQueue(
+      sessionId: 's',
+      sink: (event) async {
+        if (fail) {
+          throw StateError('offline');
+        }
+      },
+      store: store,
+      persistenceKey: 'reader',
+      debounce: Duration.zero,
+    );
+    first.add(page: 3, comicId: 1, chapterId: 2);
+    await first.flush();
+    expect(first.pendingEvents.single['page'], 3);
+    await first.close();
+    expect(store.values['reader'], hasLength(1));
+
+    fail = false;
+    final delivered = <Map<String, dynamic>>[];
+    final second = ReaderViewlogQueue(
+      sessionId: 's',
+      sink: (event) async => delivered.add(event),
+      store: store,
+      persistenceKey: 'reader',
+      debounce: Duration.zero,
+    );
+    await second.flush();
+    expect(delivered.single['page'], 3);
+    expect(store.values['reader'], isEmpty);
+    await second.close();
+  });
+
+  test('events added while restore is pending receive a later sequence',
+      () async {
+    final store = _DelayedViewlogStore([
+      {
+        'page': 1,
+        'client_sequence': 9,
+        'session_id': 's',
+      },
+    ]);
+    final delivered = <Map<String, dynamic>>[];
+    final q = ReaderViewlogQueue(
+      sessionId: 's',
+      sink: (event) async => delivered.add(event),
+      store: store,
+      persistenceKey: 'reader',
+      debounce: Duration.zero,
+    );
+    q.add(page: 2);
+    store.release();
+    await q.flush();
+
+    expect(delivered.map((event) => event['page']), [1, 2]);
+    expect(delivered.map((event) => event['client_sequence']), [9, 10]);
+    await q.close();
+  });
+}
+
+class _DelayedViewlogStore implements ReaderViewlogStore {
+  _DelayedViewlogStore(this.restored);
+
+  final List<Map<String, dynamic>> restored;
+  final Completer<void> _gate = Completer<void>();
+  final Map<String, List<Map<String, dynamic>>> values = {};
+
+  void release() => _gate.complete();
+
+  @override
+  Future<List<Map<String, dynamic>>> read(String key) async {
+    await _gate.future;
+    return restored
+        .map((event) => Map<String, dynamic>.from(event))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> write(String key, List<Map<String, dynamic>> events) async {
+    values[key] = events
+        .map((event) => Map<String, dynamic>.from(event))
+        .toList(growable: false);
+  }
 }

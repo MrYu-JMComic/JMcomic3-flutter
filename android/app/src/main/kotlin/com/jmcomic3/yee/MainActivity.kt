@@ -20,6 +20,7 @@ import java.util.concurrent.Executors
 import java.io.File
 import opensource.jenny.Jni
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import android.hardware.biometrics.BiometricPrompt
 import java.util.concurrent.TimeUnit
 import android.os.CancellationSignal
@@ -233,36 +234,42 @@ class MainActivity : FlutterActivity() {
         }
     }
     private fun auth(): Boolean {
-        var queue = LinkedBlockingQueue<Boolean>()
+        val queue = LinkedBlockingQueue<Boolean>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val completed = AtomicBoolean(false)
+            val finish: (Boolean) -> Unit = { value ->
+                if (completed.compareAndSet(false, true)) {
+                    queue.offer(value)
+                }
+            }
             var mBiometricPrompt = BiometricPrompt.Builder(this)
                 .setTitle("验证身份")
                 .setDescription("需要验证您的身份")
                 .setNegativeButton(
                     "取消", mainExecutor
-                ) { _, _ -> queue.add(false) }
+                ) { _, _ -> finish(false) }
                 .build()
 
 
             var mCancellationSignal = CancellationSignal()
             mCancellationSignal.setOnCancelListener {
-                queue.add(false)
+                finish(false)
             }
 
             var mAuthenticationCallback = object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
                     super.onAuthenticationError(errorCode, errString)
-                    queue.add(false)
+                    finish(false)
                 }
 
                 override fun onAuthenticationFailed() {
                     super.onAuthenticationFailed()
-                    queue.add(false)
+                    // A failed attempt is non-terminal; the user may retry.
                 }
 
                 override fun onAuthenticationSucceeded(result1: BiometricPrompt.AuthenticationResult?) {
                     super.onAuthenticationSucceeded(result1)
-                    queue.add(true)
+                    finish(true)
                 }
             }
 
