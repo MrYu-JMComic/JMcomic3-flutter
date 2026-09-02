@@ -357,3 +357,5 @@ README 写有“仅供学习使用、禁止商业使用”，因此这可能是�
 - [x] 使用 `D:\Cat\flutter` 的 Flutter 3.41.2/Dart 3.11.0 执行 `flutter pub get --enforce-lockfile`、目标改动 Dart 文件格式检查、`flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings` 和 `flutter test --no-pub`；格式检查通过，analyze 0 error（137 条既有 info/deprecation），默认测试 139/139 通过。
 - [x] 以 `JM_READER_PAGE_DESCRIPTOR_V1`、`JM_READER_PREFETCH_SCHEDULER_V1`、`JM_READER_BATCH_API_V1`、`JM_READER_OFFLINE_OWNER_V1`、`JM_READER_TWO_PAGE_WINDOW_V1`、`JM_READER_PRECISE_PROGRESS_V1`、`JM_READER_VIEWLOG_QUEUE_V1`、`JM_READER_TARGET_DECODE_V1` 全部启用复跑 `flutter test --no-pub`，139/139 通过。
 - [x] backend PR 已创建：`jmcomic3-rust-backend#1`（`MrYu/m5-page-batch-contract`，head `9d3a8cb`）；主仓库 workflow 将在本轮更新为该不可变 SHA，并随后更新现有 PR #3 的说明。
+
+外部 CI 状态：主仓库 PR #3 的两次 GitHub Actions run（`33588578393`、`33588581462`）均在 job 启动前失败，GitHub annotation 原因是账号 billing lock；backend PR #1 的 run（`33588442743`、`33588464341`）同样没有启动 job，且 backend 新 workflow 需待默认分支注册后才能执行。该外部状态不改变上述本机门禁结果，恢复 Actions 计费/注册后应重新运行两边 workflow。
