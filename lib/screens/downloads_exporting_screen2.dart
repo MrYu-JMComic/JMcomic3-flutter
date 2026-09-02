@@ -15,7 +15,7 @@ class DownloadsExportingScreen2 extends StatefulWidget {
   final List<int> idList;
 
   const DownloadsExportingScreen2({Key? key, required this.idList})
-      : super(key: key);
+    : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _DownloadsExportingScreen2State();
@@ -31,8 +31,9 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
 
   Widget _body() {
     final l10n = context.l10n;
-    final proSuffix =
-        !hasProAccess ? '\n${l10n.tr('(发电后使用)', en: '(Pro required)')}' : '';
+    final proSuffix = !hasProAccess
+        ? '\n${l10n.tr('(发电后使用)', en: '(Pro required)')}'
+        : '';
     if (exporting) {
       return ContentLoading(
         label: exportMessage.isEmpty
@@ -76,9 +77,7 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
           onPressed: _exportJpegs,
           child: Text(
             l10n.tr('导出成文件夹', en: 'Export as folders') + proSuffix,
-            style: TextStyle(
-              color: !hasProAccess ? Colors.grey : null,
-            ),
+            style: TextStyle(color: !hasProAccess ? Colors.grey : null),
             textAlign: TextAlign.center,
           ),
         ),
@@ -87,9 +86,7 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
           onPressed: _exportPdf2,
           child: Text(
             l10n.tr('导出成PDF', en: 'Export as PDF') + proSuffix,
-            style: TextStyle(
-              color: !hasProAccess ? Colors.grey : null,
-            ),
+            style: TextStyle(color: !hasProAccess ? Colors.grey : null),
             textAlign: TextAlign.center,
           ),
         ),
@@ -98,9 +95,7 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
           onPressed: _exportEpub,
           child: Text(
             l10n.tr('导出成EPUB', en: 'Export as EPUB') + proSuffix,
-            style: TextStyle(
-              color: !hasProAccess ? Colors.grey : null,
-            ),
+            style: TextStyle(color: !hasProAccess ? Colors.grey : null),
             textAlign: TextAlign.center,
           ),
         ),
@@ -115,7 +110,9 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
           ? await methods.iosGetDocumentDir()
           : await chooseFolder(context);
     } catch (e) {
-      defaultToast(context, '$e');
+      if (mounted) {
+        defaultToast(context, '$e');
+      }
       return null;
     }
   }
@@ -123,7 +120,13 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
   Future<void> _runBatchExport({
     required Future<void> Function(String path) exporter,
   }) async {
+    if (!mounted) {
+      return;
+    }
     if (!await ensureProAccess()) {
+      if (!mounted) {
+        return;
+      }
       defaultToast(
         context,
         context.l10n.tr('请先发电鸭', en: 'Please activate Pro first'),
@@ -131,6 +134,9 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
       return;
     }
     final path = await _pickPath();
+    if (!mounted) {
+      return;
+    }
     debugPrient('path $path');
     if (path == null) {
       return;
@@ -140,10 +146,19 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
         exporting = true;
       });
       await exporter(path);
-      exported = true;
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        exported = true;
+      });
     } catch (err) {
-      e = err;
-      exportFail = true;
+      if (mounted) {
+        setState(() {
+          e = err;
+          exportFail = true;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -155,11 +170,8 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
 
   Future<void> _exportJpegs() {
     return _runBatchExport(
-      exporter: (path) => methods.export_jm_jpegs(
-        widget.idList,
-        path,
-        deleteExport,
-      ),
+      exporter: (path) =>
+          methods.export_jm_jpegs(widget.idList, path, deleteExport),
     );
   }
 
@@ -167,11 +179,7 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
     return _runBatchExport(
       exporter: (path) async {
         for (var id in widget.idList) {
-          await methods.export_jm_pdf2(
-            id,
-            path,
-            deleteExport,
-          );
+          await methods.export_jm_pdf2(id, path, deleteExport);
         }
       },
     );
@@ -179,11 +187,8 @@ class _DownloadsExportingScreen2State extends State<DownloadsExportingScreen2> {
 
   Future<void> _exportEpub() {
     return _runBatchExport(
-      exporter: (path) => methods.export_jm_epub(
-        widget.idList,
-        path,
-        deleteExport,
-      ),
+      exporter: (path) =>
+          methods.export_jm_epub(widget.idList, path, deleteExport),
     );
   }
 

@@ -23,9 +23,9 @@ class OfflineAvailability {
     bool? metadataCompleted,
     OfflineAvailabilityState? localState,
   }) => OfflineAvailability(
-        metadataCompleted: metadataCompleted ?? this.metadataCompleted,
-        localState: localState ?? this.localState,
-      );
+    metadataCompleted: metadataCompleted ?? this.metadataCompleted,
+    localState: localState ?? this.localState,
+  );
 }
 
 /// Converts a filesystem probe into the small state machine shared by reader

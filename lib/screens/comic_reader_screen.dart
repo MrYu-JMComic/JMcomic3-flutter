@@ -80,7 +80,8 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
       await methods.updateViewLog(comicId, chapterId, page);
     } catch (error, stackTrace) {
       debugPrient(
-          "initial view log failed: ${error.runtimeType}/${stackTrace.runtimeType}");
+        "initial view log failed: ${error.runtimeType}/${stackTrace.runtimeType}",
+      );
     }
   }
 
@@ -88,9 +89,7 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
     // A custom offline loader may throw before returning a Future. Normalize
     // that case into FutureBuilder's error path instead of failing initState
     // or a setState callback synchronously.
-    return Future<ChapterResponse>.sync(
-      () => widget.loadChapter(chapterId),
-    );
+    return Future<ChapterResponse>.sync(() => widget.loadChapter(chapterId));
   }
 
   void _load() {
@@ -115,23 +114,26 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
     _navigationInFlight = true;
     try {
       await Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (BuildContext context) {
-          return ComicReaderScreen(
-            comic: widget.comic,
-            series: widget.series,
-            chapterId: chapterId,
-            initRank: initRank,
-            loadChapter: widget.loadChapter,
-            fullScreenOnInit: fullScreen,
-          );
-        }),
+        MaterialPageRoute(
+          builder: (BuildContext context) {
+            return ComicReaderScreen(
+              comic: widget.comic,
+              series: widget.series,
+              chapterId: chapterId,
+              initRank: initRank,
+              loadChapter: widget.loadChapter,
+              fullScreenOnInit: fullScreen,
+            );
+          },
+        ),
       );
     } catch (error, stackTrace) {
       // A route can disappear while a control callback is waiting. Keep the
       // old reader usable when Navigator rejects the replacement instead of
       // leaving the single-flight guard permanently locked.
       debugPrient(
-          "reader navigation failed: ${error.runtimeType}/${stackTrace.runtimeType}");
+        "reader navigation failed: ${error.runtimeType}/${stackTrace.runtimeType}",
+      );
     } finally {
       _navigationInFlight = false;
     }
@@ -187,10 +189,7 @@ class _ComicReaderScreenState extends State<ComicReaderScreen> {
           );
         }
         if (snapshot.connectionState != ConnectionState.done) {
-          return Scaffold(
-            appBar: AppBar(),
-            body: const ContentLoading(),
-          );
+          return Scaffold(appBar: AppBar(), body: const ContentLoading());
         }
         final chapter = snapshot.requireData;
         final imageCount = chapter.images.length;
@@ -269,8 +268,9 @@ void addVolumeListen() {
   }
   _volumeListenCount++;
   if (_volumeListenCount == 1) {
-    volumeS =
-        volumeButtonChannel.receiveBroadcastStream().listen(_onVolumeEvent);
+    volumeS = volumeButtonChannel.receiveBroadcastStream().listen(
+      _onVolumeEvent,
+    );
   }
 }
 
@@ -297,7 +297,7 @@ class _ReaderKeyboardHolder extends StatefulWidget {
   final Widget child;
 
   const _ReaderKeyboardHolder({required this.child, Key? key})
-      : super(key: key);
+    : super(key: key);
 
   @override
   State<_ReaderKeyboardHolder> createState() => _ReaderKeyboardHolderState();
@@ -330,8 +330,9 @@ class _ReaderKeyboardHolderState extends State<_ReaderKeyboardHolder> {
             _readerControllerEvent.broadcast(_ReaderControllerEventArgs("UP"));
           }
           if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
-            _readerControllerEvent
-                .broadcast(_ReaderControllerEventArgs("DOWN"));
+            _readerControllerEvent.broadcast(
+              _ReaderControllerEventArgs("DOWN"),
+            );
           }
         }
       },
@@ -462,8 +463,9 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       width: safeWidth,
       height: height,
       pageIndex: index,
-      localPath:
-          descriptor?.localAvailable == true ? descriptor!.localPath : null,
+      localPath: descriptor?.localAvailable == true
+          ? descriptor!.localPath
+          : null,
       localOnly: localOnly,
       enabled: readerTargetDecodeV1,
     );
@@ -505,17 +507,24 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       if (readerPrefetchSchedulerV1 && generation != null) {
         final dedupeKey =
             key ?? Object.hash(widget.chapter.id, pageIndex, provider.hashCode);
-        final handle = _prefetchScheduler.schedule<void>(generation, () async {
-          await precacheImage(provider, context);
-        },
-            isCurrent: () => mounted && _readerSession.isCurrent(generation),
-            priority: priority,
-            key: dedupeKey);
-        unawaited(handle.future.then((result) {
-          if (result.outcome == PrefetchOutcome.failed) {
-            debugPrient("reader prefetch failed: ${result.error.runtimeType}");
-          }
-        }));
+        final handle = _prefetchScheduler.schedule<void>(
+          generation,
+          () async {
+            await precacheImage(provider, context);
+          },
+          isCurrent: () => mounted && _readerSession.isCurrent(generation),
+          priority: priority,
+          key: dedupeKey,
+        );
+        unawaited(
+          handle.future.then((result) {
+            if (result.outcome == PrefetchOutcome.failed) {
+              debugPrient(
+                "reader prefetch failed: ${result.error.runtimeType}",
+              );
+            }
+          }),
+        );
         return;
       }
       final future = precacheImage(provider, context);
@@ -577,14 +586,15 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     }
     methods
         .updateViewLog(
-      comicId ?? widget.comicId,
-      chapterId ?? widget.chapter.id,
-      index,
-    )
+          comicId ?? widget.comicId,
+          chapterId ?? widget.chapter.id,
+          index,
+        )
         .catchError((e, st) {
-      debugPrient(
-          "reader view-log update failed: ${e.runtimeType}/${st.runtimeType}");
-    });
+          debugPrient(
+            "reader view-log update failed: ${e.runtimeType}/${st.runtimeType}",
+          );
+        });
   }
 
   void _schedulePersistViewLog(int index) {
@@ -650,7 +660,8 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       // state must still remain usable, and diagnostics must not expose the
       // platform exception text (which may contain device paths).
       debugPrient(
-          "reader system-ui update failed: ${error.runtimeType}/${stackTrace.runtimeType}");
+        "reader system-ui update failed: ${error.runtimeType}/${stackTrace.runtimeType}",
+      );
     }
     if (!mounted || serial != _systemUiChangeSerial) {
       return;
@@ -730,7 +741,10 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       // A stable key lets a later reader instance replay events left behind by
       // a crash. The queue remains opt-in so the legacy direct write path is
       // unchanged when the experiment is disabled.
-      final sessionId = 'reader-${widget.comicId}-${widget.chapter.id}';
+      // Each mounted reader gets an isolated journal; chapter identity alone
+      // would make concurrent reader instances overwrite each other's events.
+      final sessionId =
+          'reader-${widget.comicId}-${widget.chapter.id}-${DateTime.now().microsecondsSinceEpoch}-${identityHashCode(this)}';
       _viewLogQueue = ReaderViewlogQueue(
         sessionId: sessionId,
         sink: _sendQueuedViewLog,
@@ -872,10 +886,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
         ),
         child: Text(
           "${_slider + 1} / ${widget.chapter.images.length}",
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 30,
-          ),
+          style: const TextStyle(color: Colors.white, fontSize: 30),
         ),
       ),
     );
@@ -893,8 +904,12 @@ abstract class _ComicReaderState extends State<_ComicReader> {
           child: Material(
             color: Colors.transparent,
             child: Container(
-              padding:
-                  const EdgeInsets.only(left: 10, right: 10, top: 4, bottom: 4),
+              padding: const EdgeInsets.only(
+                left: 10,
+                right: 10,
+                top: 4,
+                bottom: 4,
+              ),
               margin: const EdgeInsets.only(bottom: 10),
               decoration: const BoxDecoration(
                 borderRadius: BorderRadius.only(
@@ -921,34 +936,39 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       );
     }
     return SafeArea(
-        child: Align(
-      alignment: Alignment.bottomLeft,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          padding:
-              const EdgeInsets.only(left: 10, right: 10, top: 4, bottom: 4),
-          margin: const EdgeInsets.only(bottom: 10),
-          decoration: const BoxDecoration(
-            borderRadius: BorderRadius.only(
-              topRight: Radius.circular(10),
-              bottomRight: Radius.circular(10),
+      child: Align(
+        alignment: Alignment.bottomLeft,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.only(
+              left: 10,
+              right: 10,
+              top: 4,
+              bottom: 4,
             ),
-            color: Color(0x88000000),
-          ),
-          child: GestureDetector(
-            onTap: () {
-              _onFullScreenChange(!_fullScreen);
-            },
-            child: Icon(
-              _fullScreen ? Icons.fullscreen_exit : Icons.fullscreen_outlined,
-              size: 30,
-              color: Colors.white,
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: const BoxDecoration(
+              borderRadius: BorderRadius.only(
+                topRight: Radius.circular(10),
+                bottomRight: Radius.circular(10),
+              ),
+              color: Color(0x88000000),
+            ),
+            child: GestureDetector(
+              onTap: () {
+                _onFullScreenChange(!_fullScreen);
+              },
+              child: Icon(
+                _fullScreen ? Icons.fullscreen_exit : Icons.fullscreen_outlined,
+                size: 30,
+                color: Colors.white,
+              ),
             ),
           ),
         ),
       ),
-    ));
+    );
   }
 
   Widget _buildTouchOnceControllerAction(Widget child) {
@@ -991,8 +1011,9 @@ abstract class _ComicReaderState extends State<_ComicReader> {
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
             onTap: () {
-              _readerControllerEvent
-                  .broadcast(_ReaderControllerEventArgs("UP"));
+              _readerControllerEvent.broadcast(
+                _ReaderControllerEventArgs("UP"),
+              );
             },
             child: Container(),
           ),
@@ -1001,8 +1022,9 @@ abstract class _ComicReaderState extends State<_ComicReader> {
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
             onTap: () {
-              _readerControllerEvent
-                  .broadcast(_ReaderControllerEventArgs("DOWN"));
+              _readerControllerEvent.broadcast(
+                _ReaderControllerEventArgs("DOWN"),
+              );
             },
             child: Container(),
           ),
@@ -1017,25 +1039,13 @@ abstract class _ComicReaderState extends State<_ComicReader> {
         late Widget child;
         switch (currentReaderDirection) {
           case ReaderDirection.topToBottom:
-            child = Column(children: [
-              up,
-              fullScreen,
-              down,
-            ]);
+            child = Column(children: [up, fullScreen, down]);
             break;
           case ReaderDirection.leftToRight:
-            child = Row(children: [
-              up,
-              fullScreen,
-              down,
-            ]);
+            child = Row(children: [up, fullScreen, down]);
             break;
           case ReaderDirection.rightToLeft:
-            child = Row(children: [
-              down,
-              fullScreen,
-              up,
-            ]);
+            child = Row(children: [down, fullScreen, up]);
             break;
         }
         return SizedBox(
@@ -1071,9 +1081,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
                           },
                         ),
                         Container(width: 10),
-                        Expanded(
-                          child: _buildSliderBottom(),
-                        ),
+                        Expanded(child: _buildSliderBottom()),
                         Container(width: 10),
                         IconButton(
                           icon: const Icon(Icons.skip_next_outlined),
@@ -1088,10 +1096,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
                 ? Container()
                 : Container(
                     color: const Color(0x88000000),
-                    child: SafeArea(
-                      top: false,
-                      child: Container(),
-                    ),
+                    child: SafeArea(top: false, child: Container()),
                   ),
           ],
         );
@@ -1146,10 +1151,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     return Column(
       children: [
         Expanded(child: Container()),
-        SizedBox(
-          height: 25,
-          child: _buildSliderWidget(Axis.horizontal),
-        ),
+        SizedBox(height: 25, child: _buildSliderWidget(Axis.horizontal)),
         Expanded(child: Container()),
       ],
     );
@@ -1171,11 +1173,13 @@ abstract class _ComicReaderState extends State<_ComicReader> {
                   bottomRight: Radius.circular(10),
                 ),
               ),
-              padding:
-                  const EdgeInsets.only(top: 10, bottom: 10, left: 6, right: 5),
-              child: Center(
-                child: _buildSliderWidget(Axis.vertical),
+              padding: const EdgeInsets.only(
+                top: 10,
+                bottom: 10,
+                left: 6,
+                right: 5,
               ),
+              child: Center(child: _buildSliderWidget(Axis.vertical)),
             ),
           ),
         );
@@ -1196,11 +1200,13 @@ abstract class _ComicReaderState extends State<_ComicReader> {
                   bottomLeft: Radius.circular(10),
                 ),
               ),
-              padding:
-                  const EdgeInsets.only(top: 10, bottom: 10, left: 5, right: 6),
-              child: Center(
-                child: _buildSliderWidget(Axis.vertical),
+              padding: const EdgeInsets.only(
+                top: 10,
+                bottom: 10,
+                left: 5,
+                right: 6,
               ),
+              child: Center(child: _buildSliderWidget(Axis.vertical)),
             ),
           ),
         );
@@ -1257,10 +1263,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
           color: Theme.of(context).colorScheme.secondary,
         ),
       ),
-      step: const FlutterSliderStep(
-        step: 1,
-        isPercentRange: false,
-      ),
+      step: const FlutterSliderStep(step: 1, isPercentRange: false),
       tooltip: FlutterSliderTooltip(disabled: true),
     );
   }
@@ -1286,7 +1289,8 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       );
     } catch (error, stackTrace) {
       debugPrient(
-          "chapter chooser failed: ${error.runtimeType}/${stackTrace.runtimeType}");
+        "chapter chooser failed: ${error.runtimeType}/${stackTrace.runtimeType}",
+      );
     } finally {
       _modalInFlight = false;
     }
@@ -1311,7 +1315,8 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       );
     } catch (error, stackTrace) {
       debugPrient(
-          "reader settings failed: ${error.runtimeType}/${stackTrace.runtimeType}");
+        "reader settings failed: ${error.runtimeType}/${stackTrace.runtimeType}",
+      );
       return;
     } finally {
       _modalInFlight = false;
@@ -1326,7 +1331,8 @@ abstract class _ComicReaderState extends State<_ComicReader> {
         await Future<void>.sync(() => widget.reload(_current, _fullScreen));
       } catch (error, stackTrace) {
         debugPrient(
-            "reader mode reload failed: ${error.runtimeType}/${stackTrace.runtimeType}");
+          "reader mode reload failed: ${error.runtimeType}/${stackTrace.runtimeType}",
+        );
       }
     } else {
       setState(() {});
@@ -1379,7 +1385,8 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       await Future<void>.sync(() => widget.onChangeEp(nextId, _fullScreen));
     } catch (error, stackTrace) {
       debugPrient(
-          "next chapter navigation failed: ${error.runtimeType}/${stackTrace.runtimeType}");
+        "next chapter navigation failed: ${error.runtimeType}/${stackTrace.runtimeType}",
+      );
     } finally {
       _navigationInFlight = false;
     }
@@ -1411,7 +1418,8 @@ class _EpChooserState extends State<_EpChooser> {
       await Future<void>.sync(() => widget.onChangeEp(id, false));
     } catch (error, stackTrace) {
       debugPrient(
-          "chapter selection failed: ${error.runtimeType}/${stackTrace.runtimeType}");
+        "chapter selection failed: ${error.runtimeType}/${stackTrace.runtimeType}",
+      );
     } finally {
       _selectionInFlight = false;
     }
@@ -1435,8 +1443,9 @@ class _EpChooserState extends State<_EpChooser> {
         return Container(
           margin: const EdgeInsets.only(left: 15, right: 15, top: 5, bottom: 5),
           decoration: BoxDecoration(
-            color:
-                widget.chapter.id == e.id ? Colors.grey.withAlpha(100) : null,
+            color: widget.chapter.id == e.id
+                ? Colors.grey.withAlpha(100)
+                : null,
             border: Border.all(
               color: const Color(0xff484c60),
               style: BorderStyle.solid,
@@ -1451,7 +1460,7 @@ class _EpChooserState extends State<_EpChooser> {
             child: Text(e.sort + (e.name == "" ? "" : (" - ${e.name}"))),
           ),
         );
-      })
+      }),
     ];
     final index = entries.map((e) => e.id).toList().indexOf(widget.chapter.id);
     return ScrollablePositionedList.builder(
@@ -1526,11 +1535,7 @@ class _SettingPanelState extends State<_SettingPanel> {
               icon: Column(
                 children: [
                   Container(height: 3),
-                  Icon(
-                    icon,
-                    size: 25,
-                    color: Colors.white,
-                  ),
+                  Icon(icon, size: 25, color: Colors.white),
                   Container(height: 3),
                   Text(
                     title,
@@ -1542,7 +1547,7 @@ class _SettingPanelState extends State<_SettingPanel> {
                 ],
               ),
               onPressed: onPressed,
-            )
+            ),
           ],
         ),
       ),
@@ -1586,10 +1591,12 @@ class _ComicReaderWebToonState extends _ComicReaderState {
       return;
     }
     final visible = positions
-        .where((item) =>
-            item.itemTrailingEdge > 0 &&
-            item.index >= 0 &&
-            item.index < widget.chapter.images.length)
+        .where(
+          (item) =>
+              item.itemTrailingEdge > 0 &&
+              item.index >= 0 &&
+              item.index < widget.chapter.images.length,
+        )
         .toList();
     if (visible.isEmpty) {
       return;
@@ -1617,19 +1624,26 @@ class _ComicReaderWebToonState extends _ComicReaderState {
           constraints.maxWidth * trueSize.height / trueSize.width,
         );
       }
-      final maxHeight = constraints.maxHeight -
+      final maxHeight =
+          constraints.maxHeight -
           super._appBarHeight() -
           super._bottomBarHeight() -
           MediaQuery.of(context).padding.bottom;
-      return Size(max(1.0, maxHeight * trueSize.width / trueSize.height),
-          max(1.0, maxHeight));
+      return Size(
+        max(1.0, maxHeight * trueSize.width / trueSize.height),
+        max(1.0, maxHeight),
+      );
     }
     if (widget.readerDirection == ReaderDirection.topToBottom) {
       return Size(
-          max(1.0, constraints.maxWidth), max(1.0, constraints.maxWidth / 2));
+        max(1.0, constraints.maxWidth),
+        max(1.0, constraints.maxWidth / 2),
+      );
     }
     return Size(
-        max(1.0, constraints.maxWidth / 2), max(1.0, constraints.maxHeight));
+      max(1.0, constraints.maxWidth / 2),
+      max(1.0, constraints.maxHeight),
+    );
   }
 
   void _onTrueSize(int index, Size size) {
@@ -1686,9 +1700,7 @@ class _ComicReaderWebToonState extends _ComicReaderState {
         duration: const Duration(milliseconds: 400),
       );
     } else {
-      _itemScrollController.jumpTo(
-        index: index,
-      );
+      _itemScrollController.jumpTo(index: index);
     }
     super._onCurrentChange(index, forceUiSync: true);
   }
@@ -1696,9 +1708,7 @@ class _ComicReaderWebToonState extends _ComicReaderState {
   @override
   Widget _buildViewer() {
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.black,
-      ),
+      decoration: const BoxDecoration(color: Colors.black),
       child: _buildList(),
     );
   }
@@ -1718,9 +1728,8 @@ class _ComicReaderWebToonState extends _ComicReaderState {
             bottom: widget.readerDirection == ReaderDirection.topToBottom
                 ? 130 // Keep fixed bottom blank area for vertical mode.
                 : (super._bottomBarHeight() +
-                    MediaQuery.of(context).padding.bottom)
+                      MediaQuery.of(context).padding.bottom),
             // Non-fullscreen mode uses bar heights to keep visual balance.
-            ,
           ),
           itemScrollController: _itemScrollController,
           itemPositionsListener: _itemPositionsListener,
@@ -1733,7 +1742,8 @@ class _ComicReaderWebToonState extends _ComicReaderState {
             return RepaintBoundary(
               child: JMPageImage(
                 key: ValueKey(
-                    "wt_${widget.chapter.id}_${index}_${_imageNameAt(index)}"),
+                  "wt_${widget.chapter.id}_${index}_${_imageNameAt(index)}",
+                ),
                 widget.chapter.id,
                 _imageNameAt(index),
                 pageIndex: index,
@@ -1817,7 +1827,10 @@ class _ComicReaderGalleryState extends _ComicReaderState {
       loadingBuilder: (context, event) => LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           return buildLoading(
-              context, constraints.maxWidth, constraints.maxHeight);
+            context,
+            constraints.maxWidth,
+            constraints.maxHeight,
+          );
         },
       ),
       pageController: _pageController,
@@ -1830,11 +1843,12 @@ class _ComicReaderGalleryState extends _ComicReaderState {
         return PhotoViewGalleryPageOptions.customChild(
           disableGestures:
               currentReaderControllerType == ReaderControllerType.touchDouble ||
-                  currentReaderControllerType ==
-                      ReaderControllerType.touchDoubleOnceNext,
+              currentReaderControllerType ==
+                  ReaderControllerType.touchDoubleOnceNext,
           child: LayoutBuilder(
             key: ValueKey(
-                'page_${widget.chapter.id}_${index}_${_imageNameAt(index)}_$reloadKey'),
+              'page_${widget.chapter.id}_${index}_${_imageNameAt(index)}_$reloadKey',
+            ),
             builder: (BuildContext context, BoxConstraints constraints) {
               final imageProvider = _readerPageProvider(
                 index,
@@ -1845,7 +1859,8 @@ class _ComicReaderGalleryState extends _ComicReaderState {
               );
               return Image(
                 key: ValueKey(
-                    'image_${widget.chapter.id}_${index}_${_imageNameAt(index)}_$reloadKey'),
+                  'image_${widget.chapter.id}_${index}_${_imageNameAt(index)}_$reloadKey',
+                ),
                 image: imageProvider,
                 fit: BoxFit.contain,
                 loadingBuilder: (context, child, loadingProgress) {
@@ -1860,7 +1875,8 @@ class _ComicReaderGalleryState extends _ComicReaderState {
                 },
                 errorBuilder: (b, e, s) {
                   debugPrient(
-                      "image decode failed: ${e.runtimeType}/${s.runtimeType}");
+                    "image decode failed: ${e.runtimeType}/${s.runtimeType}",
+                  );
                   if (_isLocalOnlyChapter()) {
                     return buildOfflineImageUnavailable(
                       context,
@@ -1896,12 +1912,7 @@ class _ComicReaderGalleryState extends _ComicReaderState {
       children: [
         Container(height: _fullScreen ? 0 : super._appBarHeight()),
         Expanded(
-          child: Stack(
-            children: [
-              _buildGallery(),
-              _buildNextEpController(),
-            ],
-          ),
+          child: Stack(children: [_buildGallery(), _buildNextEpController()]),
         ),
         Container(height: _fullScreen ? 0 : super._bottomBarHeight()),
       ],
@@ -1932,9 +1943,11 @@ class _ComicReaderGalleryState extends _ComicReaderState {
     }
     var toIndex = to;
     // Preload nearby pages.
-    for (var i = toIndex + 1;
-        i < toIndex + 3 && i < widget.chapter.images.length;
-        i++) {
+    for (
+      var i = toIndex + 1;
+      i < toIndex + 3 && i < widget.chapter.images.length;
+      i++
+    ) {
       final ip = _readerPageProvider(i);
       _precacheReaderImage(ip, pageIndex: i, priority: 2);
     }
@@ -1972,8 +1985,12 @@ class _ComicReaderGalleryState extends _ComicReaderState {
         color: Colors.transparent,
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
-          padding:
-              const EdgeInsets.only(left: 10, right: 10, top: 4, bottom: 4),
+          padding: const EdgeInsets.only(
+            left: 10,
+            right: 10,
+            top: 4,
+            bottom: 4,
+          ),
           decoration: const BoxDecoration(
             borderRadius: BorderRadius.only(
               topLeft: Radius.circular(10),
@@ -2149,8 +2166,11 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
           continue;
         }
         final provider = _readerPageProvider(i);
-        _precacheReaderImage(provider,
-            pageIndex: i, priority: i == index ? 10 : 2);
+        _precacheReaderImage(
+          provider,
+          pageIndex: i,
+          priority: i == index ? 10 : 2,
+        );
       }
     }
 
@@ -2189,8 +2209,8 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
         return PhotoViewGalleryPageOptions.customChild(
           disableGestures:
               currentReaderControllerType == ReaderControllerType.touchDouble ||
-                  currentReaderControllerType ==
-                      ReaderControllerType.touchDoubleOnceNext,
+              currentReaderControllerType ==
+                  ReaderControllerType.touchDoubleOnceNext,
           controller: _photoControllerFor(index),
           scaleStateController: _scaleControllerFor(index),
           initialScale: PhotoViewComputedScale.contained,
@@ -2226,7 +2246,8 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
                   },
                   errorBuilder: (b, e, s) {
                     debugPrient(
-                        "image decode failed: ${e.runtimeType}/${s.runtimeType}");
+                      "image decode failed: ${e.runtimeType}/${s.runtimeType}",
+                    );
                     if (_isLocalOnlyChapter()) {
                       return buildOfflineImageUnavailable(
                         context,
@@ -2257,12 +2278,7 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
       children: [
         Container(height: _fullScreen ? 0 : super._appBarHeight()),
         Expanded(
-          child: Stack(
-            children: [
-              _buildGallery(),
-              _buildNextEpController(),
-            ],
-          ),
+          child: Stack(children: [_buildGallery(), _buildNextEpController()]),
         ),
         Container(height: _fullScreen ? 0 : super._bottomBarHeight()),
       ],
@@ -2282,8 +2298,12 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
         color: Colors.transparent,
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
-          padding:
-              const EdgeInsets.only(left: 10, right: 10, top: 4, bottom: 4),
+          padding: const EdgeInsets.only(
+            left: 10,
+            right: 10,
+            top: 4,
+            bottom: 4,
+          ),
           decoration: const BoxDecoration(
             borderRadius: BorderRadius.only(
               topLeft: Radius.circular(10),
@@ -2338,12 +2358,11 @@ class _ListViewReaderState extends _ComicReaderState
     super.initState();
     for (var index = 0; index < widget.chapter.images.length; index++) {
       final descriptor = _descriptorAt(index);
-      _trueSizes.add(descriptor?.hasDimensions == true
-          ? Size(
-              descriptor!.width.toDouble(),
-              descriptor.height.toDouble(),
-            )
-          : null);
+      _trueSizes.add(
+        descriptor?.hasDimensions == true
+            ? Size(descriptor!.width.toDouble(), descriptor.height.toDouble())
+            : null,
+      );
       _pageKeys.add(GlobalKey());
     }
     _scrollController = ScrollController();
@@ -2424,14 +2443,13 @@ class _ListViewReaderState extends _ComicReaderState
     final constraints = _lastLayoutConstraints;
     final index = readerPreciseProgressV1 && constraints != null
         ? _extentIndexFor(constraints)
-            .estimate(max(
-              0.0,
-              _scrollController.offset - _listLeadingPadding(),
-            ))
-            .page
+              .estimate(
+                max(0.0, _scrollController.offset - _listLeadingPadding()),
+              )
+              .page
         : (((_scrollController.offset / maxExtent).clamp(0.0, 1.0).toDouble()) *
-                (imageCount - 1))
-            .round();
+                  (imageCount - 1))
+              .round();
     super._onCurrentChange(index);
   }
 
@@ -2481,11 +2499,11 @@ class _ListViewReaderState extends _ComicReaderState
     final constraints = _lastLayoutConstraints;
     final estimatedTarget = readerPreciseProgressV1 && constraints != null
         ? _extentIndexFor(constraints).offsetForPage(index) +
-            _listLeadingPadding()
+              _listLeadingPadding()
         : (maxExtent *
-            (widget.chapter.images.length <= 1
-                ? 0.0
-                : index / (widget.chapter.images.length - 1)));
+              (widget.chapter.images.length <= 1
+                  ? 0.0
+                  : index / (widget.chapter.images.length - 1)));
     final target = estimatedTarget.clamp(0.0, maxExtent).toDouble();
     if (animation) {
       if (DateTime.now().millisecondsSinceEpoch < _controllerTime) {
@@ -2506,9 +2524,7 @@ class _ListViewReaderState extends _ComicReaderState
   @override
   Widget _buildViewer() {
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.black,
-      ),
+      decoration: const BoxDecoration(color: Colors.black),
       child: _buildList(),
     );
   }
@@ -2532,7 +2548,8 @@ class _ListViewReaderState extends _ComicReaderState
           max(1.0, constraints.maxWidth * trueSize.height / trueSize.width),
         );
       }
-      final maxHeight = constraints.maxHeight -
+      final maxHeight =
+          constraints.maxHeight -
           super._appBarHeight() -
           (super._fullScreen
               ? super._appBarHeight()
@@ -2544,10 +2561,14 @@ class _ListViewReaderState extends _ComicReaderState
     }
     if (currentReaderDirection == ReaderDirection.topToBottom) {
       return Size(
-          max(1.0, constraints.maxWidth), max(1.0, constraints.maxWidth / 2));
+        max(1.0, constraints.maxWidth),
+        max(1.0, constraints.maxWidth / 2),
+      );
     }
     return Size(
-        max(1.0, constraints.maxWidth / 2), max(1.0, constraints.maxHeight));
+      max(1.0, constraints.maxWidth / 2),
+      max(1.0, constraints.maxHeight),
+    );
   }
 
   void _onTrueSize(int index, Size size) {
@@ -2625,7 +2646,8 @@ class _ListViewReaderState extends _ComicReaderState
                 key: _pageKeys[index],
                 child: JMPageImage(
                   key: ValueKey(
-                      "fz_${widget.chapter.id}_${index}_${_imageNameAt(index)}"),
+                    "fz_${widget.chapter.id}_${index}_${_imageNameAt(index)}",
+                  ),
                   widget.chapter.id,
                   _imageNameAt(index),
                   pageIndex: index,
@@ -2646,10 +2668,7 @@ class _ListViewReaderState extends _ComicReaderState
           boundaryMargin: EdgeInsets.zero,
           scaleEnabled: true,
           panEnabled: false,
-          child: IgnorePointer(
-            ignoring: giveTouchToViewer,
-            child: list,
-          ),
+          child: IgnorePointer(ignoring: giveTouchToViewer, child: list),
         );
         return Listener(
           onPointerDown: _onPointerDown,
@@ -2708,7 +2727,9 @@ class _ListViewReaderState extends _ComicReaderState
       animation.addListener(() {
         _transformationController.value = Matrix4.identity()
           ..translate(
-              -position.dx * animation.value, -position.dy * animation.value)
+            -position.dx * animation.value,
+            -position.dy * animation.value,
+          )
           ..scale(animation.value + 1.0);
       });
       _animationController.forward(from: 0);
@@ -2777,8 +2798,9 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
           widget.chapter.id,
           descriptor?.name ?? widget.chapter.images[index],
           pageIndex: index,
-          localPath:
-              descriptor?.localAvailable == true ? descriptor?.localPath : null,
+          localPath: descriptor?.localAvailable == true
+              ? descriptor?.localPath
+              : null,
           localOnly: _isLocalOnlyChapter(),
         ),
       );
@@ -2817,8 +2839,8 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
         return PhotoViewGalleryPageOptions.customChild(
           disableGestures:
               currentReaderControllerType == ReaderControllerType.touchDouble ||
-                  currentReaderControllerType ==
-                      ReaderControllerType.touchDoubleOnceNext,
+              currentReaderControllerType ==
+                  ReaderControllerType.touchDoubleOnceNext,
           child: LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
               return Row(
@@ -2830,8 +2852,10 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
                       alignment: Alignment.centerRight,
                       imageProvider: pair.left == null
                           ? null
-                          : _readerPageProvider(pair.left!,
-                              width: constraints.maxWidth / 2),
+                          : _readerPageProvider(
+                              pair.left!,
+                              width: constraints.maxWidth / 2,
+                            ),
                       imageIndex: pair.left ?? -1,
                     ),
                   ),
@@ -2842,8 +2866,10 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
                       alignment: Alignment.centerLeft,
                       imageProvider: pair.right == null
                           ? null
-                          : _readerPageProvider(pair.right!,
-                              width: constraints.maxWidth / 2),
+                          : _readerPageProvider(
+                              pair.right!,
+                              width: constraints.maxWidth / 2,
+                            ),
                       imageIndex: pair.right ?? -1,
                     ),
                   ),
@@ -2879,8 +2905,8 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
         PhotoViewGalleryPageOptions.customChild(
           disableGestures:
               currentReaderControllerType == ReaderControllerType.touchDouble ||
-                  currentReaderControllerType ==
-                      ReaderControllerType.touchDoubleOnceNext,
+              currentReaderControllerType ==
+                  ReaderControllerType.touchDoubleOnceNext,
           child: LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
               return Row(
@@ -3028,8 +3054,10 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
       }
       for (var i = index - 2; i < index + 5; i++) {
         if (i < 0 || i >= widget.chapter.images.length) continue;
-        final ip = _readerPageProvider(i,
-            width: (MediaQuery.maybeSizeOf(context)?.width ?? 0) / 2);
+        final ip = _readerPageProvider(
+          i,
+          width: (MediaQuery.maybeSizeOf(context)?.width ?? 0) / 2,
+        );
         _precacheReaderImage(ip, pageIndex: i, priority: i == index ? 10 : 2);
       }
     }
@@ -3046,9 +3074,7 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
     final viewer = readerTwoPageWindowV1 ? _buildWindowedView() : _view;
     return Stack(
       children: [
-        GestureDetector(
-          child: viewer,
-        ),
+        GestureDetector(child: viewer),
         _buildNextEpController(),
       ],
     );
@@ -3070,11 +3096,15 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
       return;
     }
     // Preload nearby pages.
-    for (var i = toIndex + 2;
-        i < toIndex + 5 && i < widget.chapter.images.length;
-        i++) {
-      final ip = _readerPageProvider(i,
-          width: (MediaQuery.maybeSizeOf(context)?.width ?? 0) / 2);
+    for (
+      var i = toIndex + 2;
+      i < toIndex + 5 && i < widget.chapter.images.length;
+      i++
+    ) {
+      final ip = _readerPageProvider(
+        i,
+        width: (MediaQuery.maybeSizeOf(context)?.width ?? 0) / 2,
+      );
       _precacheReaderImage(ip, pageIndex: i, priority: 2);
     }
     // Includes a synthetic trailing item for next-episode action.
@@ -3090,10 +3120,10 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
   Widget _buildNextEpController() {
     final finalPrimaryPage = readerTwoPageWindowV1
         ? (_pagePairs.isEmpty
-            ? -1
-            : _pagePairs.last.primaryPage(
-                rtl: currentTwoPageDirection == TwoPageDirection.rightToLeft,
-              ))
+              ? -1
+              : _pagePairs.last.primaryPage(
+                  rtl: currentTwoPageDirection == TwoPageDirection.rightToLeft,
+                ))
         : _legacyPairPrimaryPage(
             max(0, (widget.chapter.images.length - 1) ~/ 2),
           );
@@ -3108,8 +3138,12 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
         color: Colors.transparent,
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
-          padding:
-              const EdgeInsets.only(left: 10, right: 10, top: 4, bottom: 4),
+          padding: const EdgeInsets.only(
+            left: 10,
+            right: 10,
+            top: 4,
+            bottom: 4,
+          ),
           decoration: const BoxDecoration(
             borderRadius: BorderRadius.only(
               topLeft: Radius.circular(10),

@@ -6,7 +6,8 @@ on:
 env:
   GH_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
   RUST_BACKEND_REPO: MrYu-JMComic/jmcomic3-rust-backend
-  NDK_VERSION: 25.2.9519653
+  RUST_BACKEND_REF: 9d3a8cb1f989f7d433421d3341ac7717fc701e5a
+  NDK_VERSION: 27.0.12077973
 
 jobs:
   ci-pass:
@@ -25,19 +26,13 @@ jobs:
         config:
           - target: android-arm32
             host: ubuntu-latest
-            flutter_version: '3.7.3'
-            flutter_channel: stable
           - target: android-arm64
             host: ubuntu-latest
-            flutter_version: '3.7.3'
-            flutter_channel: stable
 
     runs-on: ${{ matrix.config.host }}
 
     env:
       TARGET: ${{ matrix.config.target }}
-      flutter_version: ${{ matrix.config.flutter_version }}
-      flutter_channel: ${{ matrix.config.flutter_channel }}
 
     steps:
       - name: Checkout
@@ -49,6 +44,7 @@ jobs:
           repository: ${{ env.RUST_BACKEND_REPO }}
           token: ${{ secrets.RUST_BACKEND_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
           path: rust-backend
+          ref: ${{ env.RUST_BACKEND_REF }}
           fetch-depth: 1
 
       - name: Cache Flutter dependencies
@@ -60,9 +56,12 @@ jobs:
       - name: Setup flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: ${{ env.flutter_channel }}
-          flutter-version: ${{ env.flutter_version }}
+          channel: stable
+          flutter-version-file: .fvmrc
           architecture: x64
+
+      - name: Install Flutter dependencies
+        run: flutter pub get --enforce-lockfile
 
       - name: Setup java
         uses: actions/setup-java@v4
@@ -75,6 +74,14 @@ jobs:
         with:
           cmdline-tools-version: 8512546
           packages: platform-tools platforms;android-32 build-tools;30.0.2 ndk;${{ env.NDK_VERSION }}
+
+      - name: Verify NDK version source
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_ndk=$(sed -n 's/^rust\.ndkVersion=//p' android/gradle.properties | head -n 1)
+          test -n "$expected_ndk"
+          test "$expected_ndk" = "${{ env.NDK_VERSION }}"
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

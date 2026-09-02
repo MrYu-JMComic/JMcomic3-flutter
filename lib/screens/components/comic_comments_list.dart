@@ -12,6 +12,14 @@ import '../comic_info_screen.dart';
 import 'avatar.dart';
 import 'text_preview_screen.dart';
 
+@visibleForTesting
+int commentMaxPageForTotal(int total, {int pageSize = 20}) {
+  if (total <= 0 || pageSize <= 0) {
+    return 1;
+  }
+  return (total / pageSize).ceil();
+}
+
 class ComicCommentsList extends StatefulWidget {
   final String? mode;
   final int? aid;
@@ -31,27 +39,35 @@ class ComicCommentsList extends StatefulWidget {
 }
 
 class _ComicCommentsListState extends State<ComicCommentsList> {
+  static const _pageSize = 20;
   late Future<CommentPage> _future;
   int _maxPage = 1;
   int _page = 1;
 
   Future<CommentPage> _loadPage() async {
-    final response =
-        await methods.forum(widget.mode, widget.aid, widget.uid, _page);
-    if (_page == 1) {
-      if (response.total == 0 || response.list.isEmpty) {
-        _maxPage = 1;
-      } else {
-        _maxPage = (response.total / response.list.length).ceil();
-      }
+    final requestedPage = _page;
+    final response = await methods.forum(
+      widget.mode,
+      widget.aid,
+      widget.uid,
+      requestedPage,
+    );
+    if (!mounted) {
+      return response;
+    }
+    if (_page == requestedPage && requestedPage == 1) {
+      // The server may transiently return an empty first page while retaining
+      // a non-zero total. Use the protocol page size instead of the current
+      // response length so pagination does not get stuck at page one.
+      _maxPage = commentMaxPageForTotal(response.total, pageSize: _pageSize);
     }
     return response;
   }
 
   @override
   void initState() {
-    _future = _loadPage();
     super.initState();
+    _future = _loadPage();
   }
 
   @override
@@ -63,40 +79,36 @@ class _ComicCommentsListState extends State<ComicCommentsList> {
           _future = _loadPage();
         });
       },
-      successBuilder: (
-        BuildContext context,
-        AsyncSnapshot<CommentPage> snapshot,
-      ) {
-        return Column(
-          mainAxisAlignment: MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildPrePage(),
-            ...snapshot.requireData.list.map((e) => _buildComment(
-                  context,
-                  e,
-                  true,
-                  widget.mode,
-                  widget.gotoComic,
-                )),
-            _buildNextPage(),
-            ...widget.aid != null
-                ? [
-                    _buildPostComment(
-                      context,
-                      null,
-                      widget.aid!,
-                      () {
-                        setState(() {
-                          _future = _loadPage();
-                        });
-                      },
-                    ),
-                  ]
-                : [],
-          ],
-        );
-      },
+      successBuilder:
+          (BuildContext context, AsyncSnapshot<CommentPage> snapshot) {
+            return Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildPrePage(),
+                ...snapshot.requireData.list.map(
+                  (e) => _buildComment(
+                    context,
+                    e,
+                    true,
+                    widget.mode,
+                    widget.gotoComic,
+                  ),
+                ),
+                _buildNextPage(),
+                ...widget.aid != null
+                    ? [
+                        _buildPostComment(context, null, widget.aid!, () {
+                          if (!mounted) return;
+                          setState(() {
+                            _future = _loadPage();
+                          });
+                        }),
+                      ]
+                    : [],
+              ],
+            );
+          },
     );
   }
 
@@ -111,9 +123,7 @@ class _ComicCommentsListState extends State<ComicCommentsList> {
         },
         child: Container(
           padding: const EdgeInsets.all(30),
-          child: Center(
-            child: Text(context.l10n.tr('上一页', en: 'Prev')),
-          ),
+          child: Center(child: Text(context.l10n.tr('上一页', en: 'Prev'))),
         ),
       );
     }
@@ -131,9 +141,7 @@ class _ComicCommentsListState extends State<ComicCommentsList> {
         },
         child: Container(
           padding: const EdgeInsets.all(30),
-          child: Center(
-            child: Text(context.l10n.tr('下一页', en: 'Next')),
-          ),
+          child: Center(child: Text(context.l10n.tr('下一页', en: 'Next'))),
         ),
       );
     }
@@ -175,7 +183,11 @@ Widget _buildComment(
 }
 
 Widget _buildPostComment(
-    BuildContext context, int? parentId, int aid, Function? f) {
+  BuildContext context,
+  int? parentId,
+  int aid,
+  Function? f,
+) {
   return InkWell(
     onTap: () async {
       if (!await ensureJwtAccess(
@@ -184,15 +196,24 @@ Widget _buildPostComment(
       )) {
         return;
       }
+      if (!context.mounted) {
+        return;
+      }
       String? text = await displayTextInputDialog(
         context,
         title: context.l10n.tr('请输入评论内容', en: 'Enter your comment'),
       );
+      if (!context.mounted) {
+        return;
+      }
       if (text != null && text.isNotEmpty) {
         try {
           final data = await (parentId == null
               ? methods.comment(aid, text)
               : methods.childComment(aid, text, parentId));
+          if (!context.mounted) {
+            return;
+          }
           if (!data.isSuccess) {
             defaultToast(
               context,
@@ -202,11 +223,16 @@ Widget _buildPostComment(
             );
           } else {
             defaultToast(
-                context, context.l10n.tr("评论成功", en: "Comment posted"));
+              context,
+              context.l10n.tr("评论成功", en: "Comment posted"),
+            );
             f?.call();
           }
         } catch (e, st) {
           debugPrient("$e\n$st");
+          if (!context.mounted) {
+            return;
+          }
           defaultToast(context, context.l10n.tr("评论失败", en: "Comment failed"));
         }
       }
@@ -227,9 +253,7 @@ Widget _buildPostComment(
         ),
       ),
       padding: const EdgeInsets.all(30),
-      child: Center(
-        child: Text(context.l10n.tr('我有话要讲', en: 'Say something')),
-      ),
+      child: Center(child: Text(context.l10n.tr('我有话要讲', en: 'Say something'))),
     ),
   );
 }
@@ -257,8 +281,8 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
 
   @override
   Widget build(BuildContext context) {
-    final contentFontSize = (Theme.of(context).textTheme.bodyMedium?.fontSize ??
-            14) +
+    final contentFontSize =
+        (Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14) +
         currentFontSizeAdjust(FontSizeAdjustType.fontSizeAdjustCommentContent);
 
     var comment = widget.comment;
@@ -272,13 +296,11 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
       color: theme.colorScheme.secondary.withOpacity(.5),
     );
     var datetimeStyle = TextStyle(
-        color: theme.textTheme.bodyMedium?.color?.withOpacity(.6),
-        fontSize: 12);
+      color: theme.textTheme.bodyMedium?.color?.withOpacity(.6),
+      fontSize: 12,
+    );
     var content = comment.content
-        .replaceAll(
-          "<div style='flex-direction:row;flex-wrap:wrap;'>",
-          "",
-        )
+        .replaceAll("<div style='flex-direction:row;flex-wrap:wrap;'>", "")
         .replaceAll("</div>", "");
     return Container(
       padding: const EdgeInsets.all(5),
@@ -314,10 +336,7 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
                         alignment: WrapAlignment.spaceBetween,
                         children: [
                           Text(comment.nickname, style: nameStyle),
-                          Text(
-                            comment.addtime,
-                            style: datetimeStyle,
-                          ),
+                          Text(comment.addtime, style: datetimeStyle),
                         ],
                       ),
                     );
@@ -332,54 +351,70 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         alignment: WrapAlignment.spaceBetween,
                         children: [
-                          Text("Lv.${comment.expinfo.level}",
-                              style: levelStyle),
-                          Text.rich(TextSpan(
+                          Text(
+                            "Lv.${comment.expinfo.level}",
                             style: levelStyle,
-                            children: [
-                              comment.replys.isNotEmpty
-                                  ? TextSpan(children: [
-                                      WidgetSpan(
-                                        alignment: PlaceholderAlignment.middle,
-                                        child: Icon(Icons.message,
-                                            size: 13,
-                                            color: theme.colorScheme.secondary
-                                                .withOpacity(.7)),
-                                      ),
-                                      WidgetSpan(child: Container(width: 5)),
-                                      TextSpan(
-                                        text: '${comment.replys.length}',
-                                      ),
-                                    ])
-                                  : const TextSpan(),
-                              WidgetSpan(child: Container(width: 12)),
-                              WidgetSpan(
+                          ),
+                          Text.rich(
+                            TextSpan(
+                              style: levelStyle,
+                              children: [
+                                comment.replys.isNotEmpty
+                                    ? TextSpan(
+                                        children: [
+                                          WidgetSpan(
+                                            alignment:
+                                                PlaceholderAlignment.middle,
+                                            child: Icon(
+                                              Icons.message,
+                                              size: 13,
+                                              color: theme.colorScheme.secondary
+                                                  .withOpacity(.7),
+                                            ),
+                                          ),
+                                          WidgetSpan(
+                                            child: Container(width: 5),
+                                          ),
+                                          TextSpan(
+                                            text: '${comment.replys.length}',
+                                          ),
+                                        ],
+                                      )
+                                    : const TextSpan(),
+                                WidgetSpan(child: Container(width: 12)),
+                                WidgetSpan(
                                   child: GestureDetector(
-                                onTap: () async {
-                                  setState(() {
-                                    likeLoading = true;
-                                  });
-                                },
-                                child: Text.rich(
-                                  TextSpan(style: levelStyle, children: [
-                                    WidgetSpan(
-                                      alignment: PlaceholderAlignment.middle,
-                                      child: Icon(
-                                        Icons.favorite,
-                                        size: 13,
-                                        color: theme.colorScheme.secondary
-                                            .withOpacity(.7),
+                                    onTap: () async {
+                                      setState(() {
+                                        likeLoading = true;
+                                      });
+                                    },
+                                    child: Text.rich(
+                                      TextSpan(
+                                        style: levelStyle,
+                                        children: [
+                                          WidgetSpan(
+                                            alignment:
+                                                PlaceholderAlignment.middle,
+                                            child: Icon(
+                                              Icons.favorite,
+                                              size: 13,
+                                              color: theme.colorScheme.secondary
+                                                  .withOpacity(.7),
+                                            ),
+                                          ),
+                                          WidgetSpan(
+                                            child: Container(width: 5),
+                                          ),
+                                          TextSpan(text: '${comment.likes}'),
+                                        ],
                                       ),
                                     ),
-                                    WidgetSpan(child: Container(width: 5)),
-                                    TextSpan(
-                                      text: '${comment.likes}',
-                                    ),
-                                  ]),
+                                  ),
                                 ),
-                              )),
-                            ],
-                          )),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     );
@@ -406,8 +441,10 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
                               ...parseCommentBody(content.substring(0, 200)),
                               TextSpan(text: "..."),
                               TextSpan(
-                                text:
-                                    context.l10n.tr("  全文", en: "  Full text"),
+                                text: context.l10n.tr(
+                                  "  全文",
+                                  en: "  Full text",
+                                ),
                                 style: TextStyle(
                                   color: theme.colorScheme.secondary
                                       .withOpacity(.5),
@@ -416,18 +453,15 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
                                   ..onTap = () {
                                     Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (context) => TextPreviewScreen(
-                                          text: content,
-                                        ),
+                                        builder: (context) =>
+                                            TextPreviewScreen(text: content),
                                       ),
                                     );
                                   },
                               ),
                             ],
                     ),
-                    style: TextStyle(
-                      fontSize: contentFontSize,
-                    ),
+                    style: TextStyle(fontSize: contentFontSize),
                   ),
                 ),
                 ...widget.gotoComic
@@ -436,26 +470,31 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
                         GestureDetector(
                           onTap: () {
                             if (comment.AID != null) {
-                              Navigator.push(context, MaterialPageRoute(
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
                                   builder: (BuildContext context) {
-                                return ComicInfoScreen(comment.AID!, null);
-                              }));
+                                    return ComicInfoScreen(comment.AID!, null);
+                                  },
+                                ),
+                              );
                             }
                           },
                           child: LayoutBuilder(
-                            builder: (
-                              BuildContext context,
-                              BoxConstraints constraints,
-                            ) {
-                              return SizedBox(
-                                width: constraints.maxWidth,
-                                child: Text(
-                                  comment.name,
-                                  style: gotoComicStyle,
-                                  textAlign: TextAlign.right,
-                                ),
-                              );
-                            },
+                            builder:
+                                (
+                                  BuildContext context,
+                                  BoxConstraints constraints,
+                                ) {
+                                  return SizedBox(
+                                    width: constraints.maxWidth,
+                                    child: Text(
+                                      comment.name,
+                                      style: gotoComicStyle,
+                                      textAlign: TextAlign.right,
+                                    ),
+                                  );
+                                },
                           ),
                         ),
                       ]
@@ -471,7 +510,8 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
   //<img style="width:18px;height:18px" src="https://www.cdnxxx-proxy.xyz/media/emoji/0002.png" alt="doge" />
   List<InlineSpan> parseCommentBody(String comment) {
     var regex = RegExp(
-        r'<img style=\"width:18px;height:18px\" src=\"(.*?)\" alt=\"(.*?)\" />');
+      r'<img style=\"width:18px;height:18px\" src=\"(.*?)\" alt=\"(.*?)\" />',
+    );
     var matches = regex.allMatches(comment);
     if (matches.isNotEmpty) {
       var list = comment.split(regex);
@@ -479,15 +519,17 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
       for (var i = 0; i < list.length; i++) {
         spans.add(TextSpan(text: list[i]));
         if (i < list.length - 1) {
-          spans.add(WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Image.network(
-              matches.elementAt(i).group(1)!,
-              width: 18,
-              height: 18,
-              fit: BoxFit.cover,
+          spans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Image.network(
+                matches.elementAt(i).group(1)!,
+                width: 18,
+                height: 18,
+                fit: BoxFit.cover,
+              ),
             ),
-          ));
+          );
         }
       }
       return spans;
@@ -529,23 +571,14 @@ class _CommentChildrenScreenState extends State<_CommentChildrenScreen> {
           Expanded(
             child: ListView(
               children: [
-                ...widget.comment.replys.map((e) => _buildComment(
-                      context,
-                      e,
-                      false,
-                      widget.mode,
-                      false,
-                    )),
-                _buildPostComment(
-                  context,
-                  widget.comment.CID,
-                  widget.aid,
-                  () {
-                    // setState(() {
-                    //   _future = _loadPage();
-                    // });
-                  },
+                ...widget.comment.replys.map(
+                  (e) => _buildComment(context, e, false, widget.mode, false),
                 ),
+                _buildPostComment(context, widget.comment.CID, widget.aid, () {
+                  // setState(() {
+                  //   _future = _loadPage();
+                  // });
+                }),
               ],
             ),
           ),

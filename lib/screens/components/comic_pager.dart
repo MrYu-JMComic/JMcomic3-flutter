@@ -17,6 +17,7 @@ import 'comic_list.dart';
 const _noProMax = 10;
 const _pagerDividerColor = Color(0xFFEEEEEE);
 const _pagerPageCacheLimit = 6;
+const _comicPageSize = 20;
 final RegExp _digitsOnlyRegExp = RegExp(r'\d+');
 const _badStatePrefix = 'Bad state:';
 
@@ -54,12 +55,12 @@ class ComicPager extends StatefulWidget {
   final List<ComicLongPressMenuItem>? longPressMenuItems;
   final List<Widget>? appendList;
 
-  const ComicPager(
-      {required this.onPage,
-      this.longPressMenuItems,
-      this.appendList,
-      Key? key})
-      : super(key: key);
+  const ComicPager({
+    required this.onPage,
+    this.longPressMenuItems,
+    this.appendList,
+    Key? key,
+  }) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _ComicPagerState();
@@ -95,14 +96,16 @@ class _ComicPagerState extends State<ComicPager> {
     switch (_mode) {
       case PagerControllerMode.stream:
         return _StreamPager(
-            onPage: widget.onPage,
-            longPressMenuItems: widget.longPressMenuItems,
-            appendList: widget.appendList);
+          onPage: widget.onPage,
+          longPressMenuItems: widget.longPressMenuItems,
+          appendList: widget.appendList,
+        );
       case PagerControllerMode.pager:
         return _PagerPager(
-            onPage: widget.onPage,
-            longPressMenuItems: widget.longPressMenuItems,
-            appendList: widget.appendList);
+          onPage: widget.onPage,
+          longPressMenuItems: widget.longPressMenuItems,
+          appendList: widget.appendList,
+        );
     }
   }
 }
@@ -112,12 +115,12 @@ class _StreamPager extends StatefulWidget {
   final List<ComicLongPressMenuItem>? longPressMenuItems;
   final List<Widget>? appendList;
 
-  const _StreamPager(
-      {Key? key,
-      required this.onPage,
-      this.longPressMenuItems,
-      this.appendList})
-      : super(key: key);
+  const _StreamPager({
+    Key? key,
+    required this.onPage,
+    this.longPressMenuItems,
+    this.appendList,
+  }) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _StreamPagerState();
@@ -157,7 +160,9 @@ class _StreamPagerState extends State<_StreamPager> {
           });
           return;
         }
-        _maxPage = _calcMaxPage(response.total, response.list.length);
+        // Empty first pages can occur transiently while total remains known;
+        // retain a usable page window instead of stopping pagination at page 1.
+        _maxPage = _calcMaxPage(response.total, _comicPageSize);
         _total = response.total;
       }
       _nextPage++;
@@ -174,9 +179,7 @@ class _StreamPagerState extends State<_StreamPager> {
     } catch (e, st) {
       final message = _extractErrorMessage(e);
       final blockedByPro = _isProRequiredMessage(message);
-      debugPrient(
-        blockedByPro ? message : "$e\n$st",
-      );
+      debugPrient(blockedByPro ? message : "$e\n$st");
       if (!mounted) {
         return;
       }
@@ -189,8 +192,10 @@ class _StreamPagerState extends State<_StreamPager> {
       if (blockedByPro) {
         defaultToast(
           context,
-          context.l10n
-              .tr('Please activate Pro first', en: 'Please activate Pro first'),
+          context.l10n.tr(
+            'Please activate Pro first',
+            en: 'Please activate Pro first',
+          ),
         );
       }
     }
@@ -291,8 +296,10 @@ class _StreamPagerState extends State<_StreamPager> {
   Widget? _buildLoadingCard() {
     if (_joinBlockedByPro) {
       final message = _joinErrorMessage.isEmpty
-          ? context.l10n
-              .tr('Please activate Pro first', en: 'Please activate Pro first')
+          ? context.l10n.tr(
+              'Please activate Pro first',
+              en: 'Please activate Pro first',
+            )
           : _joinErrorMessage;
       return Card(
         child: InkWell(
@@ -309,10 +316,7 @@ class _StreamPagerState extends State<_StreamPager> {
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 child: const Icon(Icons.power_off_outlined),
               ),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-              ),
+              Text(message, textAlign: TextAlign.center),
               Text(context.l10n.tr('Tap to retry', en: 'Tap to retry')),
             ],
           ),
@@ -344,9 +348,7 @@ class _StreamPagerState extends State<_StreamPager> {
           children: [
             Container(
               padding: const EdgeInsets.symmetric(vertical: 10),
-              child: const CupertinoActivityIndicator(
-                radius: 14,
-              ),
+              child: const CupertinoActivityIndicator(radius: 14),
             ),
             Text(context.l10n.loading),
           ],
@@ -369,8 +371,10 @@ class _StreamPagerState extends State<_StreamPager> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Text(
-                  context.l10n
-                      .tr('Error, tap to retry', en: 'Error, tap to retry'),
+                  context.l10n.tr(
+                    'Error, tap to retry',
+                    en: 'Error, tap to retry',
+                  ),
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -406,10 +410,7 @@ class _StreamPagerState extends State<_StreamPager> {
             controller: _controller,
             data: _data,
             appendList: loadingCard != null
-                ? [
-                    loadingCard,
-                    ...(widget.appendList ?? []),
-                  ]
+                ? [loadingCard, ...(widget.appendList ?? [])]
                 : widget.appendList,
             longPressMenuItems: widget.longPressMenuItems,
           ),
@@ -474,20 +475,21 @@ class _PagerPager extends StatefulWidget {
   final List<ComicLongPressMenuItem>? longPressMenuItems;
   final List<Widget>? appendList;
 
-  const _PagerPager(
-      {Key? key,
-      required this.onPage,
-      this.longPressMenuItems,
-      this.appendList})
-      : super(key: key);
+  const _PagerPager({
+    Key? key,
+    required this.onPage,
+    this.longPressMenuItems,
+    this.appendList,
+  }) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _PagerPagerState();
 }
 
 class _PagerPagerState extends State<_PagerPager> {
-  final TextEditingController _textEditController =
-      TextEditingController(text: '');
+  final TextEditingController _textEditController = TextEditingController(
+    text: '',
+  );
   late int _currentPage = 1;
   late int _maxPage = 1;
   late final List<ComicSimple> _data = [];
@@ -525,7 +527,7 @@ class _PagerPagerState extends State<_PagerPager> {
       if (_redirectAid(response.redirectAid, context)) {
         return;
       }
-      _maxPage = _calcMaxPage(response.total, response.list.length);
+      _maxPage = _calcMaxPage(response.total, _comicPageSize);
     }
     _cachePageData(requestedPage, response.list);
     _data
@@ -700,7 +702,7 @@ class _PagerPagerState extends State<_PagerPager> {
                       }
                     },
                     child: Text(context.l10n.tr('下一页', en: 'Next')),
-                  )
+                  ),
                 ],
               ),
             ],
@@ -713,10 +715,13 @@ class _PagerPagerState extends State<_PagerPager> {
 
 bool _redirectAid(int? redirectAid, BuildContext context) {
   if (redirectAid != null) {
-    Navigator.of(context)
-        .pushReplacement(MaterialPageRoute(builder: (BuildContext context) {
-      return ComicInfoScreen(redirectAid, null);
-    }));
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (BuildContext context) {
+          return ComicInfoScreen(redirectAid, null);
+        },
+      ),
+    );
     return true;
   }
   return false;

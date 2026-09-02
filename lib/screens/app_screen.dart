@@ -42,8 +42,10 @@ class _AppScreenState extends State<AppScreen> {
   void initState() {
     super.initState();
     Future.delayed(Duration.zero, () async {
+      if (!mounted) return;
       versionPop(context);
       await checkDailySignStatus(context);
+      if (!mounted) return;
       versionEvent.subscribe(_versionSub);
     });
   }
@@ -66,9 +68,7 @@ class _AppScreenState extends State<AppScreen> {
     setState(() {
       _selectedIndex = index;
     });
-    _pageController.jumpToPage(
-      index,
-    );
+    _pageController.jumpToPage(index);
   }
 
   @override
@@ -76,9 +76,13 @@ class _AppScreenState extends State<AppScreen> {
     final screens = _screens(context);
     return ComicFloatingSearchBarScreen(
       onQuery: (value) {
-        Navigator.of(context).push(MaterialPageRoute(builder: (_) {
-          return ComicSearchScreen(initKeywords: value);
-        }));
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) {
+              return ComicSearchScreen(initKeywords: value);
+            },
+          ),
+        );
       },
       controller: _searchBarController,
       child: Scaffold(
@@ -151,11 +155,13 @@ class _AppScreenState extends State<AppScreen> {
               selectedIndex: _selectedIndex,
               onDestinationSelected: _onItemTapped,
               destinations: _screens(context)
-                  .map((e) => NavigationDestination(
-                        icon: e.icon,
-                        selectedIcon: e.activeIcon,
-                        label: e.title,
-                      ))
+                  .map(
+                    (e) => NavigationDestination(
+                      icon: e.icon,
+                      selectedIcon: e.activeIcon,
+                      label: e.title,
+                    ),
+                  )
                   .toList(),
             ),
           ),

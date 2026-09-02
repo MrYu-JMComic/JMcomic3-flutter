@@ -33,23 +33,28 @@ class _DownloadsExportScreen2State extends State<DownloadsExportScreen2> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          context.l10n.tr("批量导出(即使没有下载完)",
-              en: "Batch export (including unfinished downloads)"),
+          context.l10n.tr(
+            "批量导出(即使没有下载完)",
+            en: "Batch export (including unfinished downloads)",
+          ),
         ),
         actions: [
           FutureBuilder(
             future: _downloadsFuture,
-            builder: (BuildContext context,
-                AsyncSnapshot<List<DownloadAlbum>> snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return Container();
-              }
-              List<int> exportableIds = [];
-              for (var value in snapshot.requireData) {
-                exportableIds.add(value.id);
-              }
-              return _selectAllButton(exportableIds);
-            },
+            builder:
+                (
+                  BuildContext context,
+                  AsyncSnapshot<List<DownloadAlbum>> snapshot,
+                ) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return Container();
+                  }
+                  List<int> exportableIds = [];
+                  for (var value in snapshot.requireData) {
+                    exportableIds.add(value.id);
+                  }
+                  return _selectAllButton(exportableIds);
+                },
           ),
           _goToExport(),
         ],
@@ -62,36 +67,45 @@ class _DownloadsExportScreen2State extends State<DownloadsExportScreen2> {
             _downloadsFuture = _loadDownloads();
           });
         },
-        successBuilder: (
-          BuildContext context,
-          AsyncSnapshot<List<DownloadAlbum>> snapshot,
-        ) {
-          return ListView(
-            children: snapshot.requireData
-                .map((e) => GestureDetector(
-                      onTap: () {
-                        toggleSelectedDownloadId(selected, e.id);
-                        setState(() {});
-                      },
-                      child: Stack(children: [
-                        ComicDownloadCard(e),
-                        Row(children: [
-                          Expanded(child: Container()),
-                          Padding(
-                            padding: const EdgeInsets.all(5),
-                            child: Icon(
-                              selected.contains(e.id)
-                                  ? Icons.check_circle_sharp
-                                  : Icons.circle_outlined,
-                              color: Theme.of(context).colorScheme.secondary,
+        successBuilder:
+            (
+              BuildContext context,
+              AsyncSnapshot<List<DownloadAlbum>> snapshot,
+            ) {
+              return ListView(
+                children: snapshot.requireData
+                    .map(
+                      (e) => GestureDetector(
+                        onTap: () {
+                          toggleSelectedDownloadId(selected, e.id);
+                          setState(() {});
+                        },
+                        child: Stack(
+                          children: [
+                            ComicDownloadCard(e),
+                            Row(
+                              children: [
+                                Expanded(child: Container()),
+                                Padding(
+                                  padding: const EdgeInsets.all(5),
+                                  child: Icon(
+                                    selected.contains(e.id)
+                                        ? Icons.check_circle_sharp
+                                        : Icons.circle_outlined,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.secondary,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ]),
-                      ]),
-                    ))
-                .toList(),
-          );
-        },
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
+              );
+            },
       ),
     );
   }
@@ -104,76 +118,72 @@ class _DownloadsExportScreen2State extends State<DownloadsExportScreen2> {
 
   Widget _selectAllButton(List<int> exportableIds) {
     return MaterialButton(
-        minWidth: 0,
-        onPressed: () async {
-          setState(() {
-            if (selected.length >= exportableIds.length) {
-              selected.clear();
-            } else {
-              selected.clear();
-              selected.addAll(exportableIds);
-            }
-          });
-        },
-        child: Column(
-          children: [
-            Expanded(child: Container()),
-            const Icon(
-              Icons.select_all,
-              size: 18,
-              color: Colors.white,
-            ),
-            Text(
-              context.l10n.tr('全选', en: 'Select all'),
-              style: const TextStyle(fontSize: 14, color: Colors.white),
-            ),
-            Expanded(child: Container()),
-          ],
-        ));
+      minWidth: 0,
+      onPressed: () async {
+        setState(() {
+          if (selected.length >= exportableIds.length) {
+            selected.clear();
+          } else {
+            selected.clear();
+            selected.addAll(exportableIds);
+          }
+        });
+      },
+      child: Column(
+        children: [
+          Expanded(child: Container()),
+          const Icon(Icons.select_all, size: 18, color: Colors.white),
+          Text(
+            context.l10n.tr('全选', en: 'Select all'),
+            style: const TextStyle(fontSize: 14, color: Colors.white),
+          ),
+          Expanded(child: Container()),
+        ],
+      ),
+    );
   }
 
   Widget _goToExport() {
     return MaterialButton(
-        minWidth: 0,
-        onPressed: () async {
-          if (selected.isEmpty) {
-            defaultToast(context, context.l10n.pleaseSelectExportContent);
-            return;
-          }
-          if (!await androidMangeStorageRequest()) {
-            throw Exception(
-                context.l10n.tr("申请权限被拒绝", en: "Permission denied"));
-          }
-          await Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => DownloadsExportingScreen2(
-                idList: selected.toList(growable: false),
-              ),
+      minWidth: 0,
+      onPressed: () async {
+        if (selected.isEmpty) {
+          defaultToast(context, context.l10n.pleaseSelectExportContent);
+          return;
+        }
+        if (!await androidMangeStorageRequest()) {
+          if (!mounted) return;
+          throw Exception(context.l10n.tr("申请权限被拒绝", en: "Permission denied"));
+        }
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => DownloadsExportingScreen2(
+              idList: selected.toList(growable: false),
             ),
-          );
-          _downloadsFuture = _loadDownloads();
-          final pre = Set<int>.from(selected);
-          setState(() {
-            selected = <int>{};
-          });
-          final result = await _downloadsFuture;
-          selected = restoreSelectedIdSet(pre, result);
-          setState(() {});
-        },
-        child: Column(
-          children: [
-            Expanded(child: Container()),
-            const Icon(
-              Icons.check,
-              size: 18,
-              color: Colors.white,
-            ),
-            Text(
-              context.l10n.confirm,
-              style: const TextStyle(fontSize: 14, color: Colors.white),
-            ),
-            Expanded(child: Container()),
-          ],
-        ));
+          ),
+        );
+        if (!mounted) return;
+        _downloadsFuture = _loadDownloads();
+        final pre = Set<int>.from(selected);
+        setState(() {
+          selected = <int>{};
+        });
+        final result = await _downloadsFuture;
+        if (!mounted) return;
+        selected = restoreSelectedIdSet(pre, result);
+        setState(() {});
+      },
+      child: Column(
+        children: [
+          Expanded(child: Container()),
+          const Icon(Icons.check, size: 18, color: Colors.white),
+          Text(
+            context.l10n.confirm,
+            style: const TextStyle(fontSize: 14, color: Colors.white),
+          ),
+          Expanded(child: Container()),
+        ],
+      ),
+    );
   }
 }

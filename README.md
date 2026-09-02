@@ -76,6 +76,31 @@ Notes:
 - The helper script builds ABI split APKs and enables `--split-debug-info=build/symbols/android` plus Dart obfuscation by default, keeping Dart symbols outside the APK/AAB and shrinking `libapp.so`. Keep the symbols directory with each release if crash stack traces need deobfuscation.
 - Use `--target-platform android-arm,android-arm64` to avoid packaging unnecessary ABI outputs.
 - `scripts/sign-apk-github-actions.sh` now signs all `*-release.apk` outputs (including split APKs).
+- Local release signing setup, certificate backup, and APK/AAB verification are documented in [docs/android-release-signing.md](docs/android-release-signing.md).
+
+## Android emulator testing
+
+Create an API 35 x86_64 Google APIs AVD, boot it, build a signed debug APK, and
+run a launch smoke test:
+
+```powershell
+.\scripts\setup_android_emulator.ps1 -BuildDebug
+```
+
+The emulator is named `jmcomic3-api35-x86_64` and uses `emulator-5554` by
+default. See [docs/android-emulator-testing.md](docs/android-emulator-testing.md)
+for APK selection, ADB commands, and reset options.
+
+For a clean Windows build, generate the legacy runner library from the private
+backend checkout before configuring CMake:
+
+```powershell
+.\scripts\build_windows_rust_lib.ps1
+flutter build windows --release
+```
+
+The generated `windows/rust.lib` is intentionally ignored; `windows/rust.h` is
+the tracked ABI contract.
 
 ## Configuration compatibility
 

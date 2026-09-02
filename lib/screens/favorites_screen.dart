@@ -19,9 +19,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   int _folderId = 0;
   bool _isLoading = true;
 
-  final Map<int, String> _folderMap = {
-    0: "",
-  };
+  final Map<int, String> _folderMap = {0: ""};
 
   _chooseFolder() async {
     _folderMap[0] = context.l10n.all;
@@ -31,6 +29,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       title: context.l10n.chooseFolder,
     );
     if (f != null) {
+      if (!mounted) return;
       setState(() {
         _folderId = f;
       });
@@ -54,6 +53,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       title: context.l10n.chooseSort,
     );
     if (f != null) {
+      if (!mounted) return;
       setState(() {
         _sort = f;
       });
@@ -63,6 +63,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
   @override
   void initState() {
+    super.initState();
     Future.delayed(Duration.zero, () async {
       if (!await ensureJwtAccess(
             context,
@@ -81,12 +82,12 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       }
     }
     _loadSort();
-    super.initState();
   }
 
   Future<void> _loadSort() async {
     try {
       final sort = await methods.loadProperty("favorites_sort");
+      if (!mounted) return;
       if (sort.isNotEmpty && _sortNameMap(context).containsKey(sort)) {
         setState(() {
           _sort = sort;
@@ -99,9 +100,11 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       }
     } catch (e) {
       // 使用默认值
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -144,13 +147,18 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           : ComicPager(
               key: Key("FAVOUR:$_folderId:$_sort"),
               onPage: (int page) async {
-                final response =
-                    await methods.favorites(_folderId, page, _sort);
+                final response = await methods.favorites(
+                  _folderId,
+                  page,
+                  _sort,
+                );
                 setState(() {
                   favData = response.folderList;
                 });
                 return InnerComicPage(
-                    total: response.total, list: response.list);
+                  total: response.total,
+                  list: response.list,
+                );
               },
             ),
     );

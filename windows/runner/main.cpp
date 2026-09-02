@@ -2,6 +2,11 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
+#include <cstdlib>
+#include <filesystem>
+#include <string>
+#include <vector>
+
 #include "flutter_window.h"
 #include "utils.h"
 #include "../rust.h"
@@ -9,16 +14,31 @@
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
 
-    wchar_t awBuffer[2048];
-    GetCurrentDirectory(2048, awBuffer) ;
-    if (awBuffer[wcslen(awBuffer) - 1] != L'\\') {
-        wcscat_s(awBuffer, 2048, L"\\");
+    std::vector<wchar_t> module_path(32768);
+    const DWORD module_len = GetModuleFileNameW(
+        nullptr, module_path.data(), static_cast<DWORD>(module_path.size()));
+    if (module_len == 0 || module_len >= module_path.size() - 1) {
+        return EXIT_FAILURE;
     }
-    wcscat_s(awBuffer, 2048, L"data/application");
-    char buffer[4096];
-    size_t i;
-    wcstombs_s(&i,buffer,4096, awBuffer,2048 );
-    init_ffi(buffer);
+    const std::filesystem::path data_path =
+        std::filesystem::path(module_path.data(), module_path.data() + module_len)
+            .parent_path() /
+        L"data" / L"application";
+    const std::wstring data_path_string = data_path.wstring();
+    const int utf8_size = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, data_path_string.data(),
+        static_cast<int>(data_path_string.size()), nullptr, 0, nullptr, nullptr);
+    if (utf8_size <= 0) {
+        return EXIT_FAILURE;
+    }
+    std::string data_path_utf8(static_cast<size_t>(utf8_size), '\0');
+    if (WideCharToMultiByte(
+            CP_UTF8, WC_ERR_INVALID_CHARS, data_path_string.data(),
+            static_cast<int>(data_path_string.size()), data_path_utf8.data(),
+            utf8_size, nullptr, nullptr) <= 0) {
+        return EXIT_FAILURE;
+    }
+    init_ffi(data_path_utf8.c_str());
 
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.

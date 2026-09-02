@@ -36,17 +36,20 @@ class _DownloadsExportScreenState extends State<DownloadsExportScreen> {
         actions: [
           FutureBuilder(
             future: _downloadsFuture,
-            builder: (BuildContext context,
-                AsyncSnapshot<List<DownloadAlbum>> snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return Container();
-              }
-              List<int> exportableIds = [];
-              for (var value in snapshot.requireData) {
-                exportableIds.add(value.id);
-              }
-              return _selectAllButton(exportableIds);
-            },
+            builder:
+                (
+                  BuildContext context,
+                  AsyncSnapshot<List<DownloadAlbum>> snapshot,
+                ) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return Container();
+                  }
+                  List<int> exportableIds = [];
+                  for (var value in snapshot.requireData) {
+                    exportableIds.add(value.id);
+                  }
+                  return _selectAllButton(exportableIds);
+                },
           ),
           _goToExport(),
         ],
@@ -59,36 +62,45 @@ class _DownloadsExportScreenState extends State<DownloadsExportScreen> {
             _downloadsFuture = _loadDownloads();
           });
         },
-        successBuilder: (
-          BuildContext context,
-          AsyncSnapshot<List<DownloadAlbum>> snapshot,
-        ) {
-          return ListView(
-            children: snapshot.requireData
-                .map((e) => GestureDetector(
-                      onTap: () {
-                        toggleSelectedDownloadId(selected, e.id);
-                        setState(() {});
-                      },
-                      child: Stack(children: [
-                        ComicDownloadCard(e),
-                        Row(children: [
-                          Expanded(child: Container()),
-                          Padding(
-                            padding: const EdgeInsets.all(5),
-                            child: Icon(
-                              selected.contains(e.id)
-                                  ? Icons.check_circle_sharp
-                                  : Icons.circle_outlined,
-                              color: Theme.of(context).colorScheme.secondary,
+        successBuilder:
+            (
+              BuildContext context,
+              AsyncSnapshot<List<DownloadAlbum>> snapshot,
+            ) {
+              return ListView(
+                children: snapshot.requireData
+                    .map(
+                      (e) => GestureDetector(
+                        onTap: () {
+                          toggleSelectedDownloadId(selected, e.id);
+                          setState(() {});
+                        },
+                        child: Stack(
+                          children: [
+                            ComicDownloadCard(e),
+                            Row(
+                              children: [
+                                Expanded(child: Container()),
+                                Padding(
+                                  padding: const EdgeInsets.all(5),
+                                  child: Icon(
+                                    selected.contains(e.id)
+                                        ? Icons.check_circle_sharp
+                                        : Icons.circle_outlined,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.secondary,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ]),
-                      ]),
-                    ))
-                .toList(),
-          );
-        },
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
+              );
+            },
       ),
     );
   }
@@ -111,9 +123,7 @@ class _DownloadsExportScreenState extends State<DownloadsExportScreen> {
           }
         });
       },
-      icon: const Icon(
-        Icons.select_all,
-      ),
+      icon: const Icon(Icons.select_all),
     );
   }
 
@@ -128,6 +138,7 @@ class _DownloadsExportScreenState extends State<DownloadsExportScreen> {
           return;
         }
         if (!await androidMangeStorageRequest()) {
+          if (!mounted) return;
           throw Exception(context.l10n.tr("申请权限被拒绝", en: "Permission denied"));
         }
         await Navigator.of(context).push(
@@ -137,18 +148,18 @@ class _DownloadsExportScreenState extends State<DownloadsExportScreen> {
             ),
           ),
         );
+        if (!mounted) return;
         _downloadsFuture = _loadDownloads();
         final pre = Set<int>.from(selected);
         setState(() {
           selected = <int>{};
         });
         final result = await _downloadsFuture;
+        if (!mounted) return;
         selected = restoreSelectedIdSet(pre, result);
         setState(() {});
       },
-      icon: const Icon(
-        Icons.check,
-      ),
+      icon: const Icon(Icons.check),
     );
   }
 }

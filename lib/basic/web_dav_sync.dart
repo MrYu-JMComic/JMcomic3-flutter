@@ -18,10 +18,14 @@ Future webDavSync(BuildContext context) async {
       "password": currentWebDavPassword,
       "direction": "Merge",
     });
+    if (!context.mounted) return;
     defaultToast(
-        context, context.l10n.tr("WebDav 同步成功", en: "WebDav sync succeeded"));
+      context,
+      context.l10n.tr("WebDav 同步成功", en: "WebDav sync succeeded"),
+    );
   } catch (e, s) {
     debugPrient("$e\n$s");
+    if (!context.mounted) return;
     defaultToast(
       context,
       context.l10n.tr("WebDav 同步失败", en: "WebDav sync failed") + ": $e",
@@ -37,12 +41,14 @@ Future webDavSyncUpload(BuildContext context) async {
       "password": currentWebDavPassword,
       "direction": "Upload",
     });
+    if (!context.mounted) return;
     defaultToast(
       context,
       context.l10n.tr("WebDav 覆盖上传成功", en: "WebDav overwrite upload succeeded"),
     );
   } catch (e, s) {
     debugPrient("$e\n$s");
+    if (!context.mounted) return;
     defaultToast(
       context,
       context.l10n.tr("WebDav 覆盖上传失败", en: "WebDav overwrite upload failed") +
@@ -59,13 +65,17 @@ Future webDavSyncDownload(BuildContext context) async {
       "password": currentWebDavPassword,
       "direction": "Download",
     });
+    if (!context.mounted) return;
     defaultToast(
       context,
-      context.l10n
-          .tr("WebDav 覆盖下载成功", en: "WebDav overwrite download succeeded"),
+      context.l10n.tr(
+        "WebDav 覆盖下载成功",
+        en: "WebDav overwrite download succeeded",
+      ),
     );
   } catch (e, s) {
     debugPrient("$e\n$s");
+    if (!context.mounted) return;
     defaultToast(
       context,
       context.l10n.tr("WebDav 覆盖下载失败", en: "WebDav overwrite download failed") +
