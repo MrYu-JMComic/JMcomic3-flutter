@@ -359,3 +359,5 @@ README 写有“仅供学习使用、禁止商业使用”，因此这可能是�
 - [x] backend PR 已创建：`jmcomic3-rust-backend#1`（`MrYu/m5-page-batch-contract`，head `9d3a8cb`）；主仓库 workflow 将在本轮更新为该不可变 SHA，并随后更新现有 PR #3 的说明。
 
 外部 CI 状态：主仓库 PR #3 的两次 GitHub Actions run（`33588578393`、`33588581462`）均在 job 启动前失败，GitHub annotation 原因是账号 billing lock；backend PR #1 的 run（`33588442743`、`33588464341`）同样没有启动 job，且 backend 新 workflow 需待默认分支注册后才能执行。该外部状态不改变上述本机门禁结果，恢复 Actions 计费/注册后应重新运行两边 workflow。
+
+- [x] 已确认本机 Android SDK/NDK（`27.0.12077973`）和两种 tracked ABI JNI 库；`flutter build apk --debug --no-pub` 本地 `assembleDebug` 构建成功。产物：`build/app/outputs/flutter-apk/app-debug.apk`，大小 183,128,627 bytes，SHA-256 `B9A768570CAC18378AB7D9B1CEF6CE6C731CDC853227962F8B712B691721E4CD`。
