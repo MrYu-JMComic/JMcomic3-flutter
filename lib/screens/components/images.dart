@@ -1,6 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/log.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
@@ -315,12 +316,42 @@ final Map<int, Future<String>> _jmSquareCoverPathFutureCache = {};
 final Map<String, Future<String>> _photoPathFutureCache = {};
 final Map<String, Future<String>> _pageImagePathFutureCache = {};
 final Map<String, Future<Size>> _pageImageTrueSizeFutureCache = {};
+final Map<String, Set<Object>> _pageImageDecodeKeys = {};
 
 String _pageImageCacheKey(int id, String imageName, {String? path}) {
   final normalizedPath = _normalizeLocalPath(path);
   return normalizedPath == null
       ? "$id/$imageName"
       : "$id/$imageName|$normalizedPath";
+}
+
+void _recordPageImageDecodeKey(
+  int id,
+  String imageName,
+  ImageProvider provider,
+) {
+  // 长条阅读器使用 FileImage/ResizeImage，需要登记真实解码键才能按页释放。
+  unawaited(provider.obtainKey(ImageConfiguration.empty).then<void>((key) {
+    final pageKey = _pageImageCacheKey(id, imageName);
+    if (!_pageImageDecodeKeys.containsKey(pageKey) &&
+        _pageImageDecodeKeys.length >= _pageImagePathCacheLimit) {
+      final oldKeys =
+          _pageImageDecodeKeys.remove(_pageImageDecodeKeys.keys.first)!;
+      for (final oldKey in oldKeys) {
+        imageCache.evict(oldKey, includeLive: false);
+      }
+    }
+    final keys = _pageImageDecodeKeys.putIfAbsent(pageKey, () => <Object>{});
+    // 尺寸刷新及横竖屏切换会产生多个解码版本，保留有限版本防止登记表增长。
+    if (!keys.contains(key) && keys.length >= 4) {
+      final oldKey = keys.first;
+      keys.remove(oldKey);
+      imageCache.evict(oldKey, includeLive: false);
+    }
+    keys.add(key);
+  }).catchError((Object error, StackTrace stackTrace) {
+    debugPrient("record page decode key failed: $error\n$stackTrace");
+  }));
 }
 
 T _putCacheWithLimit<K, T>(
@@ -489,9 +520,25 @@ void _evictPageImageCache(int id, String imageName) {
   );
 }
 
-/// Evict one page image's in-memory path and size cache.
+/// 淘汰单页的路径、尺寸及解码缓存，保留仍在屏幕上的活动图片。
 void evictPageImageMemoryCache(int id, String imageName) {
   _evictPageImageCache(id, imageName);
+  evictPageImageDecodeCache(id, imageName);
+}
+
+/// 仅淘汰 Flutter 解码缓存，覆盖相册页图和长条阅读器的文件/缩放缓存键。
+void evictPageImageDecodeCache(int id, String imageName) {
+  // includeLive=false 不影响仍显示中的图片。
+  imageCache.evict(
+    PageImageProvider(id, imageName),
+    includeLive: false,
+  );
+  final keys = _pageImageDecodeKeys.remove(_pageImageCacheKey(id, imageName));
+  if (keys != null) {
+    for (final key in keys) {
+      imageCache.evict(key, includeLive: false);
+    }
+  }
 }
 
 @visibleForTesting
@@ -509,13 +556,24 @@ Future<Size> cachedPageImageTrueSizeForTest(
   );
 }
 
-/// Clear all in-memory image path and size caches.
+/// 清空图片路径、尺寸和已登记的页图解码缓存，用于磁盘缓存清理后的内存同步。
 void clearAllImageMemoryCaches() {
   _jm3x4CoverPathFutureCache.clear();
   _jmSquareCoverPathFutureCache.clear();
   _photoPathFutureCache.clear();
   _pageImagePathFutureCache.clear();
   _pageImageTrueSizeFutureCache.clear();
+  for (final keys in _pageImageDecodeKeys.values) {
+    for (final key in keys) {
+      imageCache.evict(key, includeLive: false);
+    }
+  }
+  _pageImageDecodeKeys.clear();
+  // Also release Flutter-managed live streams. The path/size maps above do
+  // not own those streams, and leaving them live can keep deleted local files
+  // open after a reader route has been replaced.
+  imageCache.clearLiveImages();
+  imageCache.clear();
 }
 
 // 远端图片
@@ -883,8 +941,8 @@ class _JMPageImageState extends State<JMPageImage> {
   }
 
   void _reload() {
+    evictPageImageMemoryCache(widget.id, widget.imageName);
     _generation++;
-    _evictPageImageCache(widget.id, widget.imageName);
     if (!mounted) {
       return;
     }
@@ -919,6 +977,8 @@ class _JMPageImageState extends State<JMPageImage> {
       offlineOnly: widget.localOnly,
       onReload: _reload,
       onDecodeError: _autoRetryOnDecodeError,
+      onImageProvider: (provider) =>
+          _recordPageImageDecodeKey(widget.id, widget.imageName, provider),
     );
   }
 }
@@ -942,6 +1002,7 @@ Widget pathFutureImage(
     List<LongPressMenuItem>? longPressMenuItems,
     VoidCallback? onReload,
     VoidCallback? onDecodeError,
+    ValueChanged<ImageProvider>? onImageProvider,
     bool offlineOnly = false}) {
   // 使用 FutureBuilder 渲染加载/错误/成功状态
   return FutureBuilder<String>(
@@ -979,6 +1040,7 @@ Widget pathFutureImage(
             longPressMenuItems: longPressMenuItems,
             onReload: onReload,
             onDecodeError: onDecodeError,
+            onImageProvider: onImageProvider,
           );
         }
         if (snapshot.connectionState == ConnectionState.done) {
@@ -1062,41 +1124,6 @@ Widget buildOfflineImageUnavailable(
 }
 
 // 通用方法
-
-Widget buildSvg(String source, double? width, double? height,
-    {Color? color, double? margin}) {
-  final widget = Container(
-    width: width,
-    height: height,
-    padding: margin != null ? const EdgeInsets.all(10) : null,
-    child: Center(
-      child: SvgPicture.asset(
-        source,
-        width: width,
-        height: height,
-        color: color,
-      ),
-    ),
-  );
-  return GestureDetector(onLongPress: () {}, child: widget);
-}
-
-Widget buildMock(double? width, double? height) {
-  final widget = Container(
-    width: width,
-    height: height,
-    padding: const EdgeInsets.all(10),
-    child: Center(
-      child: SvgPicture.asset(
-        'lib/assets/unknown.svg',
-        width: width,
-        height: height,
-        color: Colors.grey.shade600,
-      ),
-    ),
-  );
-  return GestureDetector(onLongPress: () {}, child: widget);
-}
 
 Widget buildError(BuildContext context, double? width, double? height,
     {List<LongPressMenuItem>? longPressMenuItems, VoidCallback? onReload}) {
@@ -1295,16 +1322,19 @@ Widget buildFile(
     {BoxFit fit = BoxFit.cover,
     List<LongPressMenuItem>? longPressMenuItems,
     VoidCallback? onReload,
-    VoidCallback? onDecodeError}) {
+    VoidCallback? onDecodeError,
+    ValueChanged<ImageProvider>? onImageProvider}) {
   final devicePixelRatio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
   final cacheWidth = _cacheExtent(width, devicePixelRatio);
   final cacheHeight = _cacheExtent(height, devicePixelRatio);
+  final provider = ResizeImage.resizeIfNeeded(
+    cacheWidth,
+    cacheHeight,
+    FileImage(File(file)),
+  );
+  onImageProvider?.call(provider);
   final image = Image(
-    image: ResizeImage.resizeIfNeeded(
-      cacheWidth,
-      cacheHeight,
-      FileImage(File(file)),
-    ),
+    image: provider,
     width: width,
     height: height,
     errorBuilder: (a, b, c) {

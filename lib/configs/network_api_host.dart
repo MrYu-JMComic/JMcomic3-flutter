@@ -5,11 +5,14 @@ import 'package:jmcomic3/configs/network_host.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 
 const _defaultApiHost = "www.cdngwc.club";
+// 动态域名拉取失败时使用内置移动端 API 候选，保持设置页和后端候选一致。
 const _fallbackApiHosts = <String>[
+  "www.cdnhjk.net",
   "www.cdngwc.club",
+  "www.cdngwc.net",
+  "www.cdngwc.cc",
   "www.cdnbea.net",
   "www.cdnhth.net",
-  "www.cdngwc.cc",
   "www.cdnhth.club",
 ];
 String _apiHost = _defaultApiHost;
@@ -49,19 +52,7 @@ String normalizeApiHostCandidate(
 }
 
 void _mergeApiList(Iterable<String> items) {
-  final merged = <String, String>{};
-  for (final raw in _apiList) {
-    for (final value in normalizeNetworkHostCandidateList(raw)) {
-      merged.putIfAbsent(value.toLowerCase(), () => value);
-    }
-  }
-  for (final raw in items) {
-    for (final value in normalizeNetworkHostCandidateList(raw)) {
-      // 域名大小写不敏感；保留首次出现的展示文本，后续大小写差异只参与去重。
-      merged.putIfAbsent(value.toLowerCase(), () => value);
-    }
-  }
-  _apiList = List<String>.unmodifiable(merged.values);
+  _apiList = mergeNetworkHostLists(_apiList, items);
 }
 
 Future<T?> chooseApiDialog<T>(BuildContext buildContext) async {

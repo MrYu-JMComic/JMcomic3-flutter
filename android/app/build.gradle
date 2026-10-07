@@ -106,10 +106,6 @@ flutter {
     source '../..'
 }
 
-dependencies {
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1'
-}
-
 def rustAndroidRepoRoot = rootProject.projectDir.parentFile
 def rustAndroidJniDestRoot = file('src/main/jniLibs')
 

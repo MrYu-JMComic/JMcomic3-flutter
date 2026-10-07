@@ -13,19 +13,13 @@ import 'package:jmcomic3/screens/components/types.dart';
 
 import '../../configs/is_pro.dart';
 import 'comic_list.dart';
+import 'pager_pagination.dart';
 
 const _noProMax = 10;
 const _pagerDividerColor = Color(0xFFEEEEEE);
 const _pagerPageCacheLimit = 6;
 final RegExp _digitsOnlyRegExp = RegExp(r'\d+');
 const _badStatePrefix = 'Bad state:';
-
-int _calcMaxPage(int total, int pageSize) {
-  if (total <= 0 || pageSize <= 0) {
-    return 1;
-  }
-  return (total / pageSize).ceil();
-}
 
 String _extractErrorMessage(Object error) {
   var message = error.toString().trim();
@@ -157,7 +151,10 @@ class _StreamPagerState extends State<_StreamPager> {
           });
           return;
         }
-        _maxPage = _calcMaxPage(response.total, response.list.length);
+        _maxPage = calcMaxPageFromTotal(
+          response.total,
+          response.effectivePageSize,
+        );
         _total = response.total;
       }
       _nextPage++;
@@ -525,7 +522,10 @@ class _PagerPagerState extends State<_PagerPager> {
       if (_redirectAid(response.redirectAid, context)) {
         return;
       }
-      _maxPage = _calcMaxPage(response.total, response.list.length);
+      _maxPage = calcMaxPageFromTotal(
+        response.total,
+        response.effectivePageSize,
+      );
     }
     _cachePageData(requestedPage, response.list);
     _data

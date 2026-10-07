@@ -16,6 +16,15 @@ const List<String> _listPayloadKeys = <String>[
 
 final Object _missingListPayload = Object();
 
+String _stripJsonBom(String input) {
+  // Some HTTP clients preserve the UTF-8 BOM at the JSON boundary. Remove it
+  // only when it is the first character; BOM-like text inside a value is data.
+  if (input.isNotEmpty && input.codeUnitAt(0) == 0xFEFF) {
+    return input.substring(1);
+  }
+  return input;
+}
+
 Map<String, dynamic> _normalizeMapEntries(Map<dynamic, dynamic> source) {
   if (source is Map<String, dynamic>) {
     return source;
@@ -48,11 +57,11 @@ bool _looksLikeJsonValue(String input) {
 }
 
 dynamic _decodeBridgePayload(String rsp) {
-  dynamic decoded = jsonDecode(rsp);
+  dynamic decoded = jsonDecode(_stripJsonBom(rsp));
   for (var depth = 0;
       decoded is String && depth < _maxBridgePayloadStringUnwrapDepth;
       depth++) {
-    final nested = decoded.trim();
+    final nested = _stripJsonBom(decoded.trim());
     if (!_looksLikeJsonValue(nested)) {
       return decoded;
     }
@@ -272,26 +281,81 @@ List<String> decodeStringListResponse(
   String method, {
   bool dedupe = false,
 }) {
-  final decoded = _unwrapListPayload(_decodeBridgePayload(rsp));
-  final Iterable<dynamic> list;
+  return decodeStringListValue(
+    _unwrapListPayload(_decodeBridgePayload(rsp)),
+    method,
+    dedupe: dedupe,
+    allowUnknownMapValues: false,
+  );
+}
+
+/// 统一归一化来自 MethodChannel 或 JSON 响应的字符串列表。
+/// 平台通道和后端桥接共享同一套空值、对象壳、嵌套 JSON、去空白和去重规则，
+/// 调用方只负责声明方法名，不再重复实现动态类型校验。
+List<String> decodeStringListValue(
+  dynamic raw,
+  String method, {
+  bool dedupe = false,
+  bool allowUnknownMapValues = true,
+  Iterable<String> objectKeys = const <String>[
+    'modes',
+    'mode_list',
+    'modeList',
+    'items',
+    'data',
+  ],
+}) {
+  dynamic decoded = raw;
+  if (decoded is String) {
+    final trimmed = decoded.trim();
+    if (trimmed.isEmpty) {
+      decoded = const <dynamic>[];
+    } else {
+      try {
+        decoded = jsonDecode(trimmed);
+      } on FormatException {
+        decoded = <dynamic>[decoded];
+      }
+    }
+  }
+  if (decoded is Map) {
+    dynamic payload;
+    for (final key in objectKeys) {
+      if (decoded.containsKey(key)) {
+        payload = decoded[key];
+        break;
+      }
+    }
+    if (payload is String) {
+      final trimmed = payload.trim();
+      if (trimmed.isEmpty) {
+        payload = const <dynamic>[];
+      } else {
+        try {
+          payload = jsonDecode(trimmed);
+        } on FormatException {
+          payload = <dynamic>[payload];
+        }
+      }
+    }
+    if (payload == null && !allowUnknownMapValues) {
+      throw FormatException(
+        "Unexpected $method response shape: ${decoded.runtimeType}",
+      );
+    }
+    decoded = payload ?? decoded.values;
+  }
+  final Iterable<dynamic> values;
   if (decoded == null) {
-    list = const <dynamic>[];
-  } else if (decoded is List<dynamic>) {
-    list = decoded;
+    values = const <dynamic>[];
   } else if (decoded is Iterable && decoded is! String) {
-    list = decoded;
-  } else if (decoded is Map) {
-    throw FormatException(
-      "Unexpected $method response shape: ${decoded.runtimeType}",
-    );
+    values = decoded;
   } else {
-    // 字符串列表接口兼容对象壳中的单值（例如 {"hosts":"api.example.com"}），
-    // 但普通列表解码仍保持严格，避免实体列表把标量误当合法结构。
-    list = <dynamic>[decoded];
+    values = <dynamic>[decoded];
   }
   final result = <String>[];
   final seen = dedupe ? <String>{} : null;
-  for (final item in list) {
+  for (final item in values) {
     if (item == null) {
       continue;
     }

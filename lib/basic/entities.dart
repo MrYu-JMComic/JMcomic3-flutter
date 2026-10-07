@@ -978,8 +978,19 @@ class InnerComicPage {
   final int total;
   final List<ComicSimple> list;
   final int? redirectAid;
+  // 收藏等接口显式提供单页容量，避免用不足一页的实际条数推算总页数。
+  final int? pageSize;
 
-  InnerComicPage({required this.total, required this.list, this.redirectAid});
+  InnerComicPage({
+    required this.total,
+    required this.list,
+    this.redirectAid,
+    this.pageSize,
+  });
+
+  // 旧接口可能返回零或负容量，此时回退当前页条数，保证非空列表仍可继续翻页。
+  int get effectivePageSize =>
+      pageSize != null && pageSize! > 0 ? pageSize! : list.length;
 }
 
 class CommentResponse {

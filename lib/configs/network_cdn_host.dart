@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/configs/network_host.dart';
@@ -15,16 +13,18 @@ String _truncateLabel(String value, {int max = 21}) {
 
 String get currentCdnHostName => _cdnHost;
 
-const _base64List = [
-  "Y2RuLW1zcDMuam1kYW5qb25wcm94eS52aXA=",
-  "Y2RuLW1zcDMuam1hcGlub2RldWR6bi5uZXQ=",
-  "Y2RuLW1zcC5qbWFwaXByb3h5My5uZXQ=",
-  "Y2RuLW1zcDIuam1hcGlub2RldWR6bi5uZXQ=",
-  "Y2RuLW1zcDIuam1hcGlwcm94eTEuY2M=",
-  "Y2RuLW1zcDIuam1hcGlwcm94eTIuY2M=",
-  "Y2RuLW1zcC5qbWFwaW5vZGV1ZHpuLm5ldA==",
-  "Y2RuLW1zcC5qbWFwaXByb3h5MS5jYw==",
-  "Y2RuLW1zcC5qbWFwaXByb3h5Mi5jYw==",
+// 优先提供参考项目当前的移动端图片域名，旧域名继续保留供用户手动测速选择。
+const _builtinCdnHosts = <String>[
+  "cdn-msp.jmapiproxy1.cc",
+  "cdn-msp.jmapiproxy2.cc",
+  "cdn-msp2.jmapiproxy2.cc",
+  "cdn-msp3.jmapiproxy2.cc",
+  "cdn-msp.jmapinodeudzn.net",
+  "cdn-msp3.jmapinodeudzn.net",
+  "cdn-msp3.jmdanjonproxy.vip",
+  "cdn-msp.jmapiproxy3.net",
+  "cdn-msp2.jmapinodeudzn.net",
+  "cdn-msp2.jmapiproxy1.cc",
 ];
 
 List<String> _cdnList = [];
@@ -33,7 +33,7 @@ Future<void> initCdnHost() async {
   _cdnList = [];
   _mergeCdnList([
     _defaultCdnHost,
-    for (final encoded in _base64List) utf8.decode(base64.decode(encoded)),
+    ..._builtinCdnHosts,
   ]);
   final rawLoaded = await methods.loadCdnHost();
   final loaded =
@@ -55,19 +55,7 @@ Future chooseCdnHost(BuildContext context) async {
 }
 
 void _mergeCdnList(Iterable<String> items) {
-  final merged = <String, String>{};
-  for (final raw in _cdnList) {
-    for (final value in normalizeNetworkHostCandidateList(raw)) {
-      merged.putIfAbsent(value.toLowerCase(), () => value);
-    }
-  }
-  for (final raw in items) {
-    for (final value in normalizeNetworkHostCandidateList(raw)) {
-      // CDN 域名同样大小写不敏感；保留首次展示文本，避免旧缓存大小写差异制造重复项。
-      merged.putIfAbsent(value.toLowerCase(), () => value);
-    }
-  }
-  _cdnList = List<String>.unmodifiable(merged.values);
+  _cdnList = mergeNetworkHostLists(_cdnList, items);
 }
 
 Widget cdnHostSetting() {

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:jmcomic3/basic/entities.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/basic/reader_pages.dart';
 import 'package:jmcomic3/configs/reader_feature_flags.dart';

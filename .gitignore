@@ -58,6 +58,16 @@ app.*.map.json
 /_android-sdk/
 /_cache/
 /_flutter/
+/toolchains/
+
+# Temporary Rust/JNI verification outputs and legacy native backups
+/rust-android-target-*/
+/rust-android-jni-*/
+/jni-review-backup/
+
+# Build outputs generated inside linked worktrees
+/worktrees/**/build/
+/dist/
 
 cmake-build-*/
 windows/rust.lib

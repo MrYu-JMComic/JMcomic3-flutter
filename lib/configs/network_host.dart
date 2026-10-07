@@ -64,6 +64,20 @@ List<String> normalizeNetworkHostCandidateList(Object? raw) {
   return List<String>.unmodifiable(result);
 }
 
+/// 合并当前候选和新增候选，统一处理拆分、归一化及不区分大小写去重。
+List<String> mergeNetworkHostLists(
+  Iterable<String> current,
+  Iterable<String> additions,
+) {
+  final merged = <String, String>{};
+  for (final raw in [...current, ...additions]) {
+    for (final value in normalizeNetworkHostCandidateList(raw)) {
+      merged.putIfAbsent(value.toLowerCase(), () => value);
+    }
+  }
+  return List<String>.unmodifiable(merged.values);
+}
+
 Iterable<String> _networkHostCandidateParts(String value) sync* {
   for (final chunk in value.split(_networkHostHardSeparator)) {
     var start = 0;

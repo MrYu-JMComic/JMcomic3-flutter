@@ -37,9 +37,7 @@ class Methods {
   static const Duration _albumCacheTtl = Duration(minutes: 10);
   static const Duration _coverCacheTtl = Duration(minutes: 30);
   static const String _defaultCategoriesCacheKey = "__default__";
-  static const int _maxSearchHistoryCountHint = 200;
   static const int _downloadThreadMin = 1;
-  static const int _downloadThreadMax = 5;
 
   static final Map<String, _CacheEntry<String>> _categoriesCache = {};
   static final Map<String, _CacheEntry<String>> _comicsCache = {};
@@ -174,7 +172,7 @@ class Methods {
       );
     }
     final resp = await _invokeRaw(method, params);
-    final response = _Response.fromJson(jsonDecode(resp));
+    final response = _Response.fromJson(jsonDecode(_stripJsonBom(resp)));
 
     if (response.errorMessage.isNotEmpty) {
       if (shouldDebug) {
@@ -194,7 +192,9 @@ class Methods {
         "[download-api:rsp] method=$method data=${_briefSafe(response.responseData)}",
       );
     }
-    return response.responseData;
+    // response_data is the second JSON boundary. A BOM here would otherwise
+    // break scalar parsers (and list/object decoders) downstream.
+    return _stripJsonBom(response.responseData);
   }
 
   String _brief(dynamic value) {
@@ -203,6 +203,14 @@ class Methods {
       return raw;
     }
     return "${raw.substring(0, 320)}...";
+  }
+
+  static String _stripJsonBom(String input) {
+    // Keep BOM handling at the bridge boundary. Payload values are unchanged.
+    if (input.isNotEmpty && input.codeUnitAt(0) == 0xFEFF) {
+      return input.substring(1);
+    }
+    return input;
   }
 
   String _briefSafe(dynamic value) {
@@ -284,18 +292,6 @@ class Methods {
     return fallback;
   }
 
-  /// 下载线程配置来自跨版本桥接与本地缓存，解析成功后仍需做边界归一化。
-  /// 这样即使旧版本返回越界值，也不会把异常并发数直接传给 UI/调用链。
-  int _normalizeDownloadThreadCount(int value, String method) {
-    final normalized = value.clamp(_downloadThreadMin, _downloadThreadMax);
-    if (normalized != value) {
-      debugPrient(
-        "[method-download-thread-clamp] method=$method raw=$value normalized=$normalized",
-      );
-    }
-    return normalized;
-  }
-
   /// 平台通道返回类型在不同设备/插件版本上可能是 List、单值、JSON 字符串或 null。
   /// 这里统一归一化为“去空白 + 去重”的字符串列表，避免设置页因返回形态差异崩溃。
   List<String> _normalizePlatformStringList(
@@ -303,85 +299,13 @@ class Methods {
     String method, {
     bool dedupe = true,
   }) {
-    dynamic source = raw;
-    if (source == null) {
-      return const <String>[];
-    }
-    if (source is String) {
-      final trimmed = source.trim();
-      if (trimmed.isEmpty) {
-        return const <String>[];
-      }
-      try {
-        final decoded = jsonDecode(trimmed);
-        source = decoded;
-      } on FormatException {
-        source = <dynamic>[source];
-      }
-    }
-    if (source is Map) {
-      // 部分机型/插件版本返回对象壳（如 {"modes":[...] }），这里优先提取常见列表字段。
-      const listKeys = <String>[
-        "modes",
-        "mode_list",
-        "modeList",
-        "items",
-        "data"
-      ];
-      dynamic listPayload;
-      for (final key in listKeys) {
-        if (!source.containsKey(key)) {
-          continue;
-        }
-        listPayload = source[key];
-        break;
-      }
-      if (listPayload is String) {
-        final trimmed = listPayload.trim();
-        if (trimmed.isNotEmpty) {
-          try {
-            listPayload = jsonDecode(trimmed);
-          } on FormatException {
-            listPayload = <dynamic>[listPayload];
-          }
-        } else {
-          listPayload = const <dynamic>[];
-        }
-      }
-      if (listPayload is Iterable) {
-        source = listPayload;
-      } else if (listPayload != null) {
-        source = <dynamic>[listPayload];
-      } else {
-        // 未命中约定字段时退化为值列表，避免把整张 Map 字符串化成单条脏数据。
-        source = source.values;
-      }
-    }
-    if (source is! Iterable) {
-      source = <dynamic>[source];
-    }
-
-    final result = <String>[];
-    final seen = dedupe ? <String>{} : null;
-    for (final item in source) {
-      if (item == null) {
-        continue;
-      }
-      final normalized = "$item".trim();
-      if (normalized.isEmpty) {
-        continue;
-      }
-      if (seen != null && !seen.add(normalized)) {
-        continue;
-      }
-      result.add(normalized);
-    }
+    final result = decodeStringListValue(raw, method, dedupe: dedupe);
     if (result.isEmpty && raw != null) {
       debugPrient(
         "[method-platform-list-empty] method=$method raw=${_brief(raw)}",
       );
     }
-    return List<String>.unmodifiable(result);
+    return result;
   }
 
   Map<String, dynamic> _decodeMapResponse(
@@ -858,11 +782,8 @@ class Methods {
       // 调用方用 0 表示不展示搜索历史；直接在 Dart 侧短路，避免一次无意义桥接调用。
       return const <SearchHistory>[];
     }
-    // 后端当前最多返回 200 条；提前在前端裁剪可减少桥接 payload，保持行为兼容。
-    final normalizedCount =
-        count > _maxSearchHistoryCountHint ? _maxSearchHistoryCountHint : count;
     return _decodeEntityListResponse(
-      await _invoke("last_search_histories", "$normalizedCount"),
+      await _invoke("last_search_histories", "$count"),
       "last_search_histories",
       SearchHistory.fromJson,
     );
@@ -1115,19 +1036,17 @@ class Methods {
   }
 
   Future<int> load_download_thread() async {
-    final parsed = _parseBackendInt(
+    // 线程上下限由后端统一维护；前端只解析稳定的标量响应并提供桥接故障回退值。
+    return _parseBackendInt(
       await _invoke("load_download_thread", ""),
       "load_download_thread",
       fallback: _downloadThreadMin,
     );
-    return _normalizeDownloadThreadCount(parsed, "load_download_thread");
   }
 
   Future set_download_thread(int count) {
-    // 与后端线程约束保持一致，避免无效值反复跨桥接往返。
-    final normalized =
-        _normalizeDownloadThreadCount(count, "set_download_thread");
-    return _invoke("set_download_thread", "$normalized");
+    // 线程范围只在后端归一化，避免前后端维护两套容易漂移的边界常量。
+    return _invoke("set_download_thread", "$count");
   }
 
   Future clearAllSearchLog() {

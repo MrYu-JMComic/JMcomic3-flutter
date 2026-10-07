@@ -18,7 +18,6 @@ import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/components/content_error.dart';
 import 'package:jmcomic3/screens/components/content_loading.dart';
 import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
-import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
@@ -29,12 +28,24 @@ import '../configs/reader_feature_flags.dart';
 import '../configs/reader_target_decode.dart';
 import '../basic/reader_system_ui.dart';
 import 'components/images.dart';
+import 'components/reader_preloader.dart';
+import 'components/reader_progress.dart';
+import 'components/reader_zoom_surface.dart';
 import 'components/right_click_pop.dart';
 import '../reader_session.dart';
 import '../reader_viewlog_queue.dart';
 import '../basic/reader_pages.dart';
 import '../basic/page_pairing.dart';
 import '../reader_progress.dart';
+
+/// 释放远离当前页且已经没有活动监听器的解码图片，避免长章节持续占用内存。
+/// includeLive=false 会保留仍在树上的图片，防止释放后马上重复解码。
+void _releasePageImageMemory(ChapterResponse chapter, int index) {
+  if (index < 0 || index >= chapter.images.length) {
+    return;
+  }
+  evictPageImageDecodeCache(chapter.id, chapter.images[index]);
+}
 
 class ComicReaderScreen extends StatefulWidget {
   final ComicBasic comic;
@@ -416,6 +427,49 @@ class _ComicReader extends StatefulWidget {
   }
 }
 
+/// 组件回归测试直接挂载实际阅读器，省去外层章节网络请求和导航路由。
+@visibleForTesting
+Widget buildComicReaderForTest({
+  required GlobalKey key,
+  required ChapterResponse chapter,
+  required ReaderType readerType,
+  required ReaderDirection direction,
+  int startIndex = 0,
+}) =>
+    _ComicReader(
+      key: key,
+      comicId: chapter.id,
+      chapter: chapter,
+      startIndex: startIndex,
+      readerType: readerType,
+      readerDirection: direction,
+      fullScreenOnInit: false,
+      reload: (_, __) {},
+      onChangeEp: (_, __) {},
+    );
+
+/// 测试驱动与键盘/音量键相同的跳页入口，验证真实动画产生的中间页回调。
+@visibleForTesting
+void jumpComicReaderForTest(GlobalKey key, int index, {bool animation = true}) {
+  (key.currentState! as _ComicReaderState)._needJumpTo(index, animation);
+}
+
+@visibleForTesting
+void controlComicReaderForTest(String direction) {
+  _readerControllerEvent.broadcast(_ReaderControllerEventArgs(direction));
+}
+
+@visibleForTesting
+({int current, int slider, int? jumpTarget}) comicReaderProgressForTest(
+    GlobalKey key) {
+  final state = key.currentState! as _ComicReaderState;
+  return (
+    current: state._current,
+    slider: state._slider,
+    jumpTarget: state._jumpTarget
+  );
+}
+
 abstract class _ComicReaderState extends State<_ComicReader> {
   final ReaderSession _readerSession = ReaderSession();
   ReaderGeneration? _readerGeneration;
@@ -452,8 +506,9 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     final imageName = descriptor?.name ?? widget.chapter.images[index];
     final localOnly =
         readerOfflineOwnerV1 && widget.chapter.offlineImages != null;
-    final safeWidth =
-        width ?? (mounted ? MediaQuery.maybeSizeOf(context)?.width : null);
+    // Avoid inherited-widget lookup during initState. Callers that need target
+    // decoding provide the concrete layout width from their build callback.
+    final safeWidth = width;
     return readerPageImageProvider(
       context,
       widget.chapter.id,
@@ -538,14 +593,140 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   late bool _fullScreen;
   late int _current;
   late int _slider;
+  late int _memoryCenter;
   List<int> _sortedSeriesIds = const <int>[];
   int? _nextEpId;
   Timer? _viewLogDebounce;
+  Timer? _uiSyncTimer;
   ReaderViewlogQueue? _viewLogQueue;
   int? _pendingViewLogPage;
   int? _pendingViewLogComicId;
   int? _pendingViewLogChapterId;
   int _lastUiSyncMs = 0;
+  final ReaderPreloader _preloader = ReaderPreloader();
+  int _preloadRequest = 0;
+  int _jumpGeneration = 0;
+  int? _jumpTarget;
+  bool _disposed = false;
+
+  void _releaseChapterImageMemory() {
+    final chapter = widget.chapter;
+    void release() {
+      for (final imageName in chapter.images) {
+        evictPageImageMemoryCache(chapter.id, imageName);
+      }
+      if (_disposed) {
+        // The route is gone; release live streams as well so file-backed test
+        // images and platform decoders do not outlive the reader state.
+        imageCache.clearLiveImages();
+        imageCache.clear();
+      }
+    }
+
+    release();
+    // 子 Image 和 precache 的监听器会在帧末移除，再清理一次避免退出后留下解码缓存。
+    WidgetsBinding.instance.addPostFrameCallback((_) => release());
+  }
+
+  void _preloadPages(int center, List<int> indexes, {bool init = false}) {
+    if (_disposed || (_jumpTarget != null && _jumpTarget != center)) {
+      return;
+    }
+    final request = ++_preloadRequest;
+    void run() {
+      if (_disposed || !mounted || request != _preloadRequest) {
+        return;
+      }
+      final chapter = widget.chapter;
+      unawaited(_preloader.preload(
+        indexes: indexes
+            .where((index) => index >= 0 && index < chapter.images.length),
+        load: (index) => precacheImage(
+          PageImageProvider(chapter.id, chapter.images[index]),
+          context,
+          onError: (error, stackTrace) => debugPrient(
+            "precache page ${chapter.images[index]} failed: $error\n$stackTrace",
+          ),
+        ),
+        releaseStale: (index) {
+          final imageName = chapter.images[index];
+          void release() {
+            if (_disposed) {
+              evictPageImageMemoryCache(chapter.id, imageName);
+            } else if ((index - _memoryCenter).abs() > _cacheRadius) {
+              evictPageImageDecodeCache(chapter.id, imageName);
+            }
+          }
+
+          release();
+          // precacheImage 自己也在帧末移除监听器，延后清理让过期解码真正离开缓存。
+          WidgetsBinding.instance.addPostFrameCallback((_) => release());
+        },
+        onError: (error, stackTrace) => debugPrient("$error\n$stackTrace"),
+      ));
+    }
+
+    if (init) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => run());
+    } else {
+      run();
+    }
+  }
+
+  Future<void> _jumpPagedReader(
+    PageController controller,
+    int imageIndex,
+    bool animation, {
+    int imagesPerPage = 1,
+  }) async {
+    if (_disposed || !controller.hasClients) {
+      return;
+    }
+    final target = (imageIndex ~/ imagesPerPage) * imagesPerPage;
+    await _jumpReader(
+      target,
+      () async {
+        if (animation && !currentNoAnimation()) {
+          await controller.animateToPage(
+            target ~/ imagesPerPage,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.ease,
+          );
+        } else {
+          controller.jumpToPage(target ~/ imagesPerPage);
+        }
+      },
+      settledIndex: () => controller.hasClients
+          ? ((controller.page ?? (target ~/ imagesPerPage)).round() *
+              imagesPerPage)
+          : target,
+    );
+  }
+
+  Future<void> _jumpReader(
+    int target,
+    Future<void> Function() jump, {
+    required int Function() settledIndex,
+  }) async {
+    final generation = ++_jumpGeneration;
+    _jumpTarget = target;
+    _slider = target;
+    _viewLogDebounce?.cancel();
+    _pendingViewLogPage = null;
+    // 跳页刚开始时仍保留实际可见页，仅把滑块锁定到目标；中途退出可保存真实进度。
+    _onCurrentChange(_current, forceUiSync: true);
+    try {
+      await jump();
+    } finally {
+      // 连续跳页时，旧动画完成只能结束自己的代数，不能解锁新跳页的进度目标。
+      if (!_disposed && mounted && generation == _jumpGeneration) {
+        final settled = settledIndex();
+        _jumpTarget = null;
+        _onCurrentChange(settled, forceUiSync: true);
+      }
+    }
+  }
+
   bool _didAddVolumeListen = false;
   ReaderSystemUiLease? _systemUiLease;
   int _systemUiChangeSerial = 0;
@@ -595,6 +776,29 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       const Duration(milliseconds: 220),
       _flushViewLogPersist,
     );
+  }
+
+  int get _cacheRadius =>
+      widget.readerType == ReaderType.twoPageGallery ? 3 : 2;
+
+  void _releasePreviousPageWindow(int center) {
+    if (_memoryCenter == center) {
+      return;
+    }
+    final radius = _cacheRadius;
+    final oldFirst = max(0, _memoryCenter - radius);
+    final oldLast =
+        min(widget.chapter.images.length - 1, _memoryCenter + radius);
+    final newFirst = max(0, center - radius);
+    final newLast = min(widget.chapter.images.length - 1, center + radius);
+    for (var index = oldFirst; index <= oldLast; index++) {
+      if (index >= newFirst && index <= newLast) {
+        continue;
+      }
+      // 活跃页仍由 ImageStream 引用时不强制释放，避免重新进入页面时闪烁。
+      _releasePageImageMemory(widget.chapter, index);
+    }
+    _memoryCenter = center;
   }
 
   void _flushViewLogPersist() {
@@ -687,18 +891,40 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       return;
     }
     final safeIndex = index.clamp(0, widget.chapter.images.length - 1).toInt();
-    if (safeIndex == _current) {
+    final changed = safeIndex != _current;
+    final slider = _jumpTarget ?? safeIndex;
+    final sliderChanged = !_sliderDragging && _slider != slider;
+    if (!changed && !sliderChanged && !forceUiSync) {
       return;
     }
     _current = safeIndex;
-    _slider = safeIndex;
-    _schedulePersistViewLog(safeIndex);
+    if (!_sliderDragging) {
+      _slider = slider;
+    }
+    _releasePreviousPageWindow(_jumpTarget ?? safeIndex);
+    if (_jumpTarget == null) {
+      _schedulePersistViewLog(safeIndex);
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     final isEdge =
         safeIndex <= 0 || safeIndex >= widget.chapter.images.length - 1;
     if (forceUiSync || isEdge || now - _lastUiSyncMs >= _uiSyncMinIntervalMs) {
+      _uiSyncTimer?.cancel();
+      _uiSyncTimer = null;
       _lastUiSyncMs = now;
       setState(() {});
+    } else {
+      // 限流必须保留最后一次同步，滚动停止后仍显示最终可见页。
+      _uiSyncTimer ??= Timer(
+        Duration(milliseconds: _uiSyncMinIntervalMs - (now - _lastUiSyncMs)),
+        () {
+          _uiSyncTimer = null;
+          if (!_disposed && mounted) {
+            _lastUiSyncMs = DateTime.now().millisecondsSinceEpoch;
+            setState(() {});
+          }
+        },
+      );
     }
   }
 
@@ -715,6 +941,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
         : widget.startIndex.clamp(0, imageCount - 1).toInt();
     _current = safeStartIndex;
     _slider = safeStartIndex;
+    _memoryCenter = safeStartIndex;
     _readerControllerEvent.subscribe(_onPageControl);
     if (Platform.isAndroid && currentVolumeKeyControl()) {
       addVolumeListen();
@@ -769,6 +996,15 @@ abstract class _ComicReaderState extends State<_ComicReader> {
 
   @override
   void dispose() {
+    _disposed = true;
+    _preloadRequest++;
+    _jumpGeneration++;
+    _preloader.dispose();
+    _releaseChapterImageMemory();
+    _uiSyncTimer?.cancel();
+    if (_jumpTarget != null) {
+      _pendingViewLogPage = _current;
+    }
     _viewLogDebounce?.cancel();
     _prefetchScheduler.close();
     _readerSession.close();
@@ -794,18 +1030,24 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     if (!mounted || args == null || widget.chapter.images.isEmpty) {
       return;
     }
-    var event = args.key;
-    switch (event) {
-      case "UP":
-        if (_current > 0) {
-          _needJumpTo(_current - 1, !currentNoAnimation());
-        }
-        break;
-      case "DOWN":
-        if (_current < widget.chapter.images.length - 1) {
-          _needJumpTo(_current + 1, !currentNoAnimation());
-        }
-        break;
+    {
+      var event = args.key;
+      final page = _jumpTarget ?? _current;
+      // 双页相册每次按键翻一个完整跨页，避免奇数目标归一化后停留在原跨页。
+      final step = widget.readerType == ReaderType.twoPageGallery ? 2 : 1;
+      switch (event) {
+        case "UP":
+          if (page > 0) {
+            _needJumpTo(max(0, page - step), !currentNoAnimation());
+          }
+          break;
+        case "DOWN":
+          if (page < widget.chapter.images.length - 1) {
+            _needJumpTo(min(widget.chapter.images.length - 1, page + step),
+                !currentNoAnimation());
+          }
+          break;
+      }
     }
   }
 
@@ -1238,6 +1480,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
         if (!_sliderDragging && mounted) {
           setState(() {
             _sliderDragging = true;
+            _slider = _current;
           });
         }
       },
@@ -1545,12 +1788,10 @@ class _SettingPanelState extends State<_SettingPanel> {
 }
 
 class _ComicReaderWebToonState extends _ComicReaderState {
-  var _controllerTime = DateTime.now().millisecondsSinceEpoch + 400;
   late final List<Size?> _trueSizes = [];
   late final ItemScrollController _itemScrollController;
   late final ItemPositionsListener _itemPositionsListener;
   bool _trueSizeRefreshQueued = false;
-  int _lastScrollUiSyncMs = 0;
 
   @override
   void initState() {
@@ -1570,11 +1811,6 @@ class _ComicReaderWebToonState extends _ComicReaderState {
   }
 
   void _onListCurrentChange() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastScrollUiSyncMs < 50) {
-      return;
-    }
-    _lastScrollUiSyncMs = now;
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty) {
       return;
@@ -1582,14 +1818,19 @@ class _ComicReaderWebToonState extends _ComicReaderState {
     final visible = positions
         .where((item) =>
             item.itemTrailingEdge > 0 &&
+            item.itemLeadingEdge < 1 &&
             item.index >= 0 &&
             item.index < widget.chapter.images.length)
-        .toList();
-    if (visible.isEmpty) {
+        .map((item) => ReaderPageBounds(
+              item.index,
+              item.itemLeadingEdge,
+              item.itemTrailingEdge,
+            ));
+    final index = readerPageAtViewportCenter(visible);
+    if (index == null) {
       return;
     }
-    visible.sort((a, b) => a.itemLeadingEdge.compareTo(b.itemLeadingEdge));
-    super._onCurrentChange(visible.first.index);
+    super._onCurrentChange(index);
   }
 
   Size _renderSizeFor(BoxConstraints constraints, int index) {
@@ -1670,21 +1911,25 @@ class _ComicReaderWebToonState extends _ComicReaderState {
     if (!_itemScrollController.isAttached) {
       return;
     }
-    if (animation) {
-      if (DateTime.now().millisecondsSinceEpoch < _controllerTime) {
-        return;
+    unawaited(_jumpReader(index, () async {
+      if (animation && !currentNoAnimation()) {
+        await _itemScrollController.scrollTo(
+          index: index,
+          duration: const Duration(milliseconds: 400),
+        );
+      } else {
+        _itemScrollController.jumpTo(index: index);
+        await WidgetsBinding.instance.endOfFrame;
       }
-      _controllerTime = DateTime.now().millisecondsSinceEpoch + 400;
-      _itemScrollController.scrollTo(
-        index: index, // jump to target index
-        duration: const Duration(milliseconds: 400),
-      );
-    } else {
-      _itemScrollController.jumpTo(
-        index: index,
-      );
-    }
-    super._onCurrentChange(index, forceUiSync: true);
+    },
+        settledIndex: () =>
+            readerPageAtViewportCenter(
+              _itemPositionsListener.itemPositions.value
+                  .where((item) => item.index < widget.chapter.images.length)
+                  .map((item) => ReaderPageBounds(
+                      item.index, item.itemLeadingEdge, item.itemTrailingEdge)),
+            ) ??
+            index));
   }
 
   @override
@@ -1817,7 +2062,8 @@ class _ComicReaderGalleryState extends _ComicReaderState {
       pageController: _pageController,
       onPageChanged: _onGalleryPageChange,
       itemCount: widget.chapter.images.length,
-      allowImplicitScrolling: true,
+      // 关闭隐式保活，让滑过的远页可以被 Flutter 回收，降低长章节内存峰值。
+      allowImplicitScrolling: false,
       builder: (BuildContext context, int index) {
         final reloadKey = _reloadKeys[index] ?? 0;
 
@@ -1907,52 +2153,21 @@ class _ComicReaderGalleryState extends _ComicReaderState {
     if (pageIndex < 0 || pageIndex >= widget.chapter.images.length) {
       return;
     }
-    if (animation) {
-      _pageController.animateToPage(
-        pageIndex,
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.ease,
-      );
-    } else {
-      _pageController.jumpToPage(pageIndex);
-    }
+    unawaited(_jumpPagedReader(_pageController, pageIndex, animation));
     _preloadJump(pageIndex);
-    super._onCurrentChange(pageIndex, forceUiSync: true);
   }
 
   void _onGalleryPageChange(int to) {
     if (!mounted || to < 0 || to >= widget.chapter.images.length) {
       return;
     }
-    var toIndex = to;
-    // Preload nearby pages.
-    for (var i = toIndex + 1;
-        i < toIndex + 3 && i < widget.chapter.images.length;
-        i++) {
-      final ip = _readerPageProvider(i);
-      _precacheReaderImage(ip, pageIndex: i, priority: 2);
-    }
-    // Preload nearby pages.
+    // 先完成当前页，再按阅读方向预加载后页和前页，避免图片显示顺序反转。
+    _preloadJump(to);
     super._onCurrentChange(to);
   }
 
   _preloadJump(int index, {bool init = false}) {
-    fn() {
-      if (!mounted) {
-        return;
-      }
-      for (var i = index - 1; i < index + 3; i++) {
-        if (i < 0 || i >= widget.chapter.images.length) continue;
-        final ip = _readerPageProvider(i);
-        _precacheReaderImage(ip, pageIndex: i, priority: i == index ? 10 : 2);
-      }
-    }
-
-    if (init) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => fn());
-    } else {
-      fn();
-    }
+    _preloadPages(index, [index, index + 1, index + 2, index - 1], init: init);
   }
 
   Widget _buildNextEpController() {
@@ -1999,46 +2214,21 @@ class _ComicReaderGalleryState extends _ComicReaderState {
 class _FreeZoomPagedReaderState extends _ComicReaderState {
   late final PageController _pageController;
   final Map<int, int> _reloadKeys = {};
-  final Map<int, PhotoViewController> _photoControllers = {};
-  final Map<int, PhotoViewScaleStateController> _scaleControllers = {};
-  final Map<int, double> _baseScaleByPage = {};
-  StreamSubscription<PhotoViewControllerValue>? _zoomSubscription;
-  int _subscribedPage = -1;
+  final Map<int, GlobalKey<_PagedZoomImageState>> _zoomPageKeys = {};
   bool _isZoomed = false;
 
   @override
   void initState() {
-    super.initState();
     _pageController = PageController(initialPage: widget.startIndex);
-    _bindZoomListener(widget.startIndex);
+    super.initState();
     _preloadAround(widget.startIndex, init: true);
   }
 
   @override
   void dispose() {
-    _zoomSubscription?.cancel();
-    for (final controller in _photoControllers.values) {
-      controller.dispose();
-    }
-    for (final controller in _scaleControllers.values) {
-      controller.dispose();
-    }
-    _photoControllers.clear();
-    _scaleControllers.clear();
-    _baseScaleByPage.clear();
+    _zoomPageKeys.clear();
     _pageController.dispose();
     super.dispose();
-  }
-
-  PhotoViewController _photoControllerFor(int index) {
-    return _photoControllers.putIfAbsent(index, () => PhotoViewController());
-  }
-
-  PhotoViewScaleStateController _scaleControllerFor(int index) {
-    return _scaleControllers.putIfAbsent(
-      index,
-      () => PhotoViewScaleStateController(),
-    );
   }
 
   void _setZoomed(bool value) {
@@ -2050,41 +2240,8 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
     });
   }
 
-  void _bindZoomListener(int index) {
-    if (_subscribedPage == index) {
-      return;
-    }
-    _zoomSubscription?.cancel();
-    _subscribedPage = index;
-    final controller = _photoControllerFor(index);
-    _zoomSubscription = controller.outputStateStream.listen((state) {
-      final scale = state.scale;
-      if (scale == null) {
-        _setZoomed(false);
-        return;
-      }
-      final base = _baseScaleByPage.putIfAbsent(index, () => scale);
-      _setZoomed(scale > base * 1.01);
-    });
-    final currentScale = controller.scale;
-    if (currentScale == null) {
-      _setZoomed(false);
-    } else {
-      final base = _baseScaleByPage.putIfAbsent(index, () => currentScale);
-      _setZoomed(currentScale > base * 1.01);
-    }
-  }
-
   void _resetZoomFor(int index) {
-    final controller = _photoControllers[index];
-    final scaleStateController = _scaleControllers[index];
-    if (scaleStateController != null) {
-      scaleStateController.scaleState = PhotoViewScaleState.initial;
-    }
-    if (controller != null) {
-      controller.reset();
-      controller.position = Offset.zero;
-    }
+    _zoomPageKeys[index]?.currentState?.resetZoom();
     _setZoomed(false);
   }
 
@@ -2099,7 +2256,6 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
     setState(() {
       _reloadKeys[index] = (_reloadKeys[index] ?? 0) + 1;
       _resetZoomFor(index);
-      _baseScaleByPage.remove(index);
     });
   }
 
@@ -2109,18 +2265,8 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
       return;
     }
     _resetZoomFor(_current);
-    _bindZoomListener(pageIndex);
-    if (animation && !currentNoAnimation()) {
-      _pageController.animateToPage(
-        pageIndex,
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.ease,
-      );
-    } else {
-      _pageController.jumpToPage(pageIndex);
-    }
+    unawaited(_jumpPagedReader(_pageController, pageIndex, animation));
     _preloadAround(pageIndex);
-    super._onCurrentChange(pageIndex, forceUiSync: true);
   }
 
   void _onGalleryPageChange(int to) {
@@ -2128,74 +2274,41 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
       return;
     }
     _resetZoomFor(_current);
-    _bindZoomListener(to);
     _preloadAround(to);
     super._onCurrentChange(to);
   }
 
   void _preloadAround(int index, {bool init = false}) {
-    void run() {
-      if (!mounted) {
-        return;
-      }
-      for (var i = index - 1; i < index + 3; i++) {
-        if (i < 0 || i >= widget.chapter.images.length) {
-          continue;
-        }
-        final provider = _readerPageProvider(i);
-        _precacheReaderImage(provider,
-            pageIndex: i, priority: i == index ? 10 : 2);
-      }
-    }
-
-    if (init) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => run());
-    } else {
-      run();
-    }
+    _preloadPages(index, [index, index + 1, index + 2, index - 1], init: init);
   }
 
   Widget _buildGallery() {
-    return PhotoViewGallery.builder(
-      scrollDirection: widget.readerDirection == ReaderDirection.topToBottom
-          ? Axis.vertical
-          : Axis.horizontal,
+    final axis = widget.readerDirection == ReaderDirection.topToBottom
+        ? Axis.vertical
+        : Axis.horizontal;
+    return PageView.builder(
+      scrollDirection: axis,
       reverse: widget.readerDirection == ReaderDirection.rightToLeft,
-      backgroundDecoration: const BoxDecoration(color: Colors.black),
-      loadingBuilder: (context, event) => LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          return buildLoading(
-            context,
-            constraints.maxWidth,
-            constraints.maxHeight,
-          );
-        },
-      ),
-      pageController: _pageController,
+      controller: _pageController,
       onPageChanged: _onGalleryPageChange,
       itemCount: widget.chapter.images.length,
-      allowImplicitScrolling: true,
-      scrollPhysics: _isZoomed
+      // 放大时由当前缩放表面接管单指拖动，PageView 只在未放大时翻页。
+      physics: _isZoomed
           ? const NeverScrollableScrollPhysics()
           : const ClampingScrollPhysics(),
-      builder: (BuildContext context, int index) {
+      itemBuilder: (BuildContext context, int index) {
         final reloadKey = _reloadKeys[index] ?? 0;
-        return PhotoViewGalleryPageOptions.customChild(
-          disableGestures:
-              currentReaderControllerType == ReaderControllerType.touchDouble ||
-                  currentReaderControllerType ==
-                      ReaderControllerType.touchDoubleOnceNext,
-          controller: _photoControllerFor(index),
-          scaleStateController: _scaleControllerFor(index),
-          initialScale: PhotoViewComputedScale.contained,
-          minScale: PhotoViewComputedScale.contained,
-          maxScale: PhotoViewComputedScale.contained * 4.0,
-          basePosition: Alignment.center,
-          tightMode: true,
+        final imageProvider =
+            PageImageProvider(widget.chapter.id, widget.chapter.images[index]);
+        return _PagedZoomImage(
+          key: _zoomPageKeys.putIfAbsent(
+              index, () => GlobalKey<_PagedZoomImageState>()),
+          onZoomChanged: (zoomed) {
+            if (index == _current && !_disposed) {
+              _setZoomed(zoomed);
+            }
+          },
           child: LayoutBuilder(
-            key: ValueKey(
-              'fz_page_${widget.chapter.id}_${index}_${_imageNameAt(index)}_$reloadKey',
-            ),
             builder: (BuildContext context, BoxConstraints constraints) {
               final imageProvider = _readerPageProvider(
                 index,
@@ -2306,26 +2419,69 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
   }
 }
 
-// ignore: unused_element
-class _ListViewReaderState extends _ComicReaderState
-    with SingleTickerProviderStateMixin {
-  var _controllerTime = DateTime.now().millisecondsSinceEpoch + 400;
+class _PagedZoomImage extends StatefulWidget {
+  final Widget child;
+  final ValueChanged<bool> onZoomChanged;
+
+  const _PagedZoomImage(
+      {required this.child, required this.onZoomChanged, super.key});
+
+  @override
+  State<_PagedZoomImage> createState() => _PagedZoomImageState();
+}
+
+class _PagedZoomImageState extends State<_PagedZoomImage> {
+  final TransformationController _controller = TransformationController();
+  bool _zoomed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onTransformChanged);
+  }
+
+  void _onTransformChanged() {
+    final zoomed = _controller.value.getMaxScaleOnAxis() > 1.001;
+    if (zoomed != _zoomed && mounted) {
+      setState(() => _zoomed = zoomed);
+      widget.onZoomChanged(zoomed);
+    }
+  }
+
+  void resetZoom() => _controller.value = Matrix4.identity();
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onTransformChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ReaderZoomSurface(
+        controller: _controller,
+        panEnabled: _zoomed,
+        allowDoubleTap:
+            currentReaderControllerType != ReaderControllerType.touchDouble &&
+                currentReaderControllerType !=
+                    ReaderControllerType.touchDoubleOnceNext,
+        child: widget.child,
+      );
+}
+
+class _ListViewReaderState extends _ComicReaderState {
   var _isZoomed = false;
   var _activePointers = 0;
   final List<Size?> _trueSizes = [];
   final List<GlobalKey> _pageKeys = [];
   BoxConstraints? _lastLayoutConstraints;
   bool _trueSizeRefreshQueued = false;
-  int _lastScrollUiSyncMs = 0;
+  final _transformationController = TransformationController();
+  final ScrollController _scrollController = ScrollController();
   ReaderExtentIndex? _extentIndex;
   BoxConstraints? _extentIndexConstraints;
-  final _transformationController = TransformationController();
-  late final ScrollController _scrollController;
-  late TapDownDetails _doubleTapDetails;
-  late final _animationController = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 100),
-  );
+  int _suppressScrollUntilMs = 0;
+  int? _manualJumpPage;
 
   @override
   void initState() {
@@ -2333,22 +2489,12 @@ class _ListViewReaderState extends _ComicReaderState
     for (var index = 0; index < widget.chapter.images.length; index++) {
       final descriptor = _descriptorAt(index);
       _trueSizes.add(descriptor?.hasDimensions == true
-          ? Size(
-              descriptor!.width.toDouble(),
-              descriptor.height.toDouble(),
-            )
+          ? Size(descriptor!.width.toDouble(), descriptor.height.toDouble())
           : null);
       _pageKeys.add(GlobalKey());
     }
-    _scrollController = ScrollController();
     _scrollController.addListener(_onScrollChanged);
     _transformationController.addListener(_onTransformChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      _needJumpTo(widget.startIndex, false);
-    });
   }
 
   @override
@@ -2357,7 +2503,6 @@ class _ListViewReaderState extends _ComicReaderState
     _scrollController.dispose();
     _transformationController.removeListener(_onTransformChanged);
     _transformationController.dispose();
-    _animationController.dispose();
     super.dispose();
   }
 
@@ -2369,6 +2514,38 @@ class _ListViewReaderState extends _ComicReaderState
     setState(() {
       _isZoomed = zoomed;
     });
+  }
+
+  void _onScrollChanged() {
+    if (_isZoomed ||
+        _activePointers > 1 ||
+        !mounted ||
+        !_scrollController.hasClients ||
+        _jumpTarget != null ||
+        DateTime.now().millisecondsSinceEpoch < _suppressScrollUntilMs ||
+        _manualJumpPage != null) {
+      return;
+    }
+    final imageCount = widget.chapter.images.length;
+    if (imageCount <= 1) {
+      super._onCurrentChange(0);
+      return;
+    }
+    final maxExtent = _scrollController.position.maxScrollExtent;
+    if (maxExtent <= 0) {
+      super._onCurrentChange(0);
+      return;
+    }
+    final constraints = _lastLayoutConstraints;
+    final index = readerPreciseProgressV1 && constraints != null
+        ? _extentIndexFor(constraints)
+            .estimate(
+                max(0.0, _scrollController.offset - _listLeadingPadding()))
+            .page
+        : (((_scrollController.offset / maxExtent).clamp(0.0, 1.0).toDouble()) *
+                (imageCount - 1))
+            .ceil();
+    super._onCurrentChange(index);
   }
 
   List<double> _pageExtents(BoxConstraints constraints) {
@@ -2389,47 +2566,13 @@ class _ListViewReaderState extends _ComicReaderState
     return _extentIndex!;
   }
 
-  double _listLeadingPadding() {
-    if (currentReaderDirection == ReaderDirection.topToBottom) {
-      return super._appBarHeight();
-    }
-    return max(super._appBarHeight(), super._bottomBarHeight());
-  }
-
-  void _onScrollChanged() {
-    if (_isZoomed || _activePointers > 1 || !_scrollController.hasClients) {
-      return;
-    }
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastScrollUiSyncMs < 50) {
-      return;
-    }
-    _lastScrollUiSyncMs = now;
-    final imageCount = widget.chapter.images.length;
-    if (imageCount <= 1) {
-      super._onCurrentChange(0);
-      return;
-    }
-    final maxExtent = _scrollController.position.maxScrollExtent;
-    if (maxExtent <= 0) {
-      super._onCurrentChange(0);
-      return;
-    }
-    final constraints = _lastLayoutConstraints;
-    final index = readerPreciseProgressV1 && constraints != null
-        ? _extentIndexFor(constraints)
-            .estimate(max(
-              0.0,
-              _scrollController.offset - _listLeadingPadding(),
-            ))
-            .page
-        : (((_scrollController.offset / maxExtent).clamp(0.0, 1.0).toDouble()) *
-                (imageCount - 1))
-            .round();
-    super._onCurrentChange(index);
-  }
+  double _listLeadingPadding() =>
+      currentReaderDirection == ReaderDirection.topToBottom
+          ? super._appBarHeight()
+          : max(super._appBarHeight(), super._bottomBarHeight());
 
   void _onPointerDown(PointerDownEvent event) {
+    _manualJumpPage = null;
     final hadMultiTouch = _activePointers > 1;
     _activePointers++;
     final hasMultiTouch = _activePointers > 1;
@@ -2449,7 +2592,9 @@ class _ListViewReaderState extends _ComicReaderState
 
   @override
   void _needJumpTo(int index, bool animation) {
-    if (index < 0 || index >= widget.chapter.images.length) {
+    if (index < 0 ||
+        index >= widget.chapter.images.length ||
+        !_scrollController.hasClients) {
       return;
     }
     if (_isZoomed) {
@@ -2457,22 +2602,19 @@ class _ListViewReaderState extends _ComicReaderState
     }
     final targetContext = _pageKeys[index].currentContext;
     if (targetContext != null) {
-      Scrollable.ensureVisible(
-        targetContext,
-        duration: animation ? const Duration(milliseconds: 400) : Duration.zero,
-        curve: Curves.ease,
-      );
-      super._onCurrentChange(index, forceUiSync: true);
-      return;
-    }
-    if (!_scrollController.hasClients) {
-      return;
-    }
-    final maxExtent = _scrollController.position.maxScrollExtent;
-    if (maxExtent <= 0) {
+      unawaited(_jumpReader(index, () async {
+        await Scrollable.ensureVisible(
+          targetContext,
+          duration: animation && !currentNoAnimation()
+              ? const Duration(milliseconds: 400)
+              : Duration.zero,
+          curve: Curves.ease,
+        );
+      }, settledIndex: () => index));
       return;
     }
     final constraints = _lastLayoutConstraints;
+    final maxExtent = _scrollController.position.maxScrollExtent;
     final estimatedTarget = readerPreciseProgressV1 && constraints != null
         ? _extentIndexFor(constraints).offsetForPage(index) +
             _listLeadingPadding()
@@ -2481,20 +2623,23 @@ class _ListViewReaderState extends _ComicReaderState
                 ? 0.0
                 : index / (widget.chapter.images.length - 1)));
     final target = estimatedTarget.clamp(0.0, maxExtent).toDouble();
-    if (animation) {
-      if (DateTime.now().millisecondsSinceEpoch < _controllerTime) {
-        return;
+    _suppressScrollUntilMs = DateTime.now().millisecondsSinceEpoch +
+        (animation && !currentNoAnimation() ? 500 : 100);
+    unawaited(_jumpReader(index, () async {
+      if (animation && !currentNoAnimation()) {
+        await _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.ease,
+        );
+      } else {
+        _scrollController.jumpTo(target);
+        await WidgetsBinding.instance.endOfFrame;
       }
-      _controllerTime = DateTime.now().millisecondsSinceEpoch + 400;
-      _scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.ease,
-      );
-    } else {
-      _scrollController.jumpTo(target);
-    }
-    super._onCurrentChange(index, forceUiSync: true);
+    }, settledIndex: () {
+      _manualJumpPage = index;
+      return index;
+    }));
   }
 
   @override
@@ -2588,7 +2733,8 @@ class _ListViewReaderState extends _ComicReaderState
           _extentIndex = null;
         }
         _lastLayoutConstraints = constraints;
-        final giveTouchToViewer = _activePointers > 1;
+        // 放大后单指拖动全部交给 InteractiveViewer；复原后恢复列表自然滚动。
+        final giveTouchToViewer = _isZoomed || _activePointers > 1;
         var list = ListView.builder(
           controller: _scrollController,
           scrollDirection: currentReaderDirection == ReaderDirection.topToBottom
@@ -2596,9 +2742,11 @@ class _ListViewReaderState extends _ComicReaderState
               : Axis.horizontal,
           reverse: currentReaderDirection == ReaderDirection.rightToLeft,
           cacheExtent: currentReaderDirection == ReaderDirection.topToBottom
-              ? constraints.maxHeight * 2
-              : constraints.maxWidth * 2,
-          physics: const ClampingScrollPhysics(),
+              ? constraints.maxHeight
+              : constraints.maxWidth,
+          physics: giveTouchToViewer
+              ? const NeverScrollableScrollPhysics()
+              : const ClampingScrollPhysics(),
           padding: EdgeInsets.only(
             // Keep top spacing in all modes and directions.
             top: currentReaderDirection == ReaderDirection.topToBottom
@@ -2633,25 +2781,25 @@ class _ListViewReaderState extends _ComicReaderState
             );
           },
         );
-        var viewer = InteractiveViewer(
-          transformationController: _transformationController,
-          minScale: 1,
+        var viewer = ReaderZoomSurface(
+          controller: _transformationController,
           maxScale: 2,
-          boundaryMargin: EdgeInsets.zero,
-          scaleEnabled: true,
-          panEnabled: false,
+          panEnabled: giveTouchToViewer,
+          // 双击全屏控制模式保留外层双击入口，缩放仍可使用双指捏合。
+          allowDoubleTap:
+              currentReaderControllerType != ReaderControllerType.touchDouble &&
+                  currentReaderControllerType !=
+                      ReaderControllerType.touchDoubleOnceNext,
           child: IgnorePointer(
             ignoring: giveTouchToViewer,
             child: list,
           ),
         );
-        return Listener(
-          onPointerDown: _onPointerDown,
-          onPointerUp: _onPointerEnd,
-          onPointerCancel: _onPointerEnd,
-          child: GestureDetector(
-            onDoubleTap: _handleDoubleTap,
-            onDoubleTapDown: _handleDoubleTapDown,
+        return SizedBox.expand(
+          child: Listener(
+            onPointerDown: _onPointerDown,
+            onPointerUp: _onPointerEnd,
+            onPointerCancel: _onPointerEnd,
             child: viewer,
           ),
         );
@@ -2684,29 +2832,6 @@ class _ListViewReaderState extends _ComicReaderState
         ),
       ),
     );
-  }
-
-  void _handleDoubleTapDown(TapDownDetails details) {
-    _doubleTapDetails = details;
-  }
-
-  void _handleDoubleTap() {
-    if (_animationController.isAnimating) {
-      return;
-    }
-    if (_transformationController.value != Matrix4.identity()) {
-      _transformationController.value = Matrix4.identity();
-    } else {
-      var position = _doubleTapDetails.localPosition;
-      var animation = Tween(begin: 0, end: 1.0).animate(_animationController);
-      animation.addListener(() {
-        _transformationController.value = Matrix4.identity()
-          ..translate(
-              -position.dx * animation.value, -position.dy * animation.value)
-          ..scale(animation.value + 1.0);
-      });
-      _animationController.forward(from: 0);
-    }
   }
 }
 
@@ -2779,6 +2904,8 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
       reverse: widget.readerDirection == ReaderDirection.rightToLeft,
       onPageChanged: _onGalleryPageChange,
       backgroundDecoration: const BoxDecoration(color: Colors.black),
+      // 关闭隐式保活，避免双页阅读器把相邻页面全部留在内存中。
+      allowImplicitScrolling: false,
     );
   }
 
@@ -2983,43 +3110,33 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
     if (index < 0 || index >= widget.chapter.images.length) {
       return;
     }
-    if (!_pageController.hasClients) {
+    if (readerTwoPageWindowV1) {
+      if (!_pageController.hasClients || _pagePairs.isEmpty) {
+        return;
+      }
+      final slot = pairForPage(_pagePairs, index)?.slot ?? 0;
+      if (currentNoAnimation() || !animation) {
+        _pageController.jumpToPage(slot);
+      } else {
+        _pageController.animateToPage(
+          slot,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.ease,
+        );
+      }
+      _preloadJump(index);
+      super._onCurrentChange(index, forceUiSync: true);
       return;
     }
-    final slot = readerTwoPageWindowV1
-        ? (pairForPage(_pagePairs, index)?.slot ?? 0)
-        : index ~/ 2;
-    if (currentNoAnimation() || animation == false) {
-      _pageController.jumpToPage(slot);
-    } else {
-      _pageController.animateToPage(
-        slot,
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.ease,
-      );
-    }
-    _preloadJump(index);
-    super._onCurrentChange(index, forceUiSync: true);
+    unawaited(
+        _jumpPagedReader(_pageController, index, animation, imagesPerPage: 2));
+    _preloadJump((index ~/ 2) * 2);
   }
 
   _preloadJump(int index, {bool init = false}) {
-    fn() {
-      if (!mounted) {
-        return;
-      }
-      for (var i = index - 2; i < index + 5; i++) {
-        if (i < 0 || i >= widget.chapter.images.length) continue;
-        final ip = _readerPageProvider(i,
-            width: (MediaQuery.maybeSizeOf(context)?.width ?? 0) / 2);
-        _precacheReaderImage(ip, pageIndex: i, priority: i == index ? 10 : 2);
-      }
-    }
-
-    if (init) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => fn());
-    } else {
-      fn();
-    }
+    _preloadPages(
+        index, [index, index + 1, index + 2, index + 3, index - 1, index - 2],
+        init: init);
   }
 
   @override
@@ -3046,18 +3163,12 @@ class _TwoPageGalleryReaderState extends _ComicReaderState {
         ? _pagePairs[to].primaryPage(
             rtl: currentTwoPageDirection == TwoPageDirection.rightToLeft,
           )
-        : _legacyPairPrimaryPage(to);
+        : to * 2;
     if (toIndex < 0 || toIndex >= widget.chapter.images.length) {
       return;
     }
-    // Preload nearby pages.
-    for (var i = toIndex + 2;
-        i < toIndex + 5 && i < widget.chapter.images.length;
-        i++) {
-      final ip = _readerPageProvider(i,
-          width: (MediaQuery.maybeSizeOf(context)?.width ?? 0) / 2);
-      _precacheReaderImage(ip, pageIndex: i, priority: 2);
-    }
+    // 当前双页完成后，按阅读顺序预加载后续页面，再释放远处图片。
+    _preloadJump(toIndex);
     // Includes a synthetic trailing item for next-episode action.
     if (to >= 0 &&
         to <

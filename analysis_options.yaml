@@ -12,6 +12,10 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - _flutter/**
+    - _cache/**
+    - toolchains/**
+    - rust-backend/**
+    - worktrees/**
     - build/**
     - .dart_tool/**
 
