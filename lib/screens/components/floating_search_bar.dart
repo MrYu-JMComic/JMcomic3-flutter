@@ -39,11 +39,28 @@ class _FloatingSearchBarScreenState extends State<FloatingSearchBarScreen>
   @override
   void initState() {
     widget.controller._state = this;
+    _animationController.addStatusListener(_onAnimationStatus);
     super.initState();
+  }
+
+  void _onAnimationStatus(AnimationStatus status) {
+    // Add the overlay as opening starts and remove it after closing, including
+    // when the controller is used without a search-history rebuild.
+    setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant FloatingSearchBarScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller._state = null;
+      widget.controller._state = this;
+    }
   }
 
   @override
   void dispose() {
+    widget.controller._state = null;
     _node.dispose();
     _textEditingController.dispose();
     _animationController.dispose();
@@ -74,7 +91,7 @@ class _FloatingSearchBarScreenState extends State<FloatingSearchBarScreen>
         if (_animationController.isDismissed) {
           return true;
         }
-        _animationController.reverse();
+        _hideSearchBar();
         return false;
       },
       child: Container(),
@@ -95,7 +112,7 @@ class _FloatingSearchBarScreenState extends State<FloatingSearchBarScreen>
                 child: Container(
                   width: constraints.maxWidth,
                   height: constraints.maxHeight,
-                  color: Colors.black.withOpacity(.3 * _in.value),
+                  color: Colors.black.withValues(alpha: .3 * _in.value),
                 ),
               );
             }
@@ -113,70 +130,73 @@ class _FloatingSearchBarScreenState extends State<FloatingSearchBarScreen>
     return AnimatedBuilder(
       animation: _in,
       builder: (BuildContext context, Widget? child) {
-        return Column(
-          children: [
-            Container(
-              padding: EdgeInsets.only(top: statusBarHeight),
-              child: Transform.translate(
-                offset: Offset(0, (_in.value * finalHeight) - finalHeight),
-                child: Column(
-                  children: [
-                    _SearchBarContainer(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
+        return SafeArea(
+          top: false,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 840),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: EdgeInsets.only(top: statusBarHeight),
+                    child: Transform.translate(
+                      offset:
+                          Offset(0, (_in.value * finalHeight) - finalHeight),
+                      child: Column(
                         children: [
-                          IconButton(
-                            onPressed: _hideSearchBar,
-                            icon: Icon(
-                              Icons.arrow_back,
-                              color: Colors.grey.shade800,
+                          _SearchBarContainer(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  tooltip: MaterialLocalizations.of(context)
+                                      .backButtonTooltip,
+                                  onPressed: _hideSearchBar,
+                                  icon: const Icon(Icons.arrow_back),
+                                ),
+                                Expanded(child: _buildTextField()),
+                              ],
                             ),
                           ),
-                          Expanded(child: _buildTextField()),
                         ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  ...(widget.panel == null
+                      ? []
+                      : [
+                          Expanded(
+                            child: Transform.translate(
+                              offset: Offset(
+                                (_in.value * mq.size.width) - mq.size.width,
+                                0,
+                              ),
+                              child: Container(
+                                margin: const EdgeInsets.only(
+                                  top: 5,
+                                  left: 10,
+                                  right: 10,
+                                  bottom: 15,
+                                ),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outlineVariant,
+                                  ),
+                                  color: Theme.of(context).colorScheme.surface,
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: widget.panel,
+                              ),
+                            ),
+                          ),
+                        ]),
+                ],
               ),
             ),
-            ...(widget.panel == null
-                ? []
-                : [
-                    Expanded(
-                      child: Transform.translate(
-                        offset: Offset(
-                          (_in.value * mq.size.width) - mq.size.width,
-                          0,
-                        ),
-                        child: Container(
-                          margin: const EdgeInsets.only(
-                            top: 5,
-                            left: 10,
-                            right: 10,
-                            bottom: 15,
-                          ),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Colors.grey.shade500.withOpacity(.3),
-                              width: .1,
-                            ),
-                            color: Theme.of(context).scaffoldBackgroundColor,
-                            boxShadow: [
-                              BoxShadow(
-                                blurRadius: .2,
-                                spreadRadius: .3,
-                                color: Colors.grey.shade500.withOpacity(.3),
-                              ),
-                            ],
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: widget.panel,
-                        ),
-                      ),
-                    ),
-                  ]),
-          ],
+          ),
         );
       },
     );
@@ -192,15 +212,11 @@ class _FloatingSearchBarScreenState extends State<FloatingSearchBarScreen>
       maxLines: 1,
       autofocus: false,
       autocorrect: widget.autocorrect,
-      //cursorColor: style.accentColor,
-      //style: style.queryStyle,
-      // textInputAction: widget.textInputAction,
-      // keyboardType: widget.textInputType,
+      textInputAction: TextInputAction.search,
       onSubmitted: widget.onSubmitted,
       decoration: InputDecoration(
         isDense: true,
         hintText: widget.hint ?? context.l10n.tr("搜索", en: "Search"),
-        // hintStyle: style.hintStyle,
         contentPadding: EdgeInsets.zero,
         border: InputBorder.none,
         errorBorder: InputBorder.none,
@@ -236,21 +252,15 @@ class _SearchBarContainer extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(8, 5, 8, 5),
-      height: 50,
+      constraints: const BoxConstraints(minHeight: 56),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
         border: Border.all(
-          color: Colors.grey.shade500.withOpacity(.3),
-          width: .1,
+          color: Theme.of(context).colorScheme.outlineVariant,
+          width: 1,
         ),
-        color: Theme.of(context).scaffoldBackgroundColor,
-        boxShadow: [
-          BoxShadow(
-            blurRadius: .2,
-            spreadRadius: .3,
-            color: Colors.grey.shade500.withOpacity(.3),
-          ),
-        ],
-        borderRadius: BorderRadius.circular(5),
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
       ),
       child: child,
     );

@@ -17,19 +17,33 @@ class ComicInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const titleStyle = TextStyle(fontWeight: FontWeight.bold);
-    final authorStyle = TextStyle(fontSize: 13, color: Colors.pink.shade300);
+    final theme = Theme.of(context);
+    final titleStyle = theme.textTheme.titleSmall!.copyWith(
+      fontWeight: FontWeight.w600,
+      height: 1.4,
+    );
+    final authorStyle = theme.textTheme.bodySmall!.copyWith(
+      color: theme.colorScheme.primary,
+      height: 1.4,
+    );
     return Container(
-      padding: const EdgeInsets.only(top: 5, bottom: 5, left: 10, right: 10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: .18),
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Card(
-            shape: coverShape,
+            margin: EdgeInsets.zero,
+            elevation: 0,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
             clipBehavior: Clip.antiAlias,
             child: JM3x4Cover(
               comicId: comic.id,
@@ -37,7 +51,7 @@ class ComicInfoCard extends StatelessWidget {
               height: 100,
             ),
           ),
-          Container(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,7 +76,7 @@ class ComicInfoCard extends StatelessWidget {
                                   : TextSpan(
                                       text: comic.name,
                                       style: titleStyle,
-                                      children: [],
+                                      children: const [],
                                       recognizer: LongPressGestureRecognizer()
                                         ..onLongPress = () {
                                           confirmCopy(context, comic.name);
@@ -90,8 +104,15 @@ class ComicInfoCard extends StatelessWidget {
                           ),
                         ),
                       ]
-                    : [Text(comic.name, style: titleStyle)],
-                Container(height: 4),
+                    : [
+                        Text(
+                          comic.name,
+                          style: titleStyle,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                const SizedBox(height: 6),
                 link
                     ? GestureDetector(
                         onTap: () {
@@ -111,8 +132,8 @@ class ComicInfoCard extends StatelessWidget {
                         child: Text(comic.author, style: authorStyle),
                       )
                     : Text(comic.author, style: authorStyle),
-                Container(height: 4),
-                _buildCategoryRow(),
+                const SizedBox(height: 6),
+                _buildCategoryRow(context),
                 ..._buildDateMetaRow(context),
               ],
             ),
@@ -122,12 +143,19 @@ class ComicInfoCard extends StatelessWidget {
     );
   }
 
-  Widget _buildCategoryRow() {
+  Widget _buildCategoryRow(BuildContext context) {
     if (comic is ComicSimple) {
-      var _comic = comic as ComicSimple;
-      return Row(children: [..._c(_comic.category), ..._c(_comic.categorySub)]);
+      final simple = comic as ComicSimple;
+      return Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          ..._category(context, simple.category),
+          ..._category(context, simple.categorySub),
+        ],
+      );
     }
-    return Container();
+    return const SizedBox.shrink();
   }
 
   List<Widget> _buildDateMetaRow(BuildContext context) {
@@ -138,32 +166,24 @@ class ComicInfoCard extends StatelessWidget {
     }
     final style = TextStyle(
       fontSize: 12,
-      color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(.65),
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
       height: 1.4,
     );
     return [
-      Container(height: 4),
-      Row(
+      const SizedBox(height: 6),
+      Wrap(
+        spacing: 12,
+        runSpacing: 4,
         children: [
           if (published != null)
-            Expanded(
-              child: Text(
-                "发布: $published",
-                style: style,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+            Text(
+              "发布: $published",
+              style: style,
             ),
-          if (published != null && updated != null) const SizedBox(width: 10),
           if (updated != null)
-            Expanded(
-              child: Text(
-                "更新: $updated",
-                style: style,
-                textAlign: TextAlign.right,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+            Text(
+              "更新: $updated",
+              style: style,
             ),
         ],
       ),
@@ -183,11 +203,26 @@ class ComicInfoCard extends StatelessWidget {
     }
   }
 
-  List<Widget> _c(ComicSimpleCategory category) {
+  List<Widget> _category(BuildContext context, ComicSimpleCategory category) {
     if (category.title == null) {
       return [];
     }
-    return [Text(category.title!), Container(width: 15)];
+    final theme = Theme.of(context);
+    return [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primary.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          category.title!,
+          style: theme.textTheme.labelSmall!.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    ];
   }
 
   List<TextSpan> titleProcess(String name, BuildContext context) {
@@ -228,7 +263,7 @@ class ComicInfoCard extends StatelessWidget {
           style: TextStyle(
             // 30%蓝色 叠加本该有的颜色
             color: Color.alphaBlend(
-              Colors.blue.withOpacity(0.3),
+              Colors.blue.withValues(alpha: 0.3),
               Theme.of(context).textTheme.bodyMedium!.color!,
             ),
           ),

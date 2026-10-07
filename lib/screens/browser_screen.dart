@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:jmcomic3/basic/commons.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/components/comic_pager.dart';
@@ -10,7 +11,6 @@ import 'package:jmcomic3/screens/components/floating_search_bar.dart';
 import '../configs/categories_sort.dart';
 import '../configs/login.dart';
 import 'components/browser_bottom_sheet.dart';
-import 'components/actions.dart';
 import 'components/comic_floating_search_bar.dart';
 import 'components/content_error.dart';
 import 'components/content_loading.dart';
@@ -126,165 +126,163 @@ class _BrowserScreenState extends State<BrowserScreen>
         title: Text(l10n.browse),
         actions: [
           IconButton(
+            tooltip: l10n.weekMustSee,
             onPressed: () async {
               Navigator.push(context,
                   MaterialPageRoute(builder: (context) => const WeekScreen()));
             },
             icon: const Icon(Icons.calendar_month),
           ),
-          IconButton(
-            onPressed: () async {
-              searchHistories = await methods.lastSearchHistories(20);
-              widget.searchBarController.display(modifyInput: "");
-            },
-            icon: const Icon(Icons.search),
-          ),
           const BrowserBottomSheetAction(),
         ],
       ),
-      body: ContentBuilder(
-        key: _key,
-        future: _future,
-        onRefresh: () async {
-          setState(() {
-            _future = _categories();
-            _key = UniqueKey();
-          });
-        },
-        successBuilder: (
-          BuildContext context,
-          AsyncSnapshot<CategoriesResponse> snapshot,
-        ) {
-          final categories = snapshot.requireData.categories;
-          if (categories.isEmpty) {
-            _slug = "";
-            return Center(
-              child: Text(
-                l10n.tr("No categories available",
-                    en: "No categories available"),
-              ),
-            );
-          }
-          final slugExists = categories.any((element) => element.slug == _slug);
-          if (_slug.isEmpty || !slugExists) {
-            _slug = categories.first.slug;
-          }
-          return Column(children: [
-            SizedBox(
-              height: 56,
-              child: Container(
-                padding: const EdgeInsets.only(top: 8),
-                color: Theme.of(context).appBarTheme.backgroundColor,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _MTabBar(
-                        categories,
-                        (index) {
-                          setState(() {
-                            _slug = categories[index].slug;
-                          });
-                        },
-                      ),
-                    ),
-                    buildOrderSwitch(context, _sortBy, (value) {
-                      setState(() {
-                        _sortBy = value;
-                      });
-                    }),
-                  ],
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1440),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: _buildSearchEntry(context),
                 ),
-              ),
+                Expanded(
+                    child: ContentBuilder(
+                  key: _key,
+                  future: _future,
+                  onRefresh: () async {
+                    setState(() {
+                      _future = _categories();
+                      _key = UniqueKey();
+                    });
+                  },
+                  successBuilder: (
+                    BuildContext context,
+                    AsyncSnapshot<CategoriesResponse> snapshot,
+                  ) {
+                    final categories = snapshot.requireData.categories;
+                    if (categories.isEmpty) {
+                      _slug = "";
+                      return Center(
+                        child: Text(
+                          l10n.tr("暂无可用分类", en: "No categories available"),
+                        ),
+                      );
+                    }
+                    final slugExists =
+                        categories.any((element) => element.slug == _slug);
+                    if (_slug.isEmpty || !slugExists) {
+                      _slug = categories.first.slug;
+                    }
+                    return Column(children: [
+                      _buildCategoryFilters(context, categories),
+                      Expanded(
+                        child: ComicPager(
+                          key: Key("$_slug:$_sortBy"),
+                          onPage: (int page) async {
+                            final response =
+                                await methods.comics(_slug, _sortBy, page);
+                            return InnerComicPage(
+                              total: response.total,
+                              list: response.content,
+                            );
+                          },
+                        ),
+                      ),
+                    ]);
+                  },
+                )),
+              ],
             ),
-            Expanded(
-              child: ComicPager(
-                key: Key("$_slug:$_sortBy"),
-                onPage: (int page) async {
-                  final response = await methods.comics(_slug, _sortBy, page);
-                  return InnerComicPage(
-                    total: response.total,
-                    list: response.content,
-                  );
-                },
-              ),
-            ),
-          ]);
-        },
+          ),
+        ),
       ),
     );
   }
-}
 
-class _MTabBar extends StatefulWidget {
-  final List<Categories> categories;
-  final void Function(int index) onTab;
-
-  const _MTabBar(this.categories, this.onTab);
-
-  @override
-  State<StatefulWidget> createState() => _MTabBarState();
-}
-
-class _MTabBarState extends State<_MTabBar>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = _createController();
-  }
-
-  TabController _createController({int initialIndex = 0}) {
-    final maxIndex = widget.categories.length - 1;
-    final safeIndex = initialIndex > maxIndex ? maxIndex : initialIndex;
-    return TabController(
-      length: widget.categories.length,
-      vsync: this,
-      initialIndex: safeIndex,
+  Widget _buildSearchEntry(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () async {
+          searchHistories = await methods.lastSearchHistories(20);
+          if (!mounted) return;
+          widget.searchBarController.display(modifyInput: '');
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Icon(Icons.search_rounded, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  context.l10n.tr('搜索漫画、作者或关键词',
+                      en: 'Search comics, authors or keywords'),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
-  @override
-  void didUpdateWidget(covariant _MTabBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.categories.length != widget.categories.length) {
-      final index = _tabController.index;
-      _tabController.dispose();
-      _tabController = _createController(initialIndex: index);
-    }
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 50,
-      child: TabBar(
-          onTap: widget.onTab,
-          controller: _tabController,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          indicatorSize: TabBarIndicatorSize.tab,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          labelPadding: const EdgeInsets.symmetric(horizontal: 10),
-          indicator: BoxDecoration(
-            color: Colors.grey.shade500.withValues(alpha: 0.3),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(5),
-              topRight: Radius.circular(5),
+  Widget _buildCategoryFilters(
+      BuildContext context, List<Categories> categories) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  for (final category in categories)
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(end: 8),
+                      child: ChoiceChip(
+                        label: Text(category.name),
+                        selected: category.slug == _slug,
+                        showCheckmark: false,
+                        onSelected: (selected) {
+                          if (selected) {
+                            setState(() => _slug = category.slug);
+                          }
+                        },
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
-          tabs: widget.categories
-              .map((e) => Tab(
-                    text: e.name,
-                  ))
-              .toList()),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(start: 4, end: 12),
+            child: IconButton.filledTonal(
+              tooltip:
+                  '${context.l10n.chooseSort}: ${sortByName(context, _sortBy)}',
+              onPressed: () async {
+                final value = await chooseSortBy(context);
+                if (!mounted || value == null) return;
+                setState(() => _sortBy = value);
+              },
+              icon: const Icon(Icons.sort_rounded),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
