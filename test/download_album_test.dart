@@ -247,7 +247,8 @@ void main() {
     });
 
     expect(create.hasChapters, isFalse);
-    expect(create.initialChapterId, 7);
+    expect(create.firstChapterId, isNull);
+    expect(create.initialChapterId, 0);
     expect(create.containsChapterId(7), isFalse);
     expect(create.chapterById(7), isNull);
     expect(create.readerSeries, isEmpty);
@@ -1228,6 +1229,20 @@ void main() {
     expect(list, ['a', 'a', 'b']);
   });
 
+  test('method response decoder shares platform list normalization', () {
+    final modes = decodeStringListValue(
+      {
+        'modes': '[" 60Hz ", "60Hz", null, " 90Hz "]',
+      },
+      'androidGetModes',
+      dedupe: true,
+    );
+
+    // 平台通道和后端列表共用同一个归一化入口，避免设置页重复解包对象壳。
+    expect(modes, ['60Hz', '90Hz']);
+    expect(() => modes.add('120Hz'), throwsUnsupportedError);
+  });
+
   test('API host init normalizes persisted URL-like values', () async {
     const channel = MethodChannel('methods');
     final messenger =
@@ -1538,7 +1553,8 @@ void main() {
     expect(modeArg, '120Hz');
   });
 
-  test('Methods.set_download_thread clamps invalid thread count', () async {
+  test('Methods.set_download_thread forwards thread count to backend',
+      () async {
     const channel = MethodChannel('methods');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -1555,8 +1571,8 @@ void main() {
 
     await methods.set_download_thread(99);
 
-    // 前端先做边界归一化，避免无效值反复跨端并触发后端存储写入。
-    expect(invokedParams, '5');
+    // 线程范围由后端统一归一化，前端只传递用户请求，避免双份边界常量漂移。
+    expect(invokedParams, '99');
   });
 
   test('Methods.load_download_thread falls back when payload is invalid',
@@ -1578,7 +1594,7 @@ void main() {
     expect(value, 1);
   });
 
-  test('Methods.load_download_thread clamps out-of-range payload', () async {
+  test('Methods.load_download_thread preserves backend payload', () async {
     const channel = MethodChannel('methods');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -1592,8 +1608,8 @@ void main() {
 
     final value = await methods.load_download_thread();
 
-    // 旧后端或异常缓存给出越界线程值时，前端应保持与当前协议上限一致。
-    expect(value, 5);
+    // 当前后端始终输出归一化值；这里只验证桥接层不再重复覆盖后端结果。
+    expect(value, 99);
   });
 
   test('Methods.load_download_thread accepts nested json string payload',

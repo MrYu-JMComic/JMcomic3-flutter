@@ -46,8 +46,9 @@ def rustAndroidAbiMetadata = [
 android {
     namespace "com.jmcomic3.yee"
     compileSdkVersion flutter.compileSdkVersion
-    // Keep the native Rust build and the Android Gradle plugin on the same
-    // side-by-side NDK that is pinned by the repository CI workflow.
+    // Keep the Android NDK aligned with the Rust cargo-ndk toolchain that is
+    // pinned by the local build environment (D:\\Cat\\jm3). Following
+    // Flutter's moving default here can select an uninstalled/malformed NDK.
     ndkVersion "25.2.9519653"
 
     compileOptions {
