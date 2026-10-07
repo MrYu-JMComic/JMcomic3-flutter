@@ -107,7 +107,7 @@ class _AppScreenState extends State<AppScreen> {
             ],
           ),
           bottomNavigationBar:
-              useRail ? null : _buildBottomNavigationBar(context),
+              useRail ? null : _buildBottomNavigationBar(context, screens),
         );
       }),
     );
@@ -159,7 +159,8 @@ class _AppScreenState extends State<AppScreen> {
     );
   }
 
-  Widget _buildBottomNavigationBar(BuildContext context) {
+  Widget _buildBottomNavigationBar(
+      BuildContext context, List<AppScreenData> screens) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final navTheme = NavigationBarTheme.of(context);
@@ -210,7 +211,7 @@ class _AppScreenState extends State<AppScreen> {
             child: NavigationBar(
               selectedIndex: _selectedIndex,
               onDestinationSelected: _onItemTapped,
-              destinations: _screens(context)
+              destinations: screens
                   .map((e) => NavigationDestination(
                         icon: e.icon,
                         selectedIcon: e.activeIcon,

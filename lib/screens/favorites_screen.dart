@@ -117,25 +117,16 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       appBar: AppBar(
         title: Text(context.l10n.favorites),
         actions: [
-          MaterialButton(
+          IconButton(
             onPressed: _chooseSort,
-            child: Row(
-              children: [
-                const Icon(Icons.sort, size: 15),
-                Container(width: 8),
-                Text(sortNameMap[_sort] ?? ""),
-              ],
-            ),
+            tooltip: "${context.l10n.chooseSort}: ${sortNameMap[_sort] ?? ""}",
+            icon: const Icon(Icons.sort),
           ),
-          MaterialButton(
+          IconButton(
             onPressed: _chooseFolder,
-            child: Row(
-              children: [
-                const Icon(Icons.folder_copy_outlined, size: 15),
-                Container(width: 8),
-                Text(_folderMap[_folderId] ?? context.l10n.all),
-              ],
-            ),
+            tooltip:
+                "${context.l10n.chooseFolder}: ${_folderMap[_folderId] ?? context.l10n.all}",
+            icon: const Icon(Icons.folder_copy_outlined),
           ),
         ],
       ),
