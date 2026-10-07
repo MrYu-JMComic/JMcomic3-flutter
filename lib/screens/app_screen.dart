@@ -42,8 +42,10 @@ class _AppScreenState extends State<AppScreen> {
   void initState() {
     super.initState();
     Future.delayed(Duration.zero, () async {
+      if (!mounted) return;
       versionPop(context);
       await checkDailySignStatus(context);
+      if (!mounted) return;
       versionEvent.subscribe(_versionSub);
     });
   }
@@ -63,6 +65,7 @@ class _AppScreenState extends State<AppScreen> {
   late final _pageController = PageController(initialPage: 0);
 
   void _onItemTapped(int index) {
+    if (_selectedIndex == index) return;
     setState(() {
       _selectedIndex = index;
     });
@@ -81,19 +84,77 @@ class _AppScreenState extends State<AppScreen> {
         }));
       },
       controller: _searchBarController,
-      child: Scaffold(
-        body: PageView(
-          physics: const NeverScrollableScrollPhysics(),
-          allowImplicitScrolling: false,
-          controller: _pageController,
-          onPageChanged: (index) {
-            setState(() {
-              _selectedIndex = index;
-            });
-          },
-          children: screens.map((e) => e.screen).toList(),
-        ),
-        bottomNavigationBar: _buildBottomNavigationBar(context),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final useRail = constraints.maxWidth >= 840;
+        return Scaffold(
+          body: Row(
+            children: [
+              if (useRail) _buildNavigationRail(context, screens),
+              Expanded(
+                key: const ValueKey('app-pages'),
+                child: PageView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  allowImplicitScrolling: false,
+                  controller: _pageController,
+                  onPageChanged: (index) {
+                    setState(() {
+                      _selectedIndex = index;
+                    });
+                  },
+                  children: screens.map((e) => e.screen).toList(),
+                ),
+              ),
+            ],
+          ),
+          bottomNavigationBar:
+              useRail ? null : _buildBottomNavigationBar(context),
+        );
+      }),
+    );
+  }
+
+  Widget _buildNavigationRail(
+      BuildContext context, List<AppScreenData> screens) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border(right: BorderSide(color: scheme.outlineVariant)),
+      ),
+      child: SafeArea(
+        right: false,
+        child: LayoutBuilder(builder: (context, constraints) {
+          return SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: NavigationRail(
+                  backgroundColor: Colors.transparent,
+                  minWidth: 88,
+                  groupAlignment: -1,
+                  labelType: NavigationRailLabelType.all,
+                  leading: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 24, 12, 28),
+                    child: Tooltip(
+                      message: 'JMcomic3',
+                      child: Icon(Icons.auto_stories_rounded,
+                          color: scheme.primary, size: 30),
+                    ),
+                  ),
+                  selectedIndex: _selectedIndex,
+                  onDestinationSelected: _onItemTapped,
+                  destinations: screens
+                      .map((screen) => NavigationRailDestination(
+                            icon: screen.icon,
+                            selectedIcon: screen.activeIcon,
+                            label: Text(screen.title),
+                          ))
+                      .toList(),
+                ),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
@@ -128,9 +189,8 @@ class _AppScreenState extends State<AppScreen> {
                 alpha: theme.brightness == Brightness.dark ? .22 : .12,
               ),
               elevation: 0,
-              height: 60,
-              labelBehavior:
-                  NavigationDestinationLabelBehavior.onlyShowSelected,
+              height: 68,
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
               labelTextStyle: WidgetStateProperty.resolveWith((states) {
                 final selected = states.contains(WidgetState.selected);
                 return TextStyle(
