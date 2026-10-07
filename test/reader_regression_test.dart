@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:another_xlider/another_xlider.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -223,7 +224,9 @@ void main() {
     final before = controller.value.storage[12];
     await tester.dragFrom(const Offset(350, 260), const Offset(100, 0));
     await tester.pumpAndSettle();
-    expect((controller.value.storage[12] - before).abs(), greaterThan(10));
+    final delta = controller.value.storage[12] - before;
+    expect(delta.abs(), greaterThan(10));
+    expect(delta.abs(), lessThan(180));
     expect(comicReaderProgressForTest(key).current, 0);
     await doubleTap(tester, const Offset(350, 260));
     await tester.dragFrom(const Offset(600, 260), const Offset(-600, 0));
@@ -260,6 +263,46 @@ void main() {
     await tester.dragFrom(const Offset(350, 450), const Offset(0, -420));
     await tester.pumpAndSettle();
     expect(comicReaderProgressForTest(key).current, greaterThan(0));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('vertical free zoom keeps horizontal pan after pinch handoff',
+      (tester) async {
+    final key = await mountReader(
+        tester, ReaderType.webToonFreeZoom, ReaderDirection.topToBottom);
+    final viewerFinder = find.byType(InteractiveViewer);
+    final rect = tester.getRect(viewerFinder);
+    final viewer = tester.widget<InteractiveViewer>(viewerFinder);
+    final controller = viewer.transformationController!;
+    final first = await tester.createGesture(
+      kind: PointerDeviceKind.touch,
+      pointer: 1,
+    );
+    final second = await tester.createGesture(
+      kind: PointerDeviceKind.touch,
+      pointer: 2,
+    );
+    await first.down(Offset(rect.center.dx - 80, rect.center.dy));
+    await second.down(Offset(rect.center.dx + 80, rect.center.dy));
+    await tester.pump();
+    await first.moveTo(Offset(rect.center.dx - 150, rect.center.dy));
+    await second.moveTo(Offset(rect.center.dx + 150, rect.center.dy));
+    await tester.pumpAndSettle();
+    expect(controller.value.getMaxScaleOnAxis(), greaterThan(1.1));
+
+    await second.up();
+    await tester.pump();
+    expect(tester.widget<InteractiveViewer>(viewerFinder).panEnabled, isFalse);
+    final before = controller.value.storage[12];
+    await first.moveBy(const Offset(-100, 0));
+    await tester.pumpAndSettle();
+    await first.up();
+    final delta = (controller.value.storage[12] - before).abs();
+    expect(delta, greaterThan(10));
+    expect(delta, lessThan(180));
+    expect(comicReaderProgressForTest(key).current, 0);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
