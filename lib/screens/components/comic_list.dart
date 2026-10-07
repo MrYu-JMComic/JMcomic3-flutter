@@ -33,6 +33,15 @@ class ComicList extends StatefulWidget {
 }
 
 class _ComicListState extends State<ComicList> {
+  // Card's default 4px margin makes the rendered image box narrower than the
+  // grid tile while keeping the tile height unchanged. The resulting cover
+  // looks slightly taller than the selected ratio. Keep the gap at the grid
+  // level so the actual card remains exactly 3:4 (or 1:1).
+  static const double _coverGridSpacing = 8;
+  // Preserve the historical Card edge breathing room after making the card
+  // margin explicit, so covers do not touch the screen edges.
+  static const double _coverGridPadding = 4;
+
   @override
   void initState() {
     currentPagerViewModeEvent.subscribe(_setState);
@@ -76,6 +85,7 @@ class _ComicListState extends State<ComicList> {
         },
         onLongPress: _longPressCallback(i),
         child: Card(
+          margin: EdgeInsets.zero,
           shape: coverShape,
           clipBehavior: Clip.antiAlias,
           child: LayoutBuilder(
@@ -114,9 +124,14 @@ class _ComicListState extends State<ComicList> {
         break;
     }
     if (widget.inScroll) {
-      var columnWidth = MediaQuery.of(context).size.width / pagerColumnNumber;
+      final columnWidth = (MediaQuery.of(context).size.width -
+              _coverGridPadding * 2 -
+              _coverGridSpacing * (pagerColumnNumber - 1)) /
+          pagerColumnNumber;
       var wrap = Wrap(
         alignment: WrapAlignment.spaceAround,
+        spacing: _coverGridSpacing,
+        runSpacing: _coverGridSpacing,
         crossAxisAlignment: WrapCrossAlignment.center,
         runAlignment: WrapAlignment.spaceBetween,
         children: widgets
@@ -127,11 +142,17 @@ class _ComicListState extends State<ComicList> {
                 ))
             .toList(),
       );
-      return wrap;
+      return Padding(
+        padding: const EdgeInsets.all(_coverGridPadding),
+        child: wrap,
+      );
     }
     final view = GridView.count(
       childAspectRatio: childAspectRatio,
       crossAxisCount: pagerColumnNumber,
+      crossAxisSpacing: _coverGridSpacing,
+      mainAxisSpacing: _coverGridSpacing,
+      padding: const EdgeInsets.all(_coverGridPadding),
       controller: widget.controller,
       physics: const AlwaysScrollableScrollPhysics(),
       children: widgets,
@@ -173,6 +194,7 @@ class _ComicListState extends State<ComicList> {
           _pushToComicInfo(widget.data[i]);
         },
         child: Card(
+          margin: EdgeInsets.zero,
           shape: coverShape,
           clipBehavior: Clip.antiAlias,
           child: LayoutBuilder(
@@ -239,9 +261,14 @@ class _ComicListState extends State<ComicList> {
         break;
     }
     if (widget.inScroll) {
-      var columnWidth = MediaQuery.of(context).size.width / pagerColumnNumber;
+      final columnWidth = (MediaQuery.of(context).size.width -
+              _coverGridPadding * 2 -
+              _coverGridSpacing * (pagerColumnNumber - 1)) /
+          pagerColumnNumber;
       var wrap = Wrap(
         alignment: WrapAlignment.spaceAround,
+        spacing: _coverGridSpacing,
+        runSpacing: _coverGridSpacing,
         crossAxisAlignment: WrapCrossAlignment.center,
         runAlignment: WrapAlignment.spaceBetween,
         children: widgets
@@ -252,11 +279,17 @@ class _ComicListState extends State<ComicList> {
                 ))
             .toList(),
       );
-      return wrap;
+      return Padding(
+        padding: const EdgeInsets.all(_coverGridPadding),
+        child: wrap,
+      );
     }
     final view = GridView.count(
       childAspectRatio: childAspectRatio,
       crossAxisCount: pagerColumnNumber,
+      crossAxisSpacing: _coverGridSpacing,
+      mainAxisSpacing: _coverGridSpacing,
+      padding: const EdgeInsets.all(_coverGridPadding),
       controller: widget.controller,
       physics: const AlwaysScrollableScrollPhysics(),
       children: widgets,
@@ -266,7 +299,9 @@ class _ComicListState extends State<ComicList> {
 
   Widget _buildTitleAndCoverMode() {
     final mq = MediaQuery.of(context);
-    final width = (mq.size.width - 20) / pagerColumnNumber;
+    final width =
+        (mq.size.width - _coverGridSpacing * (pagerColumnNumber - 1) - 20) /
+            pagerColumnNumber;
     late final double height;
     switch (currentPagerCoverRate) {
       case PagerCoverRate.rate3x4:
@@ -289,6 +324,7 @@ class _ComicListState extends State<ComicList> {
               width: width,
               height: height,
               child: Card(
+                margin: EdgeInsets.zero,
                 shape: coverShape,
                 clipBehavior: Clip.antiAlias,
                 child: LayoutBuilder(
@@ -342,6 +378,8 @@ class _ComicListState extends State<ComicList> {
     }
     final wrap = Wrap(
       alignment: WrapAlignment.spaceAround,
+      spacing: _coverGridSpacing,
+      runSpacing: _coverGridSpacing,
       crossAxisAlignment: WrapCrossAlignment.center,
       runAlignment: WrapAlignment.spaceBetween,
       children: widgets,

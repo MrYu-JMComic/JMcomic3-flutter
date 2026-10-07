@@ -11,6 +11,7 @@ import 'package:jmcomic3/configs/pager_cover_rate.dart';
 import 'package:jmcomic3/configs/pager_view_mode.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/favorites_screen.dart';
+import 'package:jmcomic3/screens/components/images.dart';
 
 Map<String, dynamic> _comicFixture(int id) => {
       'id': id,
@@ -133,6 +134,10 @@ Future<List<int>> _mountFavorites(
   ));
   await tester.pumpAndSettle();
   expect(tester.takeException(), isNull);
+  final covers = find.byType(JM3x4Cover);
+  expect(covers, findsWidgets);
+  final coverSize = tester.getSize(covers.first);
+  expect(coverSize.width / coverSize.height, closeTo(3 / 4, 1e-6));
   return pages;
 }
 

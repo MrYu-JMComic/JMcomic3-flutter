@@ -163,7 +163,22 @@ finally {
 }
 
 if (-not $AabOnly) {
-    $apkOutputRoot = Join-Path $outputRoot 'app/outputs/flutter-apk'
+    # Flutter versions that do not honor FLUTTER_BUILD_DIR still write to the
+    # repository's default build directory. Accept both locations so a
+    # completed local build is not reported as failed during signing checks.
+    $apkOutputCandidates = @(
+        (Join-Path $outputRoot 'app/outputs/flutter-apk'),
+        (Join-Path $repoRoot 'build/app/outputs/flutter-apk')
+    )
+    $apkOutputRoot = $apkOutputCandidates |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Container } |
+        Select-Object -First 1
+    if (-not $apkOutputRoot) {
+        throw "Flutter APK output directory was not found. Looked in:`n$($apkOutputCandidates -join "`n")"
+    }
+    if ($apkOutputRoot -ne (Join-Path $outputRoot 'app/outputs/flutter-apk')) {
+        Write-Host "Flutter used fallback APK output directory: $apkOutputRoot" -ForegroundColor Yellow
+    }
     if ($DebugSign) {
         Sign-AndVerifyDebugApks -Root $repoRoot -ApkRoot $apkOutputRoot
         Write-Host 'APK signing: Android debug keystore (test install only)' -ForegroundColor Yellow

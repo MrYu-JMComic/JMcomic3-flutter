@@ -20,6 +20,7 @@ import 'package:jmcomic3/screens/comic_reader_screen.dart';
 import 'package:jmcomic3/screens/components/images.dart';
 import 'package:jmcomic3/screens/components/reader_preloader.dart';
 import 'package:jmcomic3/screens/components/reader_progress.dart';
+import 'package:jmcomic3/screens/components/reader_zoom_surface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -235,26 +236,44 @@ void main() {
   });
 
   testWidgets(
-      'vertical free zoom double tap routes single finger pan and restores reading scroll',
+      'vertical free zoom pans to both page edges and restores reading scroll',
       (tester) async {
     final key = await mountReader(
         tester, ReaderType.webToonFreeZoom, ReaderDirection.topToBottom);
     await doubleTap(tester, const Offset(350, 260));
-    final viewer =
-        tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
-    final controller = viewer.transformationController!;
+    final zoomSurface =
+        tester.widget<ReaderZoomSurface>(find.byType(ReaderZoomSurface));
+    final viewer = zoomSurface;
+    final controller = viewer.controller;
     expect(controller.value.getMaxScaleOnAxis(), greaterThan(1.9));
-    expect(viewer.panEnabled, isTrue);
-    final before = controller.value.storage[12];
-    await tester.dragFrom(const Offset(350, 260), const Offset(80, 0));
+    // Vertical free zoom keeps the whole chapter in one continuous ListView;
+    // the transform scales the reader while the list still owns single-finger
+    // scrolling across page boundaries.
+    expect(viewer.panEnabled, isFalse);
+    final beforeX = controller.value.storage[12];
+    final beforeY = controller.value.storage[13];
+    await tester.dragFrom(const Offset(350, 260), const Offset(0, -360));
     await tester.pumpAndSettle();
-    expect((controller.value.storage[12] - before).abs(), greaterThan(10));
+    expect(comicReaderProgressForTest(key).current, greaterThan(0));
+    expect(controller.value.getMaxScaleOnAxis(), greaterThan(1.9));
+    expect(controller.value.storage[13], closeTo(beforeY, 0.001));
+    for (var i = 0; i < 20; i++) {
+      await tester.dragFrom(const Offset(350, 260), const Offset(0, -4000));
+      await tester.pumpAndSettle();
+    }
+    expect(comicReaderProgressForTest(key).current,
+        greaterThan(heights.length - 3));
+    for (var i = 0; i < 20; i++) {
+      await tester.dragFrom(const Offset(350, 120), const Offset(0, 4000));
+      await tester.pumpAndSettle();
+    }
+    expect((controller.value.storage[12] - beforeX).abs(), lessThan(1));
     expect(comicReaderProgressForTest(key).current, 0);
     await doubleTap(tester, const Offset(350, 260));
     expect(controller.value.getMaxScaleOnAxis(), closeTo(1, 0.001));
     expect(
         tester
-            .widget<InteractiveViewer>(find.byType(InteractiveViewer))
+            .widget<ReaderZoomSurface>(find.byType(ReaderZoomSurface))
             .panEnabled,
         isFalse);
     await tester.dragFrom(const Offset(350, 450), const Offset(0, -420));
@@ -278,9 +297,8 @@ void main() {
       await doubleTap(tester, const Offset(350, 260));
       expect(find.byType(AppBar), findsNothing);
       final viewer =
-          tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
-      expect(viewer.transformationController!.value.getMaxScaleOnAxis(),
-          closeTo(1, 0.001));
+          tester.widget<ReaderZoomSurface>(find.byType(ReaderZoomSurface));
+      expect(viewer.controller.value.getMaxScaleOnAxis(), closeTo(1, 0.001));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();

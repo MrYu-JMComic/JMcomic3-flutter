@@ -317,6 +317,13 @@ final Map<String, Future<String>> _photoPathFutureCache = {};
 final Map<String, Future<String>> _pageImagePathFutureCache = {};
 final Map<String, Future<Size>> _pageImageTrueSizeFutureCache = {};
 final Map<String, Set<Object>> _pageImageDecodeKeys = {};
+final Map<String, _PendingPageImageDecodeKeys> _pendingPageImageDecodeKeys = {};
+
+class _PendingPageImageDecodeKeys {
+  int generation = 0;
+  int requests = 0;
+  bool evictLive = false;
+}
 
 String _pageImageCacheKey(int id, String imageName, {String? path}) {
   final normalizedPath = _normalizeLocalPath(path);
@@ -325,18 +332,32 @@ String _pageImageCacheKey(int id, String imageName, {String? path}) {
       : "$id/$imageName|$normalizedPath";
 }
 
-void _recordPageImageDecodeKey(
+void registerPageImageDecodeKey(
   int id,
   String imageName,
   ImageProvider provider,
 ) {
-  // 长条阅读器使用 FileImage/ResizeImage，需要登记真实解码键才能按页释放。
+  // 记录阅读器的真实解码键，按页回收时无需清空全局图片缓存。
+  final pageKey = _pageImageCacheKey(id, imageName);
+  final pending = _pendingPageImageDecodeKeys.putIfAbsent(
+    pageKey,
+    _PendingPageImageDecodeKeys.new,
+  );
+  final generation = pending.generation;
+  pending.requests++;
   unawaited(provider.obtainKey(ImageConfiguration.empty).then<void>((key) {
-    final pageKey = _pageImageCacheKey(id, imageName);
+    if (pending.generation != generation) {
+      // The page was evicted while obtainKey was pending. The key may have
+      // entered ImageCache just before that eviction, so remove it again now.
+      imageCache.evict(key, includeLive: pending.evictLive);
+      return;
+    }
     if (!_pageImageDecodeKeys.containsKey(pageKey) &&
         _pageImageDecodeKeys.length >= _pageImagePathCacheLimit) {
-      final oldKeys =
-          _pageImageDecodeKeys.remove(_pageImageDecodeKeys.keys.first)!;
+      final oldPageKey = _pageImageDecodeKeys.keys.first;
+      final oldKeys = _pageImageDecodeKeys.remove(oldPageKey)!;
+      final oldPending = _pendingPageImageDecodeKeys.remove(oldPageKey);
+      oldPending?.generation++;
       for (final oldKey in oldKeys) {
         imageCache.evict(oldKey, includeLive: false);
       }
@@ -349,6 +370,12 @@ void _recordPageImageDecodeKey(
       imageCache.evict(oldKey, includeLive: false);
     }
     keys.add(key);
+  }).whenComplete(() {
+    pending.requests--;
+    if (pending.requests == 0 &&
+        identical(_pendingPageImageDecodeKeys[pageKey], pending)) {
+      _pendingPageImageDecodeKeys.remove(pageKey);
+    }
   }).catchError((Object error, StackTrace stackTrace) {
     debugPrient("record page decode key failed: $error\n$stackTrace");
   }));
@@ -521,23 +548,60 @@ void _evictPageImageCache(int id, String imageName) {
 }
 
 /// 淘汰单页的路径、尺寸及解码缓存，保留仍在屏幕上的活动图片。
-void evictPageImageMemoryCache(int id, String imageName) {
+void evictPageImageMemoryCache(
+  int id,
+  String imageName, {
+  bool includeLive = false,
+}) {
   _evictPageImageCache(id, imageName);
-  evictPageImageDecodeCache(id, imageName);
+  evictPageImageDecodeCache(id, imageName, includeLive: includeLive);
 }
 
 /// 仅淘汰 Flutter 解码缓存，覆盖相册页图和长条阅读器的文件/缩放缓存键。
-void evictPageImageDecodeCache(int id, String imageName) {
+void evictPageImageDecodeCache(
+  int id,
+  String imageName, {
+  bool includeLive = false,
+}) {
   // includeLive=false 不影响仍显示中的图片。
+  final pageKey = _pageImageCacheKey(id, imageName);
+  final pending = _pendingPageImageDecodeKeys[pageKey];
+  if (pending != null) {
+    pending.generation++;
+    pending.evictLive = pending.evictLive || includeLive;
+  }
   imageCache.evict(
     PageImageProvider(id, imageName),
-    includeLive: false,
+    includeLive: includeLive,
   );
-  final keys = _pageImageDecodeKeys.remove(_pageImageCacheKey(id, imageName));
+  final keys = _pageImageDecodeKeys.remove(pageKey);
   if (keys != null) {
     for (final key in keys) {
-      imageCache.evict(key, includeLive: false);
+      imageCache.evict(key, includeLive: includeLive);
     }
+  }
+}
+
+/// 淘汰指定章节所有页的路径、尺寸和已登记解码缓存。
+/// Flutter 图片缓存仍由其有界 LRU 管理；仅在章节退出时按章节精确释放。
+void evictChapterPageImageMemoryCache(
+  int chapterId, {
+  Iterable<String> imageNames = const <String>[],
+}) {
+  // Preload paths may use the unindexed provider key even before a concrete
+  // page widget has registered its decode key.
+  for (final imageName in imageNames) {
+    evictPageImageDecodeCache(chapterId, imageName, includeLive: true);
+  }
+  final prefix = '$chapterId/';
+  _pageImagePathFutureCache.removeWhere((key, _) => key.startsWith(prefix));
+  _pageImageTrueSizeFutureCache.removeWhere((key, _) => key.startsWith(prefix));
+  final pageKeys = _pageImageDecodeKeys.keys
+      .where((key) => key.startsWith(prefix))
+      .toList(growable: false);
+  for (final pageKey in pageKeys) {
+    final imageName = pageKey.substring(prefix.length).split('|').first;
+    evictPageImageDecodeCache(chapterId, imageName, includeLive: true);
   }
 }
 
@@ -563,6 +627,9 @@ void clearAllImageMemoryCaches() {
   _photoPathFutureCache.clear();
   _pageImagePathFutureCache.clear();
   _pageImageTrueSizeFutureCache.clear();
+  for (final pending in _pendingPageImageDecodeKeys.values) {
+    pending.generation++;
+  }
   for (final keys in _pageImageDecodeKeys.values) {
     for (final key in keys) {
       imageCache.evict(key, includeLive: false);
@@ -651,6 +718,7 @@ class _JM3x4CoverState extends State<JM3x4Cover> {
       widget.height,
       fit: widget.fit,
       longPressMenuItems: widget.longPressMenuItems,
+      preserveSourceAspectRatio: true,
       onReload: _reload,
       onDecodeError: _autoRetryOnDecodeError,
     );
@@ -732,6 +800,7 @@ class _JMSquareCoverState extends State<JMSquareCover> {
       widget.height,
       fit: widget.fit,
       longPressMenuItems: widget.longPressMenuItems,
+      preserveSourceAspectRatio: true,
       onReload: _reload,
       onDecodeError: _autoRetryOnDecodeError,
     );
@@ -978,7 +1047,7 @@ class _JMPageImageState extends State<JMPageImage> {
       onReload: _reload,
       onDecodeError: _autoRetryOnDecodeError,
       onImageProvider: (provider) =>
-          _recordPageImageDecodeKey(widget.id, widget.imageName, provider),
+          registerPageImageDecodeKey(widget.id, widget.imageName, provider),
     );
   }
 }
@@ -1003,7 +1072,8 @@ Widget pathFutureImage(
     VoidCallback? onReload,
     VoidCallback? onDecodeError,
     ValueChanged<ImageProvider>? onImageProvider,
-    bool offlineOnly = false}) {
+    bool offlineOnly = false,
+    bool preserveSourceAspectRatio = false}) {
   // 使用 FutureBuilder 渲染加载/错误/成功状态
   return FutureBuilder<String>(
       future: future,
@@ -1041,6 +1111,7 @@ Widget pathFutureImage(
             onReload: onReload,
             onDecodeError: onDecodeError,
             onImageProvider: onImageProvider,
+            preserveSourceAspectRatio: preserveSourceAspectRatio,
           );
         }
         if (snapshot.connectionState == ConnectionState.done) {
@@ -1323,15 +1394,18 @@ Widget buildFile(
     List<LongPressMenuItem>? longPressMenuItems,
     VoidCallback? onReload,
     VoidCallback? onDecodeError,
-    ValueChanged<ImageProvider>? onImageProvider}) {
+    ValueChanged<ImageProvider>? onImageProvider,
+    bool preserveSourceAspectRatio = false}) {
   final devicePixelRatio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
   final cacheWidth = _cacheExtent(width, devicePixelRatio);
   final cacheHeight = _cacheExtent(height, devicePixelRatio);
-  final provider = ResizeImage.resizeIfNeeded(
-    cacheWidth,
-    cacheHeight,
-    FileImage(File(file)),
-  );
+  // A cover is fitted with BoxFit.cover after decoding. Passing both target
+  // dimensions to ResizeImage would decode a non-3:4 source at an exact 3:4
+  // bitmap first, which permanently distorts it before BoxFit can scale/crop.
+  final source = FileImage(File(file));
+  final provider = preserveSourceAspectRatio
+      ? source
+      : ResizeImage.resizeIfNeeded(cacheWidth, cacheHeight, source);
   onImageProvider?.call(provider);
   final image = Image(
     image: provider,

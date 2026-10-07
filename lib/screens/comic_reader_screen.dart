@@ -38,15 +38,6 @@ import '../basic/reader_pages.dart';
 import '../basic/page_pairing.dart';
 import '../reader_progress.dart';
 
-/// 释放远离当前页且已经没有活动监听器的解码图片，避免长章节持续占用内存。
-/// includeLive=false 会保留仍在树上的图片，防止释放后马上重复解码。
-void _releasePageImageMemory(ChapterResponse chapter, int index) {
-  if (index < 0 || index >= chapter.images.length) {
-    return;
-  }
-  evictPageImageDecodeCache(chapter.id, chapter.images[index]);
-}
-
 class ComicReaderScreen extends StatefulWidget {
   final ComicBasic comic;
   final List<Series> series;
@@ -509,7 +500,7 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     // Avoid inherited-widget lookup during initState. Callers that need target
     // decoding provide the concrete layout width from their build callback.
     final safeWidth = width;
-    return readerPageImageProvider(
+    final provider = readerPageImageProvider(
       context,
       widget.chapter.id,
       imageName,
@@ -521,6 +512,8 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       localOnly: localOnly,
       enabled: readerTargetDecodeV1,
     );
+    registerPageImageDecodeKey(widget.chapter.id, imageName, provider);
+    return provider;
   }
 
   PageDescriptor? _descriptorAt(int index) {
@@ -593,7 +586,6 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   late bool _fullScreen;
   late int _current;
   late int _slider;
-  late int _memoryCenter;
   List<int> _sortedSeriesIds = const <int>[];
   int? _nextEpId;
   Timer? _viewLogDebounce;
@@ -612,15 +604,10 @@ abstract class _ComicReaderState extends State<_ComicReader> {
   void _releaseChapterImageMemory() {
     final chapter = widget.chapter;
     void release() {
-      for (final imageName in chapter.images) {
-        evictPageImageMemoryCache(chapter.id, imageName);
-      }
-      if (_disposed) {
-        // The route is gone; release live streams as well so file-backed test
-        // images and platform decoders do not outlive the reader state.
-        imageCache.clearLiveImages();
-        imageCache.clear();
-      }
+      evictChapterPageImageMemoryCache(
+        chapter.id,
+        imageNames: chapter.images,
+      );
     }
 
     release();
@@ -641,26 +628,23 @@ abstract class _ComicReaderState extends State<_ComicReader> {
       unawaited(_preloader.preload(
         indexes: indexes
             .where((index) => index >= 0 && index < chapter.images.length),
-        load: (index) => precacheImage(
-          PageImageProvider(chapter.id, chapter.images[index]),
-          context,
-          onError: (error, stackTrace) => debugPrient(
-            "precache page ${chapter.images[index]} failed: $error\n$stackTrace",
-          ),
-        ),
+        load: (index) {
+          final imageName = _imageNameAt(index);
+          return precacheImage(
+            _readerPageProvider(index),
+            context,
+            onError: (error, stackTrace) => debugPrient(
+              "precache page $imageName failed: $error\n$stackTrace",
+            ),
+          );
+        },
         releaseStale: (index) {
-          final imageName = chapter.images[index];
-          void release() {
-            if (_disposed) {
-              evictPageImageMemoryCache(chapter.id, imageName);
-            } else if ((index - _memoryCenter).abs() > _cacheRadius) {
-              evictPageImageDecodeCache(chapter.id, imageName);
-            }
+          if (_disposed && index >= 0 && index < chapter.images.length) {
+            evictPageImageMemoryCache(
+              chapter.id,
+              _imageNameAt(index),
+            );
           }
-
-          release();
-          // precacheImage 自己也在帧末移除监听器，延后清理让过期解码真正离开缓存。
-          WidgetsBinding.instance.addPostFrameCallback((_) => release());
         },
         onError: (error, stackTrace) => debugPrient("$error\n$stackTrace"),
       ));
@@ -778,29 +762,6 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     );
   }
 
-  int get _cacheRadius =>
-      widget.readerType == ReaderType.twoPageGallery ? 3 : 2;
-
-  void _releasePreviousPageWindow(int center) {
-    if (_memoryCenter == center) {
-      return;
-    }
-    final radius = _cacheRadius;
-    final oldFirst = max(0, _memoryCenter - radius);
-    final oldLast =
-        min(widget.chapter.images.length - 1, _memoryCenter + radius);
-    final newFirst = max(0, center - radius);
-    final newLast = min(widget.chapter.images.length - 1, center + radius);
-    for (var index = oldFirst; index <= oldLast; index++) {
-      if (index >= newFirst && index <= newLast) {
-        continue;
-      }
-      // 活跃页仍由 ImageStream 引用时不强制释放，避免重新进入页面时闪烁。
-      _releasePageImageMemory(widget.chapter, index);
-    }
-    _memoryCenter = center;
-  }
-
   void _flushViewLogPersist() {
     final page = _pendingViewLogPage;
     if (page == null) {
@@ -901,7 +862,6 @@ abstract class _ComicReaderState extends State<_ComicReader> {
     if (!_sliderDragging) {
       _slider = slider;
     }
-    _releasePreviousPageWindow(_jumpTarget ?? safeIndex);
     if (_jumpTarget == null) {
       _schedulePersistViewLog(safeIndex);
     }
@@ -941,7 +901,6 @@ abstract class _ComicReaderState extends State<_ComicReader> {
         : widget.startIndex.clamp(0, imageCount - 1).toInt();
     _current = safeStartIndex;
     _slider = safeStartIndex;
-    _memoryCenter = safeStartIndex;
     _readerControllerEvent.subscribe(_onPageControl);
     if (Platform.isAndroid && currentVolumeKeyControl()) {
       addVolumeListen();
@@ -2298,8 +2257,6 @@ class _FreeZoomPagedReaderState extends _ComicReaderState {
           : const ClampingScrollPhysics(),
       itemBuilder: (BuildContext context, int index) {
         final reloadKey = _reloadKeys[index] ?? 0;
-        final imageProvider =
-            PageImageProvider(widget.chapter.id, widget.chapter.images[index]);
         return _PagedZoomImage(
           key: _zoomPageKeys.putIfAbsent(
               index, () => GlobalKey<_PagedZoomImageState>()),
@@ -2511,14 +2468,15 @@ class _ListViewReaderState extends _ComicReaderState {
     if (zoomed == _isZoomed || !mounted) {
       return;
     }
-    setState(() {
-      _isZoomed = zoomed;
-    });
+    setState(() => _isZoomed = zoomed);
+  }
+
+  void _resetZoom() {
+    _transformationController.value = Matrix4.identity();
   }
 
   void _onScrollChanged() {
-    if (_isZoomed ||
-        _activePointers > 1 ||
+    if (_activePointers > 1 ||
         !mounted ||
         !_scrollController.hasClients ||
         _jumpTarget != null ||
@@ -2597,9 +2555,7 @@ class _ListViewReaderState extends _ComicReaderState {
         !_scrollController.hasClients) {
       return;
     }
-    if (_isZoomed) {
-      _transformationController.value = Matrix4.identity();
-    }
+    _resetZoom();
     final targetContext = _pageKeys[index].currentContext;
     if (targetContext != null) {
       unawaited(_jumpReader(index, () async {
@@ -2726,6 +2682,26 @@ class _ListViewReaderState extends _ComicReaderState {
     });
   }
 
+  double _zoomBottomPadding(BoxConstraints constraints) {
+    if (currentReaderDirection != ReaderDirection.topToBottom) {
+      return 0;
+    }
+    final matrix = _transformationController.value;
+    final scale = matrix.getMaxScaleOnAxis();
+    if (!scale.isFinite || scale <= 1.001) {
+      return 0;
+    }
+    // The transform is outside the ListView, so its normal max scroll extent
+    // still describes the unscaled content. Add enough trailing space for the
+    // scaled bottom edge to enter the viewport after the list has scrolled to
+    // its new maximum. Translation is included because double-tap zoom keeps
+    // the tapped scene point under the finger.
+    final translationY = matrix.storage[13];
+    final viewportHeight = constraints.maxHeight;
+    final extra = viewportHeight * (1 - 1 / scale) + translationY / scale;
+    return max(0, extra);
+  }
+
   Widget _buildList() {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
@@ -2733,8 +2709,10 @@ class _ListViewReaderState extends _ComicReaderState {
           _extentIndex = null;
         }
         _lastLayoutConstraints = constraints;
-        // 放大后单指拖动全部交给 InteractiveViewer；复原后恢复列表自然滚动。
-        final giveTouchToViewer = _isZoomed || _activePointers > 1;
+        // 纵向自由缩放仍然是连续阅读器：缩放只改变页面显示比例，单指
+        // 拖动始终交给列表滚动，才能在放大后继续跨页阅读。多指缩放期间
+        // 暂停列表滚动，避免手势竞争。
+        final lockListScroll = _activePointers > 1;
         var list = ListView.builder(
           controller: _scrollController,
           scrollDirection: currentReaderDirection == ReaderDirection.topToBottom
@@ -2744,7 +2722,7 @@ class _ListViewReaderState extends _ComicReaderState {
           cacheExtent: currentReaderDirection == ReaderDirection.topToBottom
               ? constraints.maxHeight
               : constraints.maxWidth,
-          physics: giveTouchToViewer
+          physics: lockListScroll
               ? const NeverScrollableScrollPhysics()
               : const ClampingScrollPhysics(),
           padding: EdgeInsets.only(
@@ -2753,7 +2731,7 @@ class _ListViewReaderState extends _ComicReaderState {
                 ? super._appBarHeight()
                 : max(super._appBarHeight(), super._bottomBarHeight()),
             bottom: currentReaderDirection == ReaderDirection.topToBottom
-                ? 130 // Keep fixed bottom blank area for vertical mode.
+                ? 130 + _zoomBottomPadding(constraints)
                 : max(super._appBarHeight(), super._bottomBarHeight()),
           ),
           itemCount: widget.chapter.images.length + 1,
@@ -2765,35 +2743,39 @@ class _ListViewReaderState extends _ComicReaderState {
             return RepaintBoundary(
               child: KeyedSubtree(
                 key: _pageKeys[index],
-                child: JMPageImage(
-                  key: ValueKey(
-                      "fz_${widget.chapter.id}_${index}_${_imageNameAt(index)}"),
-                  widget.chapter.id,
-                  _imageNameAt(index),
-                  pageIndex: index,
-                  localPath: _localPathAt(index),
-                  localOnly: _isLocalOnlyChapter(),
+                child: SizedBox(
                   width: renderSize.width,
                   height: renderSize.height,
-                  onTrueSize: (size) => _onTrueSize(index, size),
+                  child: JMPageImage(
+                    key: ValueKey(
+                        "fz_${widget.chapter.id}_${index}_${_imageNameAt(index)}"),
+                    widget.chapter.id,
+                    _imageNameAt(index),
+                    pageIndex: index,
+                    localPath: _localPathAt(index),
+                    localOnly: _isLocalOnlyChapter(),
+                    width: renderSize.width,
+                    height: renderSize.height,
+                    onTrueSize: (size) => _onTrueSize(index, size),
+                  ),
                 ),
               ),
             );
           },
         );
-        var viewer = ReaderZoomSurface(
+        final viewer = ReaderZoomSurface(
           controller: _transformationController,
+          // Keep vertical reading owned by ListView after zoom. The shared
+          // transform scales the chapter viewport while single-finger drags
+          // continue through page boundaries.
+          panEnabled: false,
           maxScale: 2,
-          panEnabled: giveTouchToViewer,
-          // 双击全屏控制模式保留外层双击入口，缩放仍可使用双指捏合。
+          continuousScroll: true,
           allowDoubleTap:
               currentReaderControllerType != ReaderControllerType.touchDouble &&
                   currentReaderControllerType !=
                       ReaderControllerType.touchDoubleOnceNext,
-          child: IgnorePointer(
-            ignoring: giveTouchToViewer,
-            child: list,
-          ),
+          child: list,
         );
         return SizedBox.expand(
           child: Listener(

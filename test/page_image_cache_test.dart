@@ -82,8 +82,8 @@ void main() {
     // 使用真实文件解码；异步 I/O 在真实时钟中完成，避免只测试缓存键的字符串匹配。
     await tester.runAsync(() async {
       final expectedProvider = ResizeImage.resizeIfNeeded(
-        width.round(),
-        height.round(),
+        decodeTargetExtentForTest(width, 1.0),
+        decodeTargetExtentForTest(height, 1.0),
         FileImage(file),
       );
       final expectedKey =
@@ -107,10 +107,32 @@ void main() {
     return key;
   }
 
+  testWidgets('cover loading keeps source aspect ratio before BoxFit',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => buildFile(
+          context,
+          file.path,
+          120,
+          160,
+          preserveSourceAspectRatio: true,
+        ),
+      ),
+    ));
+
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(image.fit, BoxFit.cover);
+    expect(image.image, isA<FileImage>());
+    expect((image.image as FileImage).file.path, file.path);
+  });
+
   testWidgets('page eviction removes actual resized file cache variants',
       (tester) async {
     final largeKey = await mountPage(tester);
-    final smallKey = await mountPage(tester, width: 60, height: 90);
+    // Use a different decode bucket; values below 256 intentionally share
+    // the same normalized codec target as the default page.
+    final smallKey = await mountPage(tester, width: 300, height: 450);
     expect(largeKey, isNot(smallKey));
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -137,6 +159,54 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     expect(imageCache.statusForKey(key).live, isFalse);
+  });
+
+  testWidgets('reader eviction removes indexed decode key for one chapter page',
+      (tester) async {
+    final current = PageImageProvider(
+      42,
+      'page.png',
+      pageIndex: 3,
+      cacheWidth: 256,
+      localPath: file.path,
+    );
+    final otherChapter = PageImageProvider(
+      43,
+      'page.png',
+      pageIndex: 3,
+      cacheWidth: 256,
+      localPath: file.path,
+    );
+    registerPageImageDecodeKey(42, 'page.png', current);
+    registerPageImageDecodeKey(43, 'page.png', otherChapter);
+    await tester.pumpWidget(MaterialApp(
+      home: Row(
+        children: [
+          Expanded(child: Image(image: current)),
+          Expanded(child: Image(image: otherChapter)),
+        ],
+      ),
+    ));
+
+    final currentKey = await current.obtainKey(ImageConfiguration.empty);
+    final otherKey = await otherChapter.obtainKey(ImageConfiguration.empty);
+    await tester.runAsync(() async {
+      for (var attempt = 0; attempt < 50; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await tester.pump();
+        if (imageCache.statusForKey(currentKey).keepAlive &&
+            imageCache.statusForKey(otherKey).keepAlive) {
+          break;
+        }
+      }
+    });
+    expect(imageCache.statusForKey(currentKey).keepAlive, isTrue);
+    expect(imageCache.statusForKey(otherKey).keepAlive, isTrue);
+
+    evictPageImageDecodeCache(42, 'page.png');
+    expect(imageCache.statusForKey(currentKey).keepAlive, isFalse);
+    expect(imageCache.statusForKey(otherKey).keepAlive, isTrue);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('page memory eviction reloads path and size on the next visit',

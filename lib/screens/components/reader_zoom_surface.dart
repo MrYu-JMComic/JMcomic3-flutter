@@ -9,12 +9,18 @@ class ReaderZoomSurface extends StatefulWidget {
   final bool allowDoubleTap;
   final double maxScale;
 
+  /// Keeps the child gesture arena intact while still applying the shared
+  /// transform. This is used by the vertical reader so a zoomed chapter can
+  /// continue scrolling through page boundaries.
+  final bool continuousScroll;
+
   const ReaderZoomSurface({
     required this.controller,
     required this.child,
     required this.panEnabled,
     this.allowDoubleTap = true,
     this.maxScale = 4,
+    this.continuousScroll = false,
     super.key,
   });
 
@@ -30,10 +36,26 @@ class _ReaderZoomSurfaceState extends State<ReaderZoomSurface>
   @override
   void initState() {
     super.initState();
+    widget.controller.addListener(_onControllerChanged);
     _animation = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 140),
     )..addListener(_animateZoom);
+  }
+
+  void _onControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void didUpdateWidget(ReaderZoomSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+    }
   }
 
   void _animateZoom() {
@@ -62,23 +84,35 @@ class _ReaderZoomSurfaceState extends State<ReaderZoomSurface>
 
   @override
   void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
     _animation.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onDoubleTapDown: widget.allowDoubleTap
-            ? (details) => _doubleTapPosition = details.localPosition
-            : null,
-        onDoubleTap: widget.allowDoubleTap ? _doubleTap : null,
-        child: InteractiveViewer(
-          transformationController: widget.controller,
-          minScale: 1,
-          maxScale: widget.maxScale,
-          boundaryMargin: EdgeInsets.zero,
-          panEnabled: widget.panEnabled,
-          child: widget.child,
-        ),
-      );
+  Widget build(BuildContext context) {
+    final child = widget.continuousScroll
+        ? ClipRect(
+            child: Transform(
+              alignment: Alignment.topLeft,
+              transform: widget.controller.value,
+              child: widget.child,
+            ),
+          )
+        : InteractiveViewer(
+            transformationController: widget.controller,
+            minScale: 1,
+            maxScale: widget.maxScale,
+            boundaryMargin: EdgeInsets.zero,
+            panEnabled: widget.panEnabled,
+            child: widget.child,
+          );
+    return GestureDetector(
+      onDoubleTapDown: widget.allowDoubleTap
+          ? (details) => _doubleTapPosition = details.localPosition
+          : null,
+      onDoubleTap: widget.allowDoubleTap ? _doubleTap : null,
+      child: child,
+    );
+  }
 }
