@@ -24,6 +24,38 @@ import 'package:jmcomic3/screens/components/reader_progress.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('preload planner prioritizes the visible window then reads forward',
+      () {
+    expect(
+      readerPreloadOrder(
+        visibleIndexes: [5, 3, 4, 3],
+        pageCount: 12,
+        lookAhead: 4,
+        lookBehind: 2,
+      ),
+      [3, 4, 5, 6, 7, 8, 9, 2, 1],
+    );
+  });
+
+  test('preload planner removes invalid positions and clamps the window', () {
+    expect(
+      readerPreloadOrder(
+        visibleIndexes: [-2, 0, 8, 99, 2, 0],
+        pageCount: 3,
+        lookAhead: 10,
+        lookBehind: 10,
+      ),
+      [0, 2, 1],
+    );
+    expect(
+      readerPreloadOrder(
+        visibleIndexes: [0, 1],
+        pageCount: 0,
+      ),
+      isEmpty,
+    );
+  });
+
   test('preload follows order, deduplicates and stops a replaced queue',
       () async {
     final preloader = ReaderPreloader();
