@@ -438,18 +438,26 @@ class _StreamPagerState extends State<_StreamPager> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
+                Expanded(
+                    child: Text(
                   context.l10n.tr(
                     "已加载 ${_nextPage - 1} / $_maxPage 页",
                     en: "Loaded ${_nextPage - 1} / $_maxPage pages",
                   ),
-                ),
-                Text(
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                )),
+                const SizedBox(width: 12),
+                Expanded(
+                    child: Text(
                   context.l10n.tr(
                     "已加载 ${_data.length} / $_total 项",
                     en: "Loaded ${_data.length} / $_total items",
                   ),
-                ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                )),
               ],
             ),
           ),
@@ -596,115 +604,128 @@ class _PagerPagerState extends State<_PagerPager> {
         ),
         child: SizedBox(
           height: 50,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              InkWell(
-                onTap: () {
-                  if (!hasProAccess) {
-                    defaultToast(
-                      context,
-                      context.l10n.tr(
-                        "发电才能跳页哦~",
-                        en: "Pro is required to jump pages",
-                      ),
-                    );
-                    return;
-                  }
-                  _textEditController.clear();
-                  showDialog(
-                    context: context,
-                    builder: (context) {
-                      return AlertDialog(
-                        content: Card(
-                          child: TextField(
-                            controller: _textEditController,
-                            decoration: InputDecoration(
-                              labelText: context.l10n.tr(
-                                "请输入页数：",
-                                en: "Enter page number:",
-                              ),
-                            ),
-                            keyboardType: TextInputType.number,
-                            inputFormatters: <TextInputFormatter>[
-                              FilteringTextInputFormatter.allow(
-                                _digitsOnlyRegExp,
-                              ),
-                            ],
-                          ),
+          child: LayoutBuilder(builder: (context, constraints) {
+            final compact = constraints.maxWidth < 480 ||
+                MediaQuery.textScalerOf(context).scale(14) > 20;
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                    child: InkWell(
+                  onTap: () {
+                    if (!hasProAccess) {
+                      defaultToast(
+                        context,
+                        context.l10n.tr(
+                          "发电才能跳页哦~",
+                          en: "Pro is required to jump pages",
                         ),
-                        actions: <Widget>[
-                          MaterialButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                            },
-                            child: Text(context.l10n.tr('取消', en: 'Cancel')),
-                          ),
-                          MaterialButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                              var text = _textEditController.text;
-                              if (text.isEmpty || text.length > 5) {
-                                return;
-                              }
-                              var num = int.parse(text);
-                              if (num == 0 || num > _maxPage) {
-                                return;
-                              }
-                              _openPage(num);
-                            },
-                            child: Text(context.l10n.confirm),
-                          ),
-                        ],
                       );
-                    },
-                  );
-                },
-                child: Row(
-                  children: [
-                    Text(
-                      context.l10n.tr(
-                        "第 $_currentPage / $_maxPage 页",
-                        en: "Page $_currentPage / $_maxPage",
-                      ),
+                      return;
+                    }
+                    _textEditController.clear();
+                    showDialog(
+                      context: context,
+                      builder: (context) {
+                        return AlertDialog(
+                          content: Card(
+                            child: TextField(
+                              controller: _textEditController,
+                              decoration: InputDecoration(
+                                labelText: context.l10n.tr(
+                                  "请输入页数：",
+                                  en: "Enter page number:",
+                                ),
+                              ),
+                              keyboardType: TextInputType.number,
+                              inputFormatters: <TextInputFormatter>[
+                                FilteringTextInputFormatter.allow(
+                                  _digitsOnlyRegExp,
+                                ),
+                              ],
+                            ),
+                          ),
+                          actions: <Widget>[
+                            MaterialButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                              },
+                              child: Text(context.l10n.tr('取消', en: 'Cancel')),
+                            ),
+                            MaterialButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                var text = _textEditController.text;
+                                if (text.isEmpty || text.length > 5) {
+                                  return;
+                                }
+                                var num = int.parse(text);
+                                if (num == 0 || num > _maxPage) {
+                                  return;
+                                }
+                                _openPage(num);
+                              },
+                              child: Text(context.l10n.confirm),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                  child: Text(
+                    context.l10n.tr(
+                      "第 $_currentPage / $_maxPage 页",
+                      en: "Page $_currentPage / $_maxPage",
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )),
+                Row(
+                  children: [
+                    MaterialButton(
+                      minWidth: 0,
+                      onPressed: () {
+                        if (_currentPage > 1) {
+                          _openPage(_currentPage - 1);
+                        }
+                      },
+                      child: compact
+                          ? Tooltip(
+                              message: context.l10n.tr('上一页', en: 'Prev'),
+                              child: const Icon(Icons.chevron_left),
+                            )
+                          : Text(context.l10n.tr('上一页', en: 'Prev')),
+                    ),
+                    MaterialButton(
+                      minWidth: 0,
+                      onPressed: () {
+                        if (_currentPage < _maxPage) {
+                          if (!hasProAccess && _currentPage + 1 > _noProMax) {
+                            defaultToast(
+                              context,
+                              context.l10n.tr(
+                                "$_noProMax页以上需要发电鸭",
+                                en: "Pro is required beyond page $_noProMax",
+                              ),
+                            );
+                            return;
+                          }
+                          _openPage(_currentPage + 1);
+                        }
+                      },
+                      child: compact
+                          ? Tooltip(
+                              message: context.l10n.tr('下一页', en: 'Next'),
+                              child: const Icon(Icons.chevron_right),
+                            )
+                          : Text(context.l10n.tr('下一页', en: 'Next')),
+                    )
                   ],
                 ),
-              ),
-              Row(
-                children: [
-                  MaterialButton(
-                    minWidth: 0,
-                    onPressed: () {
-                      if (_currentPage > 1) {
-                        _openPage(_currentPage - 1);
-                      }
-                    },
-                    child: Text(context.l10n.tr('上一页', en: 'Prev')),
-                  ),
-                  MaterialButton(
-                    minWidth: 0,
-                    onPressed: () {
-                      if (_currentPage < _maxPage) {
-                        if (!hasProAccess && _currentPage + 1 > _noProMax) {
-                          defaultToast(
-                            context,
-                            context.l10n.tr(
-                              "$_noProMax页以上需要发电鸭",
-                              en: "Pro is required beyond page $_noProMax",
-                            ),
-                          );
-                          return;
-                        }
-                        _openPage(_currentPage + 1);
-                      }
-                    },
-                    child: Text(context.l10n.tr('下一页', en: 'Next')),
-                  )
-                ],
-              ),
-            ],
-          ),
+              ],
+            );
+          }),
         ),
       ),
     );

@@ -46,7 +46,9 @@ class _UserScreenState extends State<UserScreen>
   }
 
   void _setState(_) {
-    setState(() {});
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -56,6 +58,7 @@ class _UserScreenState extends State<UserScreen>
       appBar: AppBar(title: Text(context.l10n.profile), actions: [
         if (!normalPlatform)
           IconButton(
+            tooltip: 'Pro',
             onPressed: () {
               Navigator.of(context)
                   .push(MaterialPageRoute(builder: (BuildContext context) {
@@ -68,6 +71,7 @@ class _UserScreenState extends State<UserScreen>
           ),
         if (normalPlatform)
           IconButton(
+            tooltip: 'Pro',
             onPressed: () {
               Navigator.of(context)
                   .push(MaterialPageRoute(builder: (BuildContext context) {
@@ -82,31 +86,127 @@ class _UserScreenState extends State<UserScreen>
         if (normalPlatform) _buildAboutIcon(),
       ]),
       body: SafeArea(
-        child: ListView(
-          children: [
-            _buildCard(),
-            const Divider(),
-            _buildFavorites(),
-            const Divider(),
-            _buildViewLog(),
-            const Divider(),
-            _buildDownloads(),
-            const Divider(),
-            _buildComments(),
-            const Divider(),
-            const RecommendLinksPanel(
-              padding: EdgeInsets.fromLTRB(16, 0, 16, 0),
-            ),
-            // _buildFdT(),
-            // const Divider(),
-            // _buildSettingsT(),
-            // const Divider(),
-            // _buildAboutT(),
-            // const Divider(),
-            Container(height: 30),
-          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= 840;
+            final spacing = constraints.maxWidth >= 600 ? 24.0 : 16.0;
+            return SingleChildScrollView(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1120),
+                  child: Padding(
+                    padding: EdgeInsets.all(spacing),
+                    child: wide
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(flex: 5, child: _buildCard()),
+                              SizedBox(width: spacing),
+                              Expanded(flex: 6, child: _buildLibrary()),
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _buildCard(),
+                              SizedBox(height: spacing),
+                              _buildLibrary(),
+                            ],
+                          ),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  Widget _buildLibrary() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            context.l10n.navLibrary,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final twoColumns = constraints.maxWidth >= 560;
+            final width = twoColumns
+                ? (constraints.maxWidth - 12) / 2
+                : constraints.maxWidth;
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildFavorites(),
+                _buildViewLog(),
+                _buildDownloads(),
+                _buildComments(),
+              ].map((child) => SizedBox(width: width, child: child)).toList(),
+            );
+          },
+        ),
+        const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: RecommendLinksPanel(
+            padding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAccountPrompt({
+    required IconData icon,
+    required String title,
+    required Widget action,
+    String? subtitle,
+  }) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 36, color: theme.colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        action,
+      ],
     );
   }
 
@@ -114,12 +214,10 @@ class _UserScreenState extends State<UserScreen>
     late Widget child;
     switch (loginStatus) {
       case LoginStatus.notSet:
-        child = Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildLoginButton(context.l10n.loginRegister),
-            const SizedBox(height: 8),
-          ],
+        child = _buildAccountPrompt(
+          icon: Icons.account_circle_outlined,
+          title: context.l10n.account,
+          action: _buildLoginButton(context.l10n.loginRegister),
         );
         break;
       case LoginStatus.logging:
@@ -132,106 +230,68 @@ class _UserScreenState extends State<UserScreen>
         child = _buildGuestCard();
         break;
       case LoginStatus.loginField:
-        child = Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildLoginButton(context.l10n.loginFailed),
-            const SizedBox(height: 8),
-            const SizedBox(height: 10),
-            _buildLoginErrorButton(),
-          ],
+        child = _buildAccountPrompt(
+          icon: Icons.error_outline,
+          title: context.l10n.loginFailed,
+          action: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildLoginButton(context.l10n.login),
+              _buildLoginErrorButton(),
+            ],
+          ),
         );
         break;
     }
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final cardMinHeight =
-        loginStatus == LoginStatus.loginSuccess ? 320.0 : 210.0;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        constraints: BoxConstraints(minHeight: cardMinHeight),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isLight
-                ? const [
-                    Color(0xFFF8FBFF),
-                    Color(0xFFEAF2FF),
-                    Color(0xFFF6F7FA),
-                  ]
-                : const [
-                    Color(0xFF232B3A),
-                    Color(0xFF1D2230),
-                    Color(0xFF161B26),
-                  ],
-          ),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: isLight
-                ? Colors.blueGrey.withValues(alpha: .16)
-                : Colors.white.withValues(alpha: .08),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isLight ? .08 : .24),
-              blurRadius: 16,
-              offset: const Offset(0, 8),
-            ),
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            colors.primaryContainer.withValues(alpha: .45),
+            colors.surfaceContainerLow,
           ],
         ),
-        child: child,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: .6)),
       ),
+      child: child,
     );
   }
 
   Widget _buildLoginButton(String title) {
-    return MaterialButton(
+    return FilledButton.icon(
       onPressed: () async {
         await loginDialog(context);
       },
-      child: Container(
-        padding: const EdgeInsets.only(left: 15, right: 15, top: 8, bottom: 8),
-        decoration: BoxDecoration(
-          color: Colors.orange.shade700,
-          border: Border.all(
-            color: Colors.black,
-            style: BorderStyle.solid,
-            width: .5,
-          ),
-          borderRadius: const BorderRadius.all(Radius.circular(4)),
-        ),
-        child: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            color: Colors.white,
-            fontWeight: FontWeight.normal,
-          ),
-        ),
-      ),
+      icon: const Icon(Icons.login, size: 18),
+      label: Text(title, textAlign: TextAlign.center),
     );
   }
 
   Widget _buildLoginLoading() {
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final size = constraints.maxWidth < constraints.maxHeight
-            ? constraints.maxWidth
-            : constraints.maxHeight;
-        return Icon(Icons.refresh,
-            size: size * .5, color: Colors.white.withValues(alpha: .5));
-      },
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+          const SizedBox(width: 16),
+          Expanded(child: Text(context.l10n.loggingIn)),
+        ],
+      ),
     );
   }
 
   Widget _buildLoginErrorButton() {
-    return MaterialButton(
+    return OutlinedButton.icon(
       onPressed: () async {
         await showDialog(
           context: context,
@@ -251,64 +311,36 @@ class _UserScreenState extends State<UserScreen>
           },
         );
       },
-      child: Container(
-        padding: const EdgeInsets.only(left: 15, right: 15, top: 8, bottom: 8),
-        decoration: BoxDecoration(
-          color: Colors.red.shade700,
-          border: Border.all(
-            color: Colors.black,
-            style: BorderStyle.solid,
-            width: .5,
-          ),
-          borderRadius: const BorderRadius.all(Radius.circular(4)),
-        ),
-        child: Text(
-          context.l10n.viewError,
-          style: const TextStyle(
-            fontSize: 16,
-            color: Colors.white,
-            fontWeight: FontWeight.normal,
-          ),
-        ),
-      ),
+      icon: const Icon(Icons.error_outline, size: 18),
+      label: Text(context.l10n.viewError),
     );
   }
 
   Widget _buildSelfInfoCard() {
-    final brightness = Theme.of(context).brightness;
     final theme = Theme.of(context);
-    final isLight = brightness == Brightness.light;
+    final colors = theme.colorScheme;
+    final isLight = theme.brightness == Brightness.light;
     Color statusColor;
     switch (dailySignStatus) {
       case DailySignStatus.signed:
         statusColor = isLight ? Colors.green.shade700 : Colors.green.shade200;
         break;
       case DailySignStatus.error:
-        statusColor = isLight ? Colors.red.shade700 : Colors.red.shade200;
+        statusColor = colors.error;
         break;
       case DailySignStatus.checking:
-        statusColor = isLight ? Colors.orange.shade700 : Colors.orange.shade200;
+        statusColor = colors.primary;
         break;
       case DailySignStatus.unchecked:
-        statusColor = isLight ? Colors.black54 : Colors.white70;
+        statusColor = colors.onSurfaceVariant;
         break;
     }
-    final statusStyle =
-        (theme.textTheme.bodySmall ?? const TextStyle()).copyWith(
-      fontSize: 12,
+    final statusStyle = theme.textTheme.bodySmall?.copyWith(
       color: statusColor,
       fontWeight: FontWeight.w600,
     );
-    final detailStyle =
-        (theme.textTheme.bodySmall ?? const TextStyle()).copyWith(
-      fontSize: 12,
-      color: isLight ? Colors.black54 : Colors.white70,
-      fontWeight: FontWeight.w500,
-    );
-    final titleStyle =
-        (theme.textTheme.titleSmall ?? const TextStyle()).copyWith(
-      color: isLight ? Colors.black87 : Colors.white,
-      fontWeight: FontWeight.w600,
+    final detailStyle = theme.textTheme.bodySmall?.copyWith(
+      color: colors.onSurfaceVariant,
     );
     final uidText = "UID ${selfInfo.uid}";
     final levelText = "${selfInfo.levelName} Lv.${selfInfo.level}";
@@ -319,111 +351,110 @@ class _UserScreenState extends State<UserScreen>
     final message = selfInfo.message.trim();
     final canSign = dailySignStatus != DailySignStatus.checking;
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Center(
-          child: Avatar(selfInfo.photo),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          selfInfo.username,
-          style: titleStyle,
-        ),
-        const SizedBox(height: 2),
-        Text(uidText, style: detailStyle),
-        const SizedBox(height: 6),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.center,
-            children: [
-              _buildSelfInfoBadge(
-                context,
-                context.l10n.level,
-                levelText,
-                Icons.workspace_premium,
+        Row(
+          children: [
+            Avatar(selfInfo.photo),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    selfInfo.username,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(uidText, style: detailStyle),
+                ],
               ),
-              _buildSelfInfoBadge(
-                context,
-                context.l10n.experience,
-                expPercentText,
-                Icons.trending_up,
-              ),
-              _buildSelfInfoBadge(
-                context,
-                context.l10n.coin,
-                "${selfInfo.coin}",
-                Icons.monetization_on,
-              ),
-              _buildSelfInfoBadge(
-                context,
-                context.l10n.badges,
-                "${selfInfo.badges.length}",
-                Icons.verified_outlined,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (selfInfo.email.trim().isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              "${context.l10n.email}: ${selfInfo.email}",
-              style: detailStyle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
             ),
-          ),
-        const SizedBox(height: 4),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            "${context.l10n.nickname}: $nickname  ${context.l10n.gender}: $genderText",
+          ],
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildSelfInfoBadge(
+              context,
+              context.l10n.level,
+              levelText,
+              Icons.workspace_premium_outlined,
+            ),
+            _buildSelfInfoBadge(
+              context,
+              context.l10n.experience,
+              expPercentText,
+              Icons.trending_up,
+            ),
+            _buildSelfInfoBadge(
+              context,
+              context.l10n.coin,
+              "${selfInfo.coin}",
+              Icons.monetization_on_outlined,
+            ),
+            _buildSelfInfoBadge(
+              context,
+              context.l10n.badges,
+              "${selfInfo.badges.length}",
+              Icons.verified_outlined,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (selfInfo.email.trim().isNotEmpty) ...[
+          Text(
+            "${context.l10n.email}: ${selfInfo.email}",
             style: detailStyle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 4),
+        ],
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            Text("${context.l10n.nickname}: $nickname", style: detailStyle),
+            Text("${context.l10n.gender}: $genderText", style: detailStyle),
+          ],
         ),
         if (message.isNotEmpty) ...[
           const SizedBox(height: 4),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              "${context.l10n.signature}: $message",
-              style: detailStyle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-            ),
+          Text(
+            "${context.l10n.signature}: $message",
+            style: detailStyle,
           ),
         ],
-        const SizedBox(height: 8),
-        Text(
-          dailySignStatusLabel(context),
-          style: statusStyle,
-        ),
-        const SizedBox(height: 12),
-        ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 132, minHeight: 44),
-          child: FilledButton.icon(
-            onPressed: canSign
-                ? () async {
-                    await checkDailySignStatus(context, toast: true);
-                  }
-                : null,
-            icon: Icon(
-              canSign ? Icons.check_circle_outline : Icons.sync,
-              size: 18,
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: canSign
+                  ? () async {
+                      await checkDailySignStatus(context, toast: true);
+                    }
+                  : null,
+              icon: Icon(
+                canSign ? Icons.check_circle_outline : Icons.sync,
+                size: 18,
+              ),
+              label: Text(
+                canSign ? context.l10n.manualSign : context.l10n.signing,
+                textAlign: TextAlign.center,
+              ),
             ),
-            label: Text(
-              canSign ? context.l10n.manualSign : context.l10n.signing,
+            Text(
+              dailySignStatusLabel(context),
+              style: statusStyle,
             ),
-          ),
+          ],
         ),
       ],
     );
@@ -435,20 +466,13 @@ class _UserScreenState extends State<UserScreen>
     String value,
     IconData icon,
   ) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: isLight
-            ? Colors.white.withValues(alpha: .72)
-            : Colors.white.withValues(alpha: .08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isLight
-              ? Colors.black.withValues(alpha: .08)
-              : Colors.white.withValues(alpha: .12),
-          width: .8,
-        ),
+        color: colors.surface.withValues(alpha: .7),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -456,16 +480,16 @@ class _UserScreenState extends State<UserScreen>
           Icon(
             icon,
             size: 14,
-            color: isLight ? Colors.black54 : Colors.white70,
+            color: colors.primary,
           ),
           const SizedBox(width: 4),
-          Text(
-            "$label:$value",
-            style: (Theme.of(context).textTheme.bodySmall ?? const TextStyle())
-                .copyWith(
-              fontSize: 11,
-              color: isLight ? Colors.black87 : Colors.white,
-              fontWeight: FontWeight.w500,
+          Flexible(
+            child: Text(
+              "$label: $value",
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -497,25 +521,73 @@ class _UserScreenState extends State<UserScreen>
   }
 
   Widget _buildGuestCard() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.explore_outlined, size: 48),
-        const SizedBox(height: 10),
-        Text(context.l10n.guestMode),
-        const SizedBox(height: 8),
-        _buildLoginButton(context.l10n.login),
-      ],
+    return _buildAccountPrompt(
+      icon: Icons.explore_outlined,
+      title: context.l10n.guestMode,
+      subtitle: context.l10n.guestModeSubtitle,
+      action: _buildLoginButton(context.l10n.login),
+    );
+  }
+
+  Widget _buildLibraryAction({
+    required String title,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Material(
+      color: colors.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colors.outlineVariant.withValues(alpha: .6)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colors.primaryContainer.withValues(alpha: .6),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Icon(icon, color: colors.primary, size: 24),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right,
+                  color: colors.onSurfaceVariant, size: 20),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
   Widget _buildFavorites() {
-    return ListTile(
+    return _buildLibraryAction(
+      icon: Icons.favorite_border,
+      title: context.l10n.favorites,
       onTap: () async {
         if (!await ensureJwtAccess(
-          context,
-          feature: context.l10n.featureFavoritesFolder,
-        )) {
+              context,
+              feature: context.l10n.featureFavoritesFolder,
+            ) ||
+            !mounted) {
           return;
         }
         Navigator.of(context).push(MaterialPageRoute(
@@ -524,12 +596,13 @@ class _UserScreenState extends State<UserScreen>
           },
         ));
       },
-      title: Text(context.l10n.favorites),
     );
   }
 
   Widget _buildViewLog() {
-    return ListTile(
+    return _buildLibraryAction(
+      icon: Icons.history,
+      title: context.l10n.viewHistory,
       onTap: () async {
         Navigator.of(context).push(MaterialPageRoute(
           builder: (BuildContext context) {
@@ -537,12 +610,13 @@ class _UserScreenState extends State<UserScreen>
           },
         ));
       },
-      title: Text(context.l10n.viewHistory),
     );
   }
 
   Widget _buildDownloads() {
-    return ListTile(
+    return _buildLibraryAction(
+      icon: Icons.download_outlined,
+      title: context.l10n.downloadList,
       onTap: () async {
         Navigator.of(context).push(MaterialPageRoute(
           builder: (BuildContext context) {
@@ -550,12 +624,13 @@ class _UserScreenState extends State<UserScreen>
           },
         ));
       },
-      title: Text(context.l10n.downloadList),
     );
   }
 
   Widget _buildComments() {
-    return ListTile(
+    return _buildLibraryAction(
+      icon: Icons.chat_bubble_outline,
+      title: context.l10n.comments,
       onTap: () async {
         Navigator.of(context).push(MaterialPageRoute(
           builder: (BuildContext context) {
@@ -563,12 +638,12 @@ class _UserScreenState extends State<UserScreen>
           },
         ));
       },
-      title: Text(context.l10n.comments),
     );
   }
 
   Widget _buildSettingsIcon() {
     return IconButton(
+      tooltip: context.l10n.settings,
       onPressed: () async {
         Navigator.of(context).push(MaterialPageRoute(
           builder: (BuildContext context) {
@@ -582,6 +657,7 @@ class _UserScreenState extends State<UserScreen>
 
   Widget _buildAboutIcon() {
     return IconButton(
+      tooltip: context.l10n.about,
       onPressed: () async {
         Navigator.of(context).push(MaterialPageRoute(
           builder: (BuildContext context) {
