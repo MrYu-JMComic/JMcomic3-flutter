@@ -124,6 +124,9 @@ class _UserScreenState extends State<UserScreen>
   }
 
   Widget _buildLibrary() {
+    if (MediaQuery.sizeOf(context).width < 600) {
+      return _buildMobileLibrary();
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -161,6 +164,84 @@ class _UserScreenState extends State<UserScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildMobileLibrary() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildMobileLibraryAction(
+          icon: Icons.favorite_border,
+          title: context.l10n.favorites,
+          onTap: _openFavorites,
+        ),
+        _buildMobileLibraryAction(
+          icon: Icons.history,
+          title: context.l10n.viewHistory,
+          onTap: _openViewLog,
+        ),
+        _buildMobileLibraryAction(
+          icon: Icons.download_outlined,
+          title: context.l10n.downloadList,
+          onTap: _openDownloads,
+        ),
+        _buildMobileLibraryAction(
+          icon: Icons.chat_bubble_outline,
+          title: context.l10n.comments,
+          onTap: _openComments,
+          last: true,
+        ),
+        const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: RecommendLinksPanel(
+            padding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileLibraryAction({
+    required String title,
+    required IconData icon,
+    required VoidCallback onTap,
+    bool last = false,
+  }) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final dividerColor = colors.outlineVariant.withValues(alpha: .7);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 72),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: dividerColor),
+              bottom: last ? BorderSide(color: dividerColor) : BorderSide.none,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: colors.onSurfaceVariant, size: 23),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right,
+                  color: colors.onSurfaceVariant, size: 22),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -319,6 +400,7 @@ class _UserScreenState extends State<UserScreen>
   Widget _buildSelfInfoCard() {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final compact = MediaQuery.sizeOf(context).width < 600;
     final isLight = theme.brightness == Brightness.light;
     Color statusColor;
     switch (dailySignStatus) {
@@ -352,31 +434,50 @@ class _UserScreenState extends State<UserScreen>
     final canSign = dailySignStatus != DailySignStatus.checking;
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment:
+          compact ? CrossAxisAlignment.center : CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Avatar(selfInfo.photo),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    selfInfo.username,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(uidText, style: detailStyle),
-                ],
+        if (compact)
+          Column(
+            children: [
+              Avatar(selfInfo.photo),
+              const SizedBox(height: 10),
+              Text(
+                selfInfo.username,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ],
-        ),
+              const SizedBox(height: 4),
+              Text(uidText, textAlign: TextAlign.center, style: detailStyle),
+            ],
+          )
+        else
+          Row(
+            children: [
+              Avatar(selfInfo.photo),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      selfInfo.username,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(uidText, style: detailStyle),
+                  ],
+                ),
+              ),
+            ],
+          ),
         const SizedBox(height: 16),
         Wrap(
+          alignment: compact ? WrapAlignment.center : WrapAlignment.start,
           spacing: 8,
           runSpacing: 8,
           children: [
@@ -410,52 +511,91 @@ class _UserScreenState extends State<UserScreen>
         if (selfInfo.email.trim().isNotEmpty) ...[
           Text(
             "${context.l10n.email}: ${selfInfo.email}",
+            textAlign: compact ? TextAlign.center : TextAlign.start,
             style: detailStyle,
           ),
           const SizedBox(height: 4),
         ],
         Wrap(
+          alignment: compact ? WrapAlignment.center : WrapAlignment.start,
           spacing: 12,
           runSpacing: 4,
           children: [
-            Text("${context.l10n.nickname}: $nickname", style: detailStyle),
-            Text("${context.l10n.gender}: $genderText", style: detailStyle),
+            Text("${context.l10n.nickname}: $nickname",
+                textAlign: compact ? TextAlign.center : TextAlign.start,
+                style: detailStyle),
+            Text("${context.l10n.gender}: $genderText",
+                textAlign: compact ? TextAlign.center : TextAlign.start,
+                style: detailStyle),
           ],
         ),
         if (message.isNotEmpty) ...[
           const SizedBox(height: 4),
           Text(
             "${context.l10n.signature}: $message",
+            textAlign: compact ? TextAlign.center : TextAlign.start,
             style: detailStyle,
           ),
         ],
         const SizedBox(height: 16),
-        Wrap(
-          spacing: 12,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            FilledButton.tonalIcon(
-              onPressed: canSign
-                  ? () async {
-                      await checkDailySignStatus(context, toast: true);
-                    }
-                  : null,
-              icon: Icon(
-                canSign ? Icons.check_circle_outline : Icons.sync,
-                size: 18,
+        if (compact)
+          Column(
+            children: [
+              Text(dailySignStatusLabel(context), style: statusStyle),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: 160,
+                  maxWidth: 320,
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: canSign
+                        ? () async {
+                            await checkDailySignStatus(context, toast: true);
+                          }
+                        : null,
+                    icon: Icon(
+                      canSign ? Icons.check_circle_outline : Icons.sync,
+                      size: 18,
+                    ),
+                    label: Text(
+                      canSign ? context.l10n.manualSign : context.l10n.signing,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
               ),
-              label: Text(
-                canSign ? context.l10n.manualSign : context.l10n.signing,
-                textAlign: TextAlign.center,
+            ],
+          )
+        else
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: canSign
+                    ? () async {
+                        await checkDailySignStatus(context, toast: true);
+                      }
+                    : null,
+                icon: Icon(
+                  canSign ? Icons.check_circle_outline : Icons.sync,
+                  size: 18,
+                ),
+                label: Text(
+                  canSign ? context.l10n.manualSign : context.l10n.signing,
+                  textAlign: TextAlign.center,
+                ),
               ),
-            ),
-            Text(
-              dailySignStatusLabel(context),
-              style: statusStyle,
-            ),
-          ],
-        ),
+              Text(
+                dailySignStatusLabel(context),
+                style: statusStyle,
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -582,20 +722,7 @@ class _UserScreenState extends State<UserScreen>
     return _buildLibraryAction(
       icon: Icons.favorite_border,
       title: context.l10n.favorites,
-      onTap: () async {
-        if (!await ensureJwtAccess(
-              context,
-              feature: context.l10n.featureFavoritesFolder,
-            ) ||
-            !mounted) {
-          return;
-        }
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (BuildContext context) {
-            return const FavoritesScreen();
-          },
-        ));
-      },
+      onTap: _openFavorites,
     );
   }
 
@@ -603,13 +730,7 @@ class _UserScreenState extends State<UserScreen>
     return _buildLibraryAction(
       icon: Icons.history,
       title: context.l10n.viewHistory,
-      onTap: () async {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (BuildContext context) {
-            return const ViewLogScreen();
-          },
-        ));
-      },
+      onTap: _openViewLog,
     );
   }
 
@@ -617,13 +738,7 @@ class _UserScreenState extends State<UserScreen>
     return _buildLibraryAction(
       icon: Icons.download_outlined,
       title: context.l10n.downloadList,
-      onTap: () async {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (BuildContext context) {
-            return const DownloadsScreen();
-          },
-        ));
-      },
+      onTap: _openDownloads,
     );
   }
 
@@ -631,14 +746,47 @@ class _UserScreenState extends State<UserScreen>
     return _buildLibraryAction(
       icon: Icons.chat_bubble_outline,
       title: context.l10n.comments,
-      onTap: () async {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (BuildContext context) {
-            return const CommentsScreen();
-          },
-        ));
-      },
+      onTap: _openComments,
     );
+  }
+
+  Future<void> _openFavorites() async {
+    if (!await ensureJwtAccess(
+          context,
+          feature: context.l10n.featureFavoritesFolder,
+        ) ||
+        !mounted) {
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (BuildContext context) {
+        return const FavoritesScreen();
+      },
+    ));
+  }
+
+  void _openViewLog() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (BuildContext context) {
+        return const ViewLogScreen();
+      },
+    ));
+  }
+
+  void _openDownloads() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (BuildContext context) {
+        return const DownloadsScreen();
+      },
+    ));
+  }
+
+  void _openComments() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (BuildContext context) {
+        return const CommentsScreen();
+      },
+    ));
   }
 
   Widget _buildSettingsIcon() {

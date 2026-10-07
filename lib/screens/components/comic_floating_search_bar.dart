@@ -79,9 +79,10 @@ class _ComicFloatingSearchBarScreenState
   }
 
   Widget _buildPanel() {
+    final viewInsets = MediaQuery.viewInsetsOf(context);
     return ListView(
       controller: _panelController,
-      padding: const EdgeInsets.all(10),
+      padding: EdgeInsets.fromLTRB(12, 8, 12, 12 + viewInsets.bottom),
       children: [
         ..._buildHistory(),
         ..._buildTags(),
@@ -111,7 +112,9 @@ class _ComicFloatingSearchBarScreenState
     }));
     widgets.add(Wrap(
       children: _histories.map((e) {
-        return InkWell(
+        return _buildSuggestionChip(
+          icon: Icons.history_rounded,
+          label: e.searchQuery,
           onTap: () {
             _onSubmitted(e.searchQuery);
           },
@@ -130,38 +133,6 @@ class _ComicFloatingSearchBarScreenState
               _setState(null);
             }
           },
-          child: Container(
-            padding: const EdgeInsets.only(
-              left: 10,
-              right: 10,
-              top: 3,
-              bottom: 3,
-            ),
-            margin: const EdgeInsets.only(
-              left: 5,
-              right: 5,
-              top: 3,
-              bottom: 3,
-            ),
-            decoration: BoxDecoration(
-              color: Colors.pink.shade100,
-              border: Border.all(
-                style: BorderStyle.solid,
-                color: Colors.pink.shade400,
-              ),
-              borderRadius: const BorderRadius.all(Radius.circular(30)),
-            ),
-            child: Text(
-              e.searchQuery,
-              style: TextStyle(
-                color: Colors.pink.shade500,
-                height: 1.4,
-              ),
-              strutStyle: const StrutStyle(
-                height: 1.4,
-              ),
-            ),
-          ),
         );
       }).toList(),
     ));
@@ -176,47 +147,71 @@ class _ComicFloatingSearchBarScreenState
       widgets.add(_buildSubTitle(block.title));
       widgets.add(Wrap(
         children: block.content.map((e) {
-          return InkWell(
+          return _buildSuggestionChip(
+            icon: Icons.local_offer_outlined,
+            label: e,
             onTap: () {
               _onSubmitted(e);
             },
-            child: Container(
-              padding: const EdgeInsets.only(
-                left: 10,
-                right: 10,
-                top: 3,
-                bottom: 3,
-              ),
-              margin: const EdgeInsets.only(
-                left: 5,
-                right: 5,
-                top: 3,
-                bottom: 3,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.pink.shade100,
-                border: Border.all(
-                  style: BorderStyle.solid,
-                  color: Colors.pink.shade400,
-                ),
-                borderRadius: const BorderRadius.all(Radius.circular(30)),
-              ),
-              child: Text(
-                e,
-                style: TextStyle(
-                  color: Colors.pink.shade500,
-                  height: 1.4,
-                ),
-                strutStyle: const StrutStyle(
-                  height: 1.4,
-                ),
-              ),
-            ),
           );
         }).toList(),
       ));
     }
     return widgets;
+  }
+
+  Widget _buildSuggestionChip({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    VoidCallback? onLongPress,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 8, bottom: 8),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: 40,
+          maxWidth: 280,
+        ),
+        child: Material(
+          color: scheme.secondaryContainer,
+          shape: StadiumBorder(
+            side: BorderSide(color: scheme.outlineVariant),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    size: 18,
+                    color: scheme.onSecondaryContainer,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.onSecondaryContainer,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildTitle(String title, {void Function()? clear}) {

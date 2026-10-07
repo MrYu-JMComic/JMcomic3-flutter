@@ -1,16 +1,22 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jmcomic3/configs/daily_sign.dart';
 import 'package:jmcomic3/configs/login.dart';
 import 'package:jmcomic3/configs/versions.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
+import 'package:jmcomic3/screens/components/avatar.dart';
 import 'package:jmcomic3/screens/user_screen.dart';
 
 const _methodsChannel = MethodChannel('methods');
+const _previewKey = ValueKey('profile-layout-preview');
 const _username = 'A reader with a long account name';
+final _saveScreenshots = Platform.environment['LAYOUT_SCREENSHOTS'] == '1';
 
 Widget _profile({double textScale = 1}) {
   return MaterialApp(
@@ -21,7 +27,7 @@ Widget _profile({double textScale = 1}) {
       data: MediaQuery.of(context).copyWith(
         textScaler: TextScaler.linear(textScale),
       ),
-      child: child!,
+      child: RepaintBoundary(key: _previewKey, child: child!),
     ),
     home: const UserScreen(),
   );
@@ -34,6 +40,47 @@ Future<void> _loadProfile(WidgetTester tester) async {
   await tester.runAsync(() => initVersion());
   await tester.pumpAndSettle();
   expect(loginStatus, LoginStatus.loginSuccess);
+}
+
+Future<void> _capture(WidgetTester tester, String name) async {
+  if (!_saveScreenshots) return;
+  await tester.pumpAndSettle();
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find.byKey(_previewKey),
+  );
+  await tester.runAsync(() async {
+    final bitmap = await boundary.toImage(pixelRatio: 1);
+    final bytes = await bitmap.toByteData(format: ui.ImageByteFormat.png);
+    final file = File('build/layout-validation/$name.png');
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes!.buffer.asUint8List());
+    bitmap.dispose();
+  });
+}
+
+Future<void> _loadPreviewFonts(WidgetTester tester) async {
+  if (!_saveScreenshots) return;
+  await tester.runAsync(() async {
+    final font = File('C:/Windows/Fonts/segoeui.ttf');
+    if (await font.exists()) {
+      final bytes = ByteData.sublistView(await font.readAsBytes());
+      for (final family in ['LayoutPreview', 'Roboto']) {
+        await (FontLoader(family)..addFont(Future.value(bytes))).load();
+      }
+    }
+    final config =
+        jsonDecode(await File('.dart_tool/package_config.json').readAsString())
+            as Map;
+    final sdk = Uri.parse(config['flutterRoot'] as String).toFilePath();
+    final icons = File(
+        '$sdk/bin/cache/artifacts/material_fonts/materialicons-regular.otf');
+    if (await icons.exists()) {
+      await (FontLoader('MaterialIcons')
+            ..addFont(
+                Future.value(ByteData.sublistView(await icons.readAsBytes()))))
+          .load();
+    }
+  });
 }
 
 void main() {
@@ -146,6 +193,52 @@ void main() {
     expect(signButton.onPressed, isNull);
     expect(find.text('Checking...'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile profile centers identity and exposes full-width actions',
+      (tester) async {
+    const size = Size(393, 852);
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await _loadPreviewFonts(tester);
+    await tester.pumpWidget(_profile());
+    await _loadProfile(tester);
+    await _capture(tester, 'profile-mobile-signed-in');
+
+    final viewportCenter = size.width / 2;
+    expect(
+      (tester.getCenter(find.byType(Avatar)).dx - viewportCenter).abs(),
+      lessThan(3),
+    );
+    expect(
+      (tester.getCenter(find.text(_username)).dx - viewportCenter).abs(),
+      lessThan(3),
+    );
+
+    for (final label in [
+      'Favorites',
+      'History',
+      'Download List',
+      'Comments',
+    ]) {
+      final target = find.text(label);
+      expect(target, findsOneWidget, reason: label);
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+
+      final row = find.ancestor(of: target, matching: find.byType(InkWell));
+      expect(row, findsOneWidget, reason: label);
+      final rect = tester.getRect(row);
+      expect(rect.width, greaterThanOrEqualTo(350), reason: label);
+      expect(rect.height, greaterThanOrEqualTo(72), reason: label);
+      expect(rect.left, greaterThanOrEqualTo(0), reason: label);
+      expect(rect.right, lessThanOrEqualTo(size.width), reason: label);
+      expect(target.hitTestable(), findsOneWidget, reason: label);
+      expect(tester.takeException(), isNull, reason: label);
+    }
   });
 
   testWidgets('wide signed-in profile and library share a bounded row',
