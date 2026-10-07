@@ -5,7 +5,9 @@ param(
     [switch]$NoPubGet,
     [string]$SplitDebugInfoDir = "build/symbols/android",
     [switch]$Obfuscate,
-    [switch]$NoObfuscate
+    [switch]$NoObfuscate,
+    [switch]$DebugSign,
+    [string]$OutputName = 'android-release-split'
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,6 +21,14 @@ if ($Obfuscate -and $NoObfuscate) {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$buildRoot = if ($env:JM3_BUILD_ROOT) { $env:JM3_BUILD_ROOT } else { $repoRoot }
+$outputRoot = Join-Path $buildRoot (Join-Path 'build' $OutputName)
+New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+$env:FLUTTER_BUILD_DIR = $outputRoot
+if (-not [string]::IsNullOrWhiteSpace($SplitDebugInfoDir) -and -not [System.IO.Path]::IsPathRooted($SplitDebugInfoDir)) {
+    $SplitDebugInfoDir = Join-Path $outputRoot $SplitDebugInfoDir
+}
+Write-Host "Flutter output: $env:FLUTTER_BUILD_DIR"
 $jniRoot = Join-Path $repoRoot "android/app/src/main/jniLibs"
 
 $normalizedAbi = @()
@@ -71,6 +81,67 @@ if ($shouldObfuscate) {
     $sizeArgs += "--obfuscate"
 }
 
+function Resolve-ApkSigner {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $sdkRoots = @(
+        $env:ANDROID_HOME,
+        $env:ANDROID_SDK_ROOT,
+        (Join-Path $Root 'toolchains/android-sdk')
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { [System.IO.Path]::GetFullPath($_) } |
+        Select-Object -Unique
+    foreach ($sdkRoot in $sdkRoots) {
+        $buildToolsRoot = Join-Path $sdkRoot 'build-tools'
+        if (-not (Test-Path -LiteralPath $buildToolsRoot -PathType Container)) {
+            continue
+        }
+        $signer = Get-ChildItem -LiteralPath $buildToolsRoot -Directory |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName 'lib/apksigner.jar' } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+        if ($signer) {
+            return $signer
+        }
+    }
+    throw 'Android build-tools apksigner.jar was not found.'
+}
+
+function Sign-AndVerifyDebugApks {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$ApkRoot
+    )
+
+    $debugKeystore = Join-Path $env:USERPROFILE '.android/debug.keystore'
+    if (-not (Test-Path -LiteralPath $debugKeystore -PathType Leaf)) {
+        throw "Debug keystore not found: $debugKeystore"
+    }
+    $signer = Resolve-ApkSigner -Root $Root
+    $apkFiles = @(Get-ChildItem -LiteralPath $ApkRoot -Recurse -File -Filter '*-release.apk')
+    if ($apkFiles.Count -eq 0) {
+        throw "No release APKs found under $ApkRoot"
+    }
+    foreach ($apk in $apkFiles) {
+        & java -jar $signer sign `
+            --ks $debugKeystore `
+            --ks-key-alias androiddebugkey `
+            --ks-pass pass:android `
+            --key-pass pass:android `
+            $apk.FullName
+        if ($LASTEXITCODE -ne 0) {
+            throw "Debug signing failed: $($apk.FullName)"
+        }
+    }
+    foreach ($apk in $apkFiles) {
+        & java -jar $signer verify --verbose $apk.FullName
+        if ($LASTEXITCODE -ne 0) {
+            throw "APK signature verification failed: $($apk.FullName)"
+        }
+    }
+}
+
 Push-Location $repoRoot
 try {
     if (-not $NoPubGet) {
@@ -89,6 +160,27 @@ try {
 }
 finally {
     Pop-Location
+}
+
+if (-not $AabOnly) {
+    $apkOutputRoot = Join-Path $outputRoot 'app/outputs/flutter-apk'
+    if ($DebugSign) {
+        Sign-AndVerifyDebugApks -Root $repoRoot -ApkRoot $apkOutputRoot
+        Write-Host 'APK signing: Android debug keystore (test install only)' -ForegroundColor Yellow
+    } else {
+        $signer = Resolve-ApkSigner -Root $repoRoot
+        $apkFiles = @(Get-ChildItem -LiteralPath $apkOutputRoot -Recurse -File -Filter '*-release.apk')
+        if ($apkFiles.Count -eq 0) {
+            throw "No release APKs found under $apkOutputRoot"
+        }
+        foreach ($apk in $apkFiles) {
+            & java -jar $signer verify $apk.FullName *> $null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Release APK is unsigned or invalid: $($apk.FullName). Configure android/key.properties for release signing, or rerun with -DebugSign for a test-install package."
+            }
+        }
+        Write-Host 'APK signing: configured release key' -ForegroundColor Green
+    }
 }
 
 Write-Host "Done. ABI: $($normalizedAbi -join ', '), target-platform: $targetPlatforms"

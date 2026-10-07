@@ -1,4 +1,3 @@
-import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -270,11 +269,6 @@ class WeekContent extends StatefulWidget {
 
 class _WeekContentState extends State<WeekContent>
     with SingleTickerProviderStateMixin {
-  static const int _maxFilterCache = 100;
-
-  final LinkedHashMap<String, InnerComicPage> _filterCache =
-      LinkedHashMap<String, InnerComicPage>();
-
   late TabController _tabController;
   late List<WeekType> _displayTypes;
   late String _categoryId;
@@ -308,12 +302,10 @@ class _WeekContentState extends State<WeekContent>
               _displayTypes.any((element) => element.id == keepType)
           ? keepType
           : (_displayTypes.isNotEmpty ? _displayTypes.first.id : '');
-      _filterCache.clear();
     }
     final resolvedCategoryId = _resolveInitialCategoryId();
     if (resolvedCategoryId != _categoryId) {
       _categoryId = resolvedCategoryId;
-      _filterCache.clear();
       if (_categoryId.isNotEmpty) {
         widget.onCategoryChanged(_categoryId);
       }
@@ -374,21 +366,12 @@ class _WeekContentState extends State<WeekContent>
   }
 
   Future<InnerComicPage> _onPage(int page) async {
-    final cacheKey = '${_categoryId}_${_typeId}_$page';
-    final cached = _filterCache[cacheKey];
-    if (cached != null) {
-      return cached;
-    }
+    // 分页缓存统一交给 ComicPager 管理；重复缓存会让分页器的强制刷新再次返回旧结果。
     final response = await methods.weekFilter(_categoryId, _typeId, page);
-    final value = InnerComicPage(
+    return InnerComicPage(
       total: response.total,
       list: response.list,
     );
-    _filterCache[cacheKey] = value;
-    if (_filterCache.length > _maxFilterCache) {
-      _filterCache.remove(_filterCache.keys.first);
-    }
-    return value;
   }
 
   Widget _buildNextCard() {
@@ -419,7 +402,6 @@ class _WeekContentState extends State<WeekContent>
     setState(() {
       _categoryId = nextId;
     });
-    _filterCache.clear();
     widget.categoryNotifier.value = nextId;
     widget.onCategoryChanged(nextId);
     defaultToast(context, context.l10n.switchedToNextIssue);
@@ -437,7 +419,6 @@ class _WeekContentState extends State<WeekContent>
     setState(() {
       _categoryId = value;
     });
-    _filterCache.clear();
   }
 
   String _resolveInitialCategoryId() {

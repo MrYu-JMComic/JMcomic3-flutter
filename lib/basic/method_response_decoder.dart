@@ -16,6 +16,15 @@ const List<String> _listPayloadKeys = <String>[
 
 final Object _missingListPayload = Object();
 
+String _stripJsonBom(String input) {
+  // Some HTTP clients preserve the UTF-8 BOM at the JSON boundary. Remove it
+  // only when it is the first character; BOM-like text inside a value is data.
+  if (input.isNotEmpty && input.codeUnitAt(0) == 0xFEFF) {
+    return input.substring(1);
+  }
+  return input;
+}
+
 Map<String, dynamic> _normalizeMapEntries(Map<dynamic, dynamic> source) {
   if (source is Map<String, dynamic>) {
     return source;
@@ -48,11 +57,11 @@ bool _looksLikeJsonValue(String input) {
 }
 
 dynamic _decodeBridgePayload(String rsp) {
-  dynamic decoded = jsonDecode(rsp);
+  dynamic decoded = jsonDecode(_stripJsonBom(rsp));
   for (var depth = 0;
       decoded is String && depth < _maxBridgePayloadStringUnwrapDepth;
       depth++) {
-    final nested = decoded.trim();
+    final nested = _stripJsonBom(decoded.trim());
     if (!_looksLikeJsonValue(nested)) {
       return decoded;
     }

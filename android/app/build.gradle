@@ -46,7 +46,9 @@ def rustAndroidAbiMetadata = [
 android {
     namespace "com.jmcomic3.yee"
     compileSdkVersion flutter.compileSdkVersion
-    ndkVersion flutter.ndkVersion
+    // Keep the native Rust build and the Android Gradle plugin on the same
+    // side-by-side NDK that is pinned by the repository CI workflow.
+    ndkVersion "25.2.9519653"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -101,10 +103,6 @@ android {
 
 flutter {
     source '../..'
-}
-
-dependencies {
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1'
 }
 
 def rustAndroidRepoRoot = rootProject.projectDir.parentFile

@@ -169,7 +169,7 @@ class Methods {
       debugPrient("[download-api:req] method=$method params=${_brief(params)}");
     }
     final resp = await _invokeRaw(method, params);
-    final response = _Response.fromJson(jsonDecode(resp));
+    final response = _Response.fromJson(jsonDecode(_stripJsonBom(resp)));
 
     if (response.errorMessage.isNotEmpty) {
       if (shouldDebug) {
@@ -189,7 +189,9 @@ class Methods {
         "[download-api:rsp] method=$method data=${_brief(response.responseData)}",
       );
     }
-    return response.responseData;
+    // response_data is the second JSON boundary. A BOM here would otherwise
+    // break scalar parsers (and list/object decoders) downstream.
+    return _stripJsonBom(response.responseData);
   }
 
   String _brief(dynamic value) {
@@ -198,6 +200,14 @@ class Methods {
       return raw;
     }
     return "${raw.substring(0, 320)}...";
+  }
+
+  static String _stripJsonBom(String input) {
+    // Keep BOM handling at the bridge boundary. Payload values are unchanged.
+    if (input.isNotEmpty && input.codeUnitAt(0) == 0xFEFF) {
+      return input.substring(1);
+    }
+    return input;
   }
 
   /// 后端整数响应历史上偶发过空串/非数字脏值；这里集中兜底，

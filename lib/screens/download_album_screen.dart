@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:jmcomic3/basic/entities.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/components/comic_download_card.dart';

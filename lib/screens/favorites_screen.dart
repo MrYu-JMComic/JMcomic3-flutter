@@ -150,7 +150,11 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   favData = response.folderList;
                 });
                 return InnerComicPage(
-                    total: response.total, list: response.list);
+                  total: response.total,
+                  list: response.list,
+                  // 移动端收藏接口的 count 是单页容量，优先用它计算总页数。
+                  pageSize: response.count,
+                );
               },
             ),
     );
