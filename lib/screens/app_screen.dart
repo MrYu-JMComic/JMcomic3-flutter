@@ -190,8 +190,9 @@ class _AppScreenState extends State<AppScreen> {
                 alpha: theme.brightness == Brightness.dark ? .22 : .12,
               ),
               elevation: 0,
-              height: 68,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+              height: 64,
+              labelBehavior:
+                  NavigationDestinationLabelBehavior.onlyShowSelected,
               labelTextStyle: WidgetStateProperty.resolveWith((states) {
                 final selected = states.contains(WidgetState.selected);
                 return TextStyle(

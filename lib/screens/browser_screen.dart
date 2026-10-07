@@ -226,6 +226,8 @@ class _BrowserScreenState extends State<BrowserScreen>
                 child: Text(
                   context.l10n.tr('搜索漫画、作者或关键词',
                       en: 'Search comics, authors or keywords'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -268,17 +270,20 @@ class _BrowserScreenState extends State<BrowserScreen>
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsetsDirectional.only(start: 4, end: 12),
-            child: IconButton.filledTonal(
-              tooltip:
-                  '${context.l10n.chooseSort}: ${sortByName(context, _sortBy)}',
-              onPressed: () async {
-                final value = await chooseSortBy(context);
-                if (!mounted || value == null) return;
-                setState(() => _sortBy = value);
-              },
-              icon: const Icon(Icons.sort_rounded),
+          SizedBox(
+            width: 64,
+            child: Padding(
+              padding: const EdgeInsetsDirectional.only(start: 4, end: 12),
+              child: IconButton.filledTonal(
+                tooltip:
+                    '${context.l10n.chooseSort}: ${sortByName(context, _sortBy)}',
+                onPressed: () async {
+                  final value = await chooseSortBy(context);
+                  if (!mounted || value == null) return;
+                  setState(() => _sortBy = value);
+                },
+                icon: const Icon(Icons.sort_rounded),
+              ),
             ),
           ),
         ],

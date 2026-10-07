@@ -305,6 +305,10 @@ void main() {
     final fixture = await _prepare(tester, size: const Size(839, 700));
     await tester.pumpWidget(_host(const AppScreen()));
     await tester.pumpAndSettle();
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      0,
+    );
     await tester.tap(_chip('Beta'));
     await tester.pumpAndSettle();
     final browserState = tester.state(find.byType(BrowserScreen));
@@ -312,9 +316,13 @@ void main() {
         jsonEncode({'categories_slug': 'beta', 'sort_by': '', 'page': 1}));
     await tester.tap(find.descendant(
       of: find.byType(NavigationBar),
-      matching: find.text('Library'),
+      matching: find.byIcon(Icons.image_outlined),
     ));
     await tester.pumpAndSettle();
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      1,
+    );
     final libraryState = tester.state(find.byType(UserScreen));
 
     for (final width in [840.0, 1440.0, 839.0]) {
@@ -342,7 +350,7 @@ void main() {
     }
     await tester.tap(find.descendant(
       of: find.byType(NavigationBar),
-      matching: find.text('Browse'),
+      matching: find.byIcon(Icons.menu_book_outlined),
     ));
     await tester.pumpAndSettle();
     expect(tester.widget<ChoiceChip>(_chip('Beta')).selected, isTrue);
@@ -403,19 +411,51 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('mobile search chips stay within the panel with keyboard inset',
+      (tester) async {
+    await _prepare(tester, size: const Size(320, 640));
+    await tester.pumpWidget(_host(const AppScreen(), textScale: 1.4));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(_searchHint));
+    await tester.pumpAndSettle();
+    final history = find.text('quiet forest');
+    expect(history, findsOneWidget);
+    expect(tester.getRect(history).right, lessThanOrEqualTo(308));
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+
+    final panel = tester.widget<ListView>(find.ancestor(
+      of: history,
+      matching: find.byType(ListView),
+    ));
+    expect(panel.padding, const EdgeInsets.fromLTRB(12, 8, 12, 252));
+    expect(tester.getRect(history).right, lessThanOrEqualTo(308));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('compact browse and guest library fit large text',
       (tester) async {
     await _prepare(tester, size: const Size(320, 780));
     await tester.pumpWidget(_host(const AppScreen(), textScale: 2));
     await tester.pumpAndSettle();
     expect(find.text(_searchHint), findsOneWidget);
+    expect(tester.widget<Text>(find.text(_searchHint)).maxLines, 1);
     expect(
         tester.getRect(find.text(_searchHint)).right, lessThanOrEqualTo(304));
+    final grid = tester.widget<GridView>(find.byType(GridView).first);
+    expect(
+      (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
+          .crossAxisCount,
+      2,
+    );
     expect(tester.takeException(), isNull);
     await _capture(tester, 'browse-compact-large-text');
     await tester.tap(find.descendant(
       of: find.byType(NavigationBar),
-      matching: find.text('Library'),
+      matching: find.byIcon(Icons.image_outlined),
     ));
     await tester.pumpAndSettle();
     expect(find.text('Guest Mode'), findsOneWidget);
