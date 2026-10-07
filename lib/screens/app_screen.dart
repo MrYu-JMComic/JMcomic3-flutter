@@ -74,6 +74,19 @@ class _AppScreenState extends State<AppScreen> {
   @override
   Widget build(BuildContext context) {
     final screens = _screens(context);
+    final isWideLayout = MediaQuery.sizeOf(context).width >= 700;
+    final pageView = PageView(
+      physics: const NeverScrollableScrollPhysics(),
+      allowImplicitScrolling: false,
+      controller: _pageController,
+      onPageChanged: (index) {
+        setState(() {
+          _selectedIndex = index;
+        });
+      },
+      children: screens.map((e) => e.screen).toList(),
+    );
+
     return ComicFloatingSearchBarScreen(
       onQuery: (value) {
         Navigator.of(context).push(MaterialPageRoute(builder: (_) {
@@ -82,23 +95,69 @@ class _AppScreenState extends State<AppScreen> {
       },
       controller: _searchBarController,
       child: Scaffold(
-        body: PageView(
-          physics: const NeverScrollableScrollPhysics(),
-          allowImplicitScrolling: false,
-          controller: _pageController,
-          onPageChanged: (index) {
-            setState(() {
-              _selectedIndex = index;
-            });
-          },
-          children: screens.map((e) => e.screen).toList(),
-        ),
-        bottomNavigationBar: _buildBottomNavigationBar(context),
+        body: isWideLayout
+            ? Row(
+                children: [
+                  SafeArea(
+                    top: true,
+                    bottom: true,
+                    child: _buildNavigationRail(context, screens),
+                  ),
+                  const VerticalDivider(width: 1),
+                  Expanded(child: pageView),
+                ],
+              )
+            : pageView,
+        bottomNavigationBar:
+            isWideLayout ? null : _buildBottomNavigationBar(context, screens),
       ),
     );
   }
 
-  Widget _buildBottomNavigationBar(BuildContext context) {
+  Widget _buildNavigationRail(
+      BuildContext context, List<AppScreenData> screens) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final navTheme = NavigationRailTheme.of(context);
+    return NavigationRailTheme(
+      data: navTheme.copyWith(
+        backgroundColor: scheme.surface,
+        indicatorColor: scheme.primary.withValues(
+          alpha: theme.brightness == Brightness.dark ? .22 : .12,
+        ),
+        selectedIconTheme: IconThemeData(color: scheme.primary, size: 24),
+        unselectedIconTheme:
+            IconThemeData(color: scheme.onSurfaceVariant, size: 22),
+        selectedLabelTextStyle: TextStyle(
+          color: scheme.primary,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+        unselectedLabelTextStyle: TextStyle(
+          color: scheme.onSurfaceVariant,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      child: NavigationRail(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: _onItemTapped,
+        labelType: NavigationRailLabelType.all,
+        groupAlignment: -0.65,
+        minWidth: 76,
+        destinations: screens
+            .map((e) => NavigationRailDestination(
+                  icon: e.icon,
+                  selectedIcon: e.activeIcon,
+                  label: Text(e.title),
+                ))
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavigationBar(
+      BuildContext context, List<AppScreenData> screens) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final navTheme = NavigationBarTheme.of(context);
@@ -150,7 +209,7 @@ class _AppScreenState extends State<AppScreen> {
             child: NavigationBar(
               selectedIndex: _selectedIndex,
               onDestinationSelected: _onItemTapped,
-              destinations: _screens(context)
+              destinations: screens
                   .map((e) => NavigationDestination(
                         icon: e.icon,
                         selectedIcon: e.activeIcon,
