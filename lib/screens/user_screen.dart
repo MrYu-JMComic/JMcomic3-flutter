@@ -476,37 +476,78 @@ class _UserScreenState extends State<UserScreen>
             ],
           ),
         const SizedBox(height: 16),
-        Wrap(
-          alignment: compact ? WrapAlignment.center : WrapAlignment.start,
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _buildSelfInfoBadge(
-              context,
-              context.l10n.level,
-              levelText,
-              Icons.workspace_premium_outlined,
-            ),
-            _buildSelfInfoBadge(
-              context,
-              context.l10n.experience,
-              expPercentText,
-              Icons.trending_up,
-            ),
-            _buildSelfInfoBadge(
-              context,
-              context.l10n.coin,
-              "${selfInfo.coin}",
-              Icons.monetization_on_outlined,
-            ),
-            _buildSelfInfoBadge(
-              context,
-              context.l10n.badges,
-              "${selfInfo.badges.length}",
-              Icons.verified_outlined,
-            ),
-          ],
-        ),
+        if (compact)
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = (constraints.maxWidth - 8) / 2;
+              return Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildSelfInfoBadge(
+                    context,
+                    context.l10n.level,
+                    levelText,
+                    Icons.workspace_premium_outlined,
+                    width: width,
+                  ),
+                  _buildSelfInfoBadge(
+                    context,
+                    context.l10n.experience,
+                    expPercentText,
+                    Icons.trending_up,
+                    width: width,
+                  ),
+                  _buildSelfInfoBadge(
+                    context,
+                    context.l10n.coin,
+                    "${selfInfo.coin}",
+                    Icons.monetization_on_outlined,
+                    width: width,
+                  ),
+                  _buildSelfInfoBadge(
+                    context,
+                    context.l10n.badges,
+                    "${selfInfo.badges.length}",
+                    Icons.verified_outlined,
+                    width: width,
+                  ),
+                ],
+              );
+            },
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildSelfInfoBadge(
+                context,
+                context.l10n.level,
+                levelText,
+                Icons.workspace_premium_outlined,
+              ),
+              _buildSelfInfoBadge(
+                context,
+                context.l10n.experience,
+                expPercentText,
+                Icons.trending_up,
+              ),
+              _buildSelfInfoBadge(
+                context,
+                context.l10n.coin,
+                "${selfInfo.coin}",
+                Icons.monetization_on_outlined,
+              ),
+              _buildSelfInfoBadge(
+                context,
+                context.l10n.badges,
+                "${selfInfo.badges.length}",
+                Icons.verified_outlined,
+              ),
+            ],
+          ),
         const SizedBox(height: 16),
         if (selfInfo.email.trim().isNotEmpty) ...[
           Text(
@@ -604,28 +645,29 @@ class _UserScreenState extends State<UserScreen>
     BuildContext context,
     String label,
     String value,
-    IconData icon,
-  ) {
+    IconData icon, {
+    double? width,
+  }) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    return Container(
+    final badge = Container(
+      width: width,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: colors.surface.withValues(alpha: .7),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: width == null ? MainAxisSize.min : MainAxisSize.max,
         children: [
-          Icon(
-            icon,
-            size: 14,
-            color: colors.primary,
-          ),
+          Icon(icon, size: 14, color: colors.primary),
           const SizedBox(width: 4),
           Flexible(
             child: Text(
               "$label: $value",
+              maxLines: width == null ? null : 2,
+              overflow:
+                  width == null ? TextOverflow.visible : TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: colors.onSurface,
                 fontWeight: FontWeight.w500,
@@ -635,6 +677,7 @@ class _UserScreenState extends State<UserScreen>
         ],
       ),
     );
+    return width == null ? badge : SizedBox(width: width, child: badge);
   }
 
   String _formatGender(String raw) {

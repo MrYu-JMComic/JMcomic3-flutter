@@ -442,8 +442,15 @@ void main() {
     await tester.pumpWidget(_host(const AppScreen(), textScale: 2));
     await tester.pumpAndSettle();
     expect(find.text(_searchHint), findsOneWidget);
+    expect(tester.widget<Text>(find.text(_searchHint)).maxLines, 1);
     expect(
         tester.getRect(find.text(_searchHint)).right, lessThanOrEqualTo(304));
+    final grid = tester.widget<GridView>(find.byType(GridView).first);
+    expect(
+      (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
+          .crossAxisCount,
+      2,
+    );
     expect(tester.takeException(), isNull);
     await _capture(tester, 'browse-compact-large-text');
     await tester.tap(find.descendant(

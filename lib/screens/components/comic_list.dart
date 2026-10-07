@@ -75,16 +75,20 @@ class _ComicListState extends State<ComicList> {
       if (constraints.maxWidth <= 0) return const SizedBox.shrink();
       final horizontalPadding = math.min(12.0, constraints.maxWidth / 4);
       final contentWidth = constraints.maxWidth - horizontalPadding * 2;
+      // Two columns keep covers and titles readable on phone-sized screens;
+      // the saved desktop preference still applies to wider layouts.
+      final columnCount = constraints.maxWidth < 600
+          ? math.min(pagerColumnNumber, 2)
+          : pagerColumnNumber;
       // Keep the configured number of columns even in an unusually small
       // desktop window; reduce gaps only when 12px would consume the grid.
-      final spacing =
-          math.min(_spacing, contentWidth / (pagerColumnNumber * 2));
+      final spacing = math.min(_spacing, contentWidth / (columnCount * 2));
       final padding = EdgeInsets.symmetric(
         horizontal: horizontalPadding,
         vertical: 12,
       );
-      final columnWidth = (contentWidth - spacing * (pagerColumnNumber - 1)) /
-          pagerColumnNumber;
+      final columnWidth =
+          (contentWidth - spacing * (columnCount - 1)) / columnCount;
       final coverHeight = columnWidth / _coverAspectRatio;
       final titleStyle = Theme.of(context).textTheme.bodyMedium!.copyWith(
             height: 1.3,
@@ -135,7 +139,7 @@ class _ComicListState extends State<ComicList> {
         padding: padding,
         physics: const AlwaysScrollableScrollPhysics(),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: pagerColumnNumber,
+          crossAxisCount: columnCount,
           mainAxisSpacing: _spacing,
           crossAxisSpacing: spacing,
           mainAxisExtent: itemHeight,
