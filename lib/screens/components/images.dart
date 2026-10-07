@@ -521,22 +521,30 @@ void _evictPageImageCache(int id, String imageName) {
 }
 
 /// 淘汰单页的路径、尺寸及解码缓存，保留仍在屏幕上的活动图片。
-void evictPageImageMemoryCache(int id, String imageName) {
+void evictPageImageMemoryCache(
+  int id,
+  String imageName, {
+  bool includeLive = false,
+}) {
   _evictPageImageCache(id, imageName);
-  evictPageImageDecodeCache(id, imageName);
+  evictPageImageDecodeCache(id, imageName, includeLive: includeLive);
 }
 
 /// 仅淘汰 Flutter 解码缓存，覆盖相册页图和长条阅读器的文件/缩放缓存键。
-void evictPageImageDecodeCache(int id, String imageName) {
-  // includeLive=false 不影响仍显示中的图片。
+void evictPageImageDecodeCache(
+  int id,
+  String imageName, {
+  bool includeLive = false,
+}) {
+  // 翻页期间保留仍在树上的图片；阅读器销毁时才允许释放 live stream。
   imageCache.evict(
     PageImageProvider(id, imageName),
-    includeLive: false,
+    includeLive: includeLive,
   );
   final keys = _pageImageDecodeKeys.remove(_pageImageCacheKey(id, imageName));
   if (keys != null) {
     for (final key in keys) {
-      imageCache.evict(key, includeLive: false);
+      imageCache.evict(key, includeLive: includeLive);
     }
   }
 }

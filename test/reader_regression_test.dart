@@ -79,7 +79,9 @@ void main() {
     pending.complete();
     await old;
     expect(loaded, [0, 4, 5, 3]);
-    expect(released, [0]);
+    // Replacing the viewport queue must retain decoded images while the
+    // reader route is still mounted. Route disposal owns the release.
+    expect(released, isEmpty);
   });
 
   test('dispose releases a late completion and does not start remaining pages',
@@ -458,6 +460,34 @@ void main() {
     expect(status.keepAlive, isFalse);
     expect(status.pending, isFalse);
     expect(imageRequests, ['0.png']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'reader keeps a page cache while mounted and releases it on exit',
+      (tester) async {
+    final readerKey = await mountReader(
+        tester, ReaderType.webtoon, ReaderDirection.topToBottom);
+    final firstPage = find.byType(JMPageImage).first;
+    final pageFinder = find.descendant(
+      of: firstPage,
+      matching: find.byType(Image),
+    );
+    expect(pageFinder, findsOneWidget);
+    final provider = tester.widget<Image>(pageFinder).image;
+    final providerKey = await provider.obtainKey(ImageConfiguration.empty);
+    var status = imageCache.statusForKey(providerKey);
+    expect(status.live || status.keepAlive || status.pending, isTrue);
+
+    jumpComicReaderForTest(readerKey, 5, animation: false);
+    await tester.pumpAndSettle();
+    status = imageCache.statusForKey(providerKey);
+    expect(status.live || status.keepAlive || status.pending, isTrue);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(imageCache.statusForKey(providerKey).keepAlive, isFalse);
+    expect(imageCache.statusForKey(providerKey).live, isFalse);
     expect(tester.takeException(), isNull);
   });
 }
