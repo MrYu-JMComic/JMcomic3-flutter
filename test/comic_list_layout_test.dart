@@ -57,7 +57,8 @@ Future<void> _initPreferences(
   await initPagerColumnCount();
 }
 
-Widget _host(Widget child, {double width = 420, double textScale = 1}) {
+Widget _host(Widget child,
+    {double width = 720, double textScale = 1, double screenWidth = 1000}) {
   return MaterialApp(
     home: Scaffold(
       body: Align(
@@ -66,7 +67,7 @@ Widget _host(Widget child, {double width = 420, double textScale = 1}) {
           width: width,
           child: MediaQuery(
             data: MediaQueryData(
-              size: const Size(1000, 800),
+              size: Size(screenWidth, 800),
               textScaler: TextScaler.linear(textScale),
             ),
             child: child,
@@ -106,12 +107,12 @@ void main() {
         final third = tester.getRect(covers.at(2));
         final fourth = tester.getRect(covers.at(3));
         expect(first.left, 12);
-        expect(first.width, closeTo(124, .001));
+        expect(first.width, closeTo(224, .001));
         expect(first.width / first.height,
             closeTo(ratio == PagerCoverRate.rate3x4 ? .75 : 1, .001));
         expect(second.left - first.right, closeTo(12, .001));
         expect(third.top, first.top);
-        expect(third.right, closeTo(408, .001));
+        expect(third.right, closeTo(708, .001));
         expect(fourth.left, first.left);
         expect(fourth.top, greaterThan(first.bottom));
         expect(find.byKey(const ValueKey('appended')), findsOneWidget);
@@ -173,7 +174,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('ten configured columns remain valid in a tiny parent',
+  testWidgets('ten configured columns remain valid in a tiny phone parent',
       (tester) async {
     await _initPreferences(
       PagerViewMode.titleAndCover,
@@ -188,6 +189,7 @@ void main() {
         ),
       ),
       width: 128,
+      screenWidth: 128,
       textScale: 2,
     ));
     await tester.pump();
@@ -198,6 +200,27 @@ void main() {
     expect(first.width, greaterThan(0));
     expect(last.top, first.top);
     expect(last.right, lessThanOrEqualTo(128));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('narrow desktop lists keep their existing column cap and spacing',
+      (tester) async {
+    await _initPreferences(PagerViewMode.cover, PagerCoverRate.rate3x4);
+    await tester.pumpWidget(_host(
+      ComicList(data: List.generate(4, _comic)),
+      width: 420,
+    ));
+    await tester.pump();
+    final grid = tester.widget<GridView>(find.byType(GridView));
+    final delegate =
+        grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
+    expect(delegate.crossAxisCount, 2);
+    expect(delegate.mainAxisSpacing, 12);
+    expect(delegate.crossAxisSpacing, 12);
+    expect(grid.padding, const EdgeInsets.all(12));
+    final cover = tester.getRect(find.byType(JM3x4Cover).first);
+    expect(cover.left, 12);
+    expect(cover.width, 192);
     expect(tester.takeException(), isNull);
   });
 

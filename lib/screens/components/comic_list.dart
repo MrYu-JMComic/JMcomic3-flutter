@@ -8,6 +8,7 @@ import 'package:jmcomic3/configs/pager_view_mode.dart';
 import 'package:jmcomic3/screens/comic_info_screen.dart';
 import 'package:jmcomic3/screens/components/types.dart';
 
+import '../../basic/commons.dart';
 import 'comic_info_card.dart';
 import 'images.dart';
 
@@ -55,7 +56,8 @@ class _ComicListState extends State<ComicList> {
   }
 
   static const double _spacing = 12;
-  static const EdgeInsets _contentPadding = EdgeInsets.all(12);
+
+  bool get _compact => MediaQuery.sizeOf(context).width < 840;
 
   @override
   Widget build(BuildContext context) {
@@ -73,26 +75,30 @@ class _ComicListState extends State<ComicList> {
   Widget _buildGridMode() {
     return LayoutBuilder(builder: (context, constraints) {
       if (constraints.maxWidth <= 0) return const SizedBox.shrink();
-      final horizontalPadding = math.min(12.0, constraints.maxWidth / 4);
+      final compact = _compact;
+      final caption = currentPagerViewMode == PagerViewMode.titleAndCover;
+      final basePadding = compact ? (caption ? 10.0 : 0.0) : 12.0;
+      final horizontalPadding = math.min(basePadding, constraints.maxWidth / 4);
       final contentWidth = constraints.maxWidth - horizontalPadding * 2;
-      // Two columns keep covers and titles readable on phone-sized screens;
-      // the saved desktop preference still applies to wider layouts.
-      final columnCount = constraints.maxWidth < 600
+      // Remove the phone-only restriction without changing the existing
+      // column cap for narrow, nested lists in a desktop layout.
+      final columnCount = !compact && constraints.maxWidth < 600
           ? math.min(pagerColumnNumber, 2)
           : pagerColumnNumber;
-      // Keep the configured number of columns even in an unusually small
-      // desktop window; reduce gaps only when 12px would consume the grid.
-      final spacing = math.min(_spacing, contentWidth / (columnCount * 2));
+      // Reduce desktop gaps when they would otherwise consume the grid.
+      final spacing =
+          compact ? 0.0 : math.min(_spacing, contentWidth / (columnCount * 2));
+      final rowSpacing = compact ? 0.0 : _spacing;
       final padding = EdgeInsets.symmetric(
         horizontal: horizontalPadding,
-        vertical: 12,
+        vertical: basePadding,
       );
       final columnWidth =
           (contentWidth - spacing * (columnCount - 1)) / columnCount;
       final coverHeight = columnWidth / _coverAspectRatio;
       final titleStyle = Theme.of(context).textTheme.bodyMedium!.copyWith(
             height: 1.3,
-            fontWeight: FontWeight.w500,
+            fontWeight: compact ? FontWeight.normal : FontWeight.w500,
           );
       // Reserve two complete lines at the active text scale, including fonts
       // whose ascent/descent is larger than their nominal font size.
@@ -103,18 +109,20 @@ class _ComicListState extends State<ComicList> {
         textScaler: MediaQuery.textScalerOf(context),
         maxLines: 2,
       )..layout();
-      final titleHeight = titlePainter.height.ceilToDouble();
+      final measuredTitleHeight = titlePainter.height.ceilToDouble();
+      final titleHeight = compact
+          ? math.max(50.0, measuredTitleHeight + 10)
+          : measuredTitleHeight;
       titlePainter.dispose();
-      final itemHeight = coverHeight +
-          (currentPagerViewMode == PagerViewMode.titleAndCover
-              ? titleHeight + 8
-              : 0);
+      final itemHeight =
+          coverHeight + (caption ? titleHeight + (compact ? 0 : 8) : 0);
 
       Widget itemBuilder(BuildContext context, int index) {
         if (index >= widget.data.length) {
           return widget.appendList![index - widget.data.length];
         }
-        return _buildGridItem(index, coverHeight, titleHeight, titleStyle);
+        return _buildGridItem(index, coverHeight, titleHeight, titleStyle,
+            compact: compact);
       }
 
       if (widget.inScroll) {
@@ -122,7 +130,7 @@ class _ComicListState extends State<ComicList> {
           padding: padding,
           child: Wrap(
             spacing: spacing,
-            runSpacing: _spacing,
+            runSpacing: rowSpacing,
             children: List.generate(
               _itemCount,
               (index) => SizedBox(
@@ -140,7 +148,7 @@ class _ComicListState extends State<ComicList> {
         physics: const AlwaysScrollableScrollPhysics(),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columnCount,
-          mainAxisSpacing: _spacing,
+          mainAxisSpacing: rowSpacing,
           crossAxisSpacing: spacing,
           mainAxisExtent: itemHeight,
         ),
@@ -154,17 +162,20 @@ class _ComicListState extends State<ComicList> {
     int index,
     double coverHeight,
     double titleHeight,
-    TextStyle titleStyle,
-  ) {
+    TextStyle titleStyle, {
+    required bool compact,
+  }) {
     final comic = widget.data[index];
     final cover = SizedBox(
       height: coverHeight,
       child: Card(
-        margin: EdgeInsets.zero,
+        margin: compact ? const EdgeInsets.all(4) : EdgeInsets.zero,
         elevation: 0,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-        ),
+        shape: compact
+            ? coverShape
+            : const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12)),
+              ),
         clipBehavior: Clip.antiAlias,
         child: LayoutBuilder(builder: (context, constraints) {
           final image = _buildCover(index, constraints);
@@ -179,14 +190,18 @@ class _ComicListState extends State<ComicList> {
                 alignment: Alignment.bottomCenter,
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(8, 20, 8, 8),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Color(0xE6000000)],
-                    ),
-                  ),
+                  padding: compact
+                      ? const EdgeInsets.all(3)
+                      : const EdgeInsets.fromLTRB(8, 20, 8, 8),
+                  decoration: compact
+                      ? const BoxDecoration(color: Color(0xB4000000))
+                      : const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Color(0xE6000000)],
+                          ),
+                        ),
                   child: Text(
                     comic.name,
                     maxLines: 2,
@@ -209,11 +224,15 @@ class _ComicListState extends State<ComicList> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 cover,
-                const SizedBox(height: 8),
-                SizedBox(
+                if (!compact) const SizedBox(height: 8),
+                Container(
                   height: titleHeight,
+                  padding: compact
+                      ? const EdgeInsets.fromLTRB(5, 0, 5, 10)
+                      : EdgeInsets.zero,
                   child: Text(
                     comic.name,
+                    textAlign: compact ? TextAlign.center : TextAlign.start,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: titleStyle,
@@ -245,6 +264,10 @@ class _ComicListState extends State<ComicList> {
   }
 
   Widget _buildInfoMode() {
+    final padding = _compact
+        ? const EdgeInsets.symmetric(vertical: 10)
+        : const EdgeInsets.all(12);
+    final spacing = _compact ? 0.0 : _spacing;
     Widget itemBuilder(BuildContext context, int index) {
       if (index >= widget.data.length) {
         return widget.appendList![index - widget.data.length];
@@ -259,11 +282,11 @@ class _ComicListState extends State<ComicList> {
 
     if (widget.inScroll) {
       return Padding(
-        padding: _contentPadding,
+        padding: padding,
         child: Column(
           children: [
             for (var index = 0; index < _itemCount; index++) ...[
-              if (index > 0) const SizedBox(height: _spacing),
+              if (index > 0) SizedBox(height: spacing),
               itemBuilder(context, index),
             ],
           ],
@@ -273,9 +296,9 @@ class _ComicListState extends State<ComicList> {
     return _wrapWithScrollListener(ListView.separated(
       controller: widget.controller,
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: _contentPadding,
+      padding: padding,
       itemCount: _itemCount,
-      separatorBuilder: (context, index) => const SizedBox(height: _spacing),
+      separatorBuilder: (context, index) => SizedBox(height: spacing),
       itemBuilder: itemBuilder,
     ));
   }

@@ -80,9 +80,13 @@ class _ComicFloatingSearchBarScreenState
 
   Widget _buildPanel() {
     final viewInsets = MediaQuery.viewInsetsOf(context);
+    final compact = MediaQuery.sizeOf(context).width < 840;
     return ListView(
       controller: _panelController,
-      padding: EdgeInsets.fromLTRB(12, 8, 12, 12 + viewInsets.bottom),
+      // The search scaffold already resizes above the keyboard on phones.
+      padding: compact
+          ? const EdgeInsets.all(10)
+          : EdgeInsets.fromLTRB(12, 8, 12, 12 + viewInsets.bottom),
       children: [
         ..._buildHistory(),
         ..._buildTags(),
@@ -166,6 +170,28 @@ class _ComicFloatingSearchBarScreenState
     required VoidCallback onTap,
     VoidCallback? onLongPress,
   }) {
+    if (MediaQuery.sizeOf(context).width < 840) {
+      // Restore the compact text-only tags used before PR #7. In particular,
+      // do not reserve an icon slot or truncate longer tags to one line.
+      return InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+          margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+          decoration: BoxDecoration(
+            color: Colors.pink.shade100,
+            border: Border.all(color: Colors.pink.shade400),
+            borderRadius: const BorderRadius.all(Radius.circular(30)),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(color: Colors.pink.shade500, height: 1.4),
+            strutStyle: const StrutStyle(height: 1.4),
+          ),
+        ),
+      );
+    }
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsetsDirectional.only(end: 8, bottom: 8),
