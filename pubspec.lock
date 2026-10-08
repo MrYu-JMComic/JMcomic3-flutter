@@ -577,6 +577,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.4"
+  zoomable_positioned_list:
+    dependency: "direct main"
+    description:
+      name: zoomable_positioned_list
+      sha256: f17148ca7be6775131737b11ab738d059b845b7e3988d0095eb5b6e41c9023e4
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.0"
 sdks:
   dart: ">=3.10.0 <4.0.0"
   flutter: ">=3.38.0"
