@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:another_xlider/another_xlider.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photo_view/photo_view.dart';
@@ -17,6 +18,7 @@ import 'package:jmcomic3/configs/reader_slider_position.dart';
 import 'package:jmcomic3/configs/reader_type.dart';
 import 'package:jmcomic3/configs/two_page_direction.dart';
 import 'package:jmcomic3/configs/volume_key_control.dart';
+import 'package:jmcomic3/configs/theme.dart' as app_theme;
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/comic_reader_screen.dart';
 import 'package:jmcomic3/screens/components/images.dart';
@@ -113,6 +115,7 @@ void main() {
       WidgetTester tester, ReaderType type, ReaderDirection readDirection,
       {int pageCount = 10,
       int startIndex = 0,
+      ThemeData? theme,
       ValueChanged<int>? onUnmount}) async {
     direction = readDirection;
     await initReaderControllerType();
@@ -135,25 +138,29 @@ void main() {
             onUnmount?.call(comicReaderProgressForTest(key).current);
           }
         },
-        child: MaterialApp(
-          localizationsDelegates: const [AppLocalizations.delegate],
-          home: Scaffold(
-              body: buildComicReaderForTest(
-            key: key,
-            chapter: ChapterResponse(
-                id: 81234,
-                series: [],
-                tags: '',
-                name: 'Reader regression',
-                images: List.generate(pageCount, (index) => '$index.png'),
-                seriesId: 81234,
-                isFavorite: false,
-                liked: false),
-            readerType: type,
-            direction: readDirection,
-            startIndex: startIndex,
-          )),
-        )));
+        child: RepaintBoundary(
+            key: const ValueKey('reader-regression-surface'),
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: theme,
+              localizationsDelegates: const [AppLocalizations.delegate],
+              home: Scaffold(
+                  body: buildComicReaderForTest(
+                key: key,
+                chapter: ChapterResponse(
+                    id: 81234,
+                    series: [],
+                    tags: '',
+                    name: 'Reader regression',
+                    images: List.generate(pageCount, (index) => '$index.png'),
+                    seriesId: 81234,
+                    isFavorite: false,
+                    liked: false),
+                readerType: type,
+                direction: readDirection,
+                startIndex: startIndex,
+              )),
+            ))));
     await tester.runAsync(
         () async => Future<void>.delayed(const Duration(milliseconds: 80)));
     await tester.pumpAndSettle();
@@ -168,6 +175,112 @@ void main() {
   }
 
   Finder firstPage() => find.byKey(const ValueKey('reader-page-81234-0'));
+
+  for (final dark in [false, true]) {
+    testWidgets(
+        'bottom controls blend over pages with a small draggable dot ${dark ? 'dark' : 'light'}',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.padding = const FakeViewPadding(bottom: 24);
+      tester.view.viewPadding = const FakeViewPadding(bottom: 24);
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+        tester.view.resetPadding();
+        tester.view.resetViewPadding();
+      });
+      if (!Platform.isAndroid &&
+          Platform.environment['LAYOUT_SCREENSHOTS'] == '1') {
+        await tester.runAsync(() async {
+          final font = await File('C:/Windows/Fonts/segoeui.ttf').readAsBytes();
+          await (FontLoader('Roboto')
+                ..addFont(Future.value(ByteData.sublistView(font))))
+              .load();
+          final icons = await File(
+                  '_flutter/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf')
+              .readAsBytes();
+          await (FontLoader('MaterialIcons')
+                ..addFont(Future.value(ByteData.sublistView(icons))))
+              .load();
+        });
+      }
+      final key = await mountReader(
+          tester, ReaderType.webToonFreeZoom, ReaderDirection.topToBottom,
+          startIndex: 1,
+          theme: dark ? app_theme.darkTheme : app_theme.lightTheme);
+      await tester.runAsync(() async {
+        for (var attempt = 0; attempt < 100; attempt++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          await tester.pump();
+          final image = find.descendant(
+            of: find.byKey(const ValueKey('reader-page-81234-1')),
+            matching: find.byType(RawImage),
+          );
+          if (image.evaluate().isNotEmpty &&
+              tester.widget<RawImage>(image.first).image != null) break;
+        }
+      });
+      jumpComicReaderForTest(key, 1, animation: false);
+      await tester.pumpAndSettle();
+      final barFinder = find.byKey(const ValueKey('reader-bottom-controls'));
+      final thumbFinder = find.byKey(const ValueKey('reader-progress-thumb'));
+      expect(tester.getSize(thumbFinder).width, lessThan(20));
+      final viewport =
+          tester.getRect(find.byType(zoomable.ZoomablePositionedList));
+      final bar = tester.getRect(barFinder);
+      expect(viewport.bottom, closeTo(bar.bottom, .1));
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+          find.byKey(const ValueKey('reader-regression-surface')));
+      await tester.runAsync(() async {
+        final image = await boundary.toImage(pixelRatio: 1);
+        try {
+          final png = await image.toByteData(format: ui.ImageByteFormat.png);
+          if (!Platform.isAndroid) {
+            await File(
+                    'build/reader-rewrite/progress-${dark ? 'dark' : 'light'}.png')
+                .writeAsBytes(png!.buffer.asUint8List());
+          }
+          final pixels =
+              (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!
+                  .buffer
+                  .asUint8List();
+          // Sample both the toolbar and the phone's bottom safe inset. Both
+          // must show the real pink page underneath the translucent black.
+          final expected =
+              Color.alphaBlend(const Color(0x88000000), Colors.primaries[1]);
+          for (final y in [bar.top + 4, bar.bottom - 4]) {
+            final offset =
+                (y.floor() * image.width + (bar.left + 4).floor()) * 4;
+            expect(pixels[offset], closeTo((expected.r * 255).round(), 2));
+            expect(pixels[offset + 1], closeTo((expected.g * 255).round(), 2));
+            expect(pixels[offset + 2], closeTo((expected.b * 255).round(), 2));
+          }
+        } finally {
+          image.dispose();
+        }
+      });
+      await readerCheckpoint?.call(
+          'reader-progress-${dark ? 'dark' : 'light'}', tester);
+      final slider = tester.getRect(find.byType(FlutterSlider));
+      await tester.timedDragFrom(tester.getCenter(thumbFinder),
+          Offset(slider.width * .5, 0), const Duration(milliseconds: 250));
+      await tester.pumpAndSettle();
+      expect(comicReaderProgressForTest(key).current, greaterThan(1));
+      expect(tester.getSize(thumbFinder).width, lessThan(20));
+      tester
+          .widget<zoomable.ZoomablePositionedList>(
+              find.byType(zoomable.ZoomablePositionedList))
+          .itemScrollController!
+          .jumpTo(index: 10);
+      await tester.pumpAndSettle();
+      final end = find.text('Finish reading');
+      expect(end.hitTestable(), findsOneWidget);
+      expect(
+          tester.getRect(end).bottom, lessThan(tester.getRect(barFinder).top));
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final type in [ReaderType.gallery, ReaderType.twoPageGallery]) {
     for (final readDirection in ReaderDirection.values) {

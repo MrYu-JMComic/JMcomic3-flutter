@@ -702,6 +702,7 @@ abstract class _ComicReaderState extends State<_ComicReader>
         currentReaderSliderPosition != ReaderSliderPosition.bottom;
     return Scaffold(
       backgroundColor: Colors.black,
+      extendBody: !_fullScreen && !sideSlider,
       appBar: _fullScreen
           ? null
           : AppBar(
@@ -750,24 +751,29 @@ abstract class _ComicReaderState extends State<_ComicReader>
       ]),
       bottomNavigationBar: _fullScreen || sideSlider
           ? null
-          : SafeArea(
-              top: false,
-              child: Container(
-                height: 48,
-                color: const Color(0xDD000000),
-                child: Row(children: [
-                  IconButton(
-                      onPressed: _toggleFullscreen,
-                      color: Colors.white,
-                      icon: const Icon(Icons.fullscreen)),
-                  Expanded(child: _buildSliderWidget(Axis.horizontal)),
-                  Text('${_slider + 1}/${widget.chapter.images.length}',
-                      style: const TextStyle(color: Colors.white)),
-                  IconButton(
-                      onPressed: _onNextAction,
-                      color: Colors.white,
-                      icon: const Icon(Icons.skip_next_outlined)),
-                ]),
+          : ColoredBox(
+              key: const ValueKey('reader-bottom-controls'),
+              color: const Color(0x88000000),
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  height: 45,
+                  child: Row(children: [
+                    IconButton(
+                        onPressed: _toggleFullscreen,
+                        color: Colors.white,
+                        icon: const Icon(Icons.fullscreen)),
+                    Expanded(
+                      child: _buildSliderWidget(Axis.horizontal),
+                    ),
+                    Text('${_slider + 1}/${widget.chapter.images.length}',
+                        style: const TextStyle(color: Colors.white)),
+                    IconButton(
+                        onPressed: _onNextAction,
+                        color: Colors.white,
+                        icon: const Icon(Icons.skip_next_outlined)),
+                  ]),
+                ),
               ),
             ),
     );
@@ -777,6 +783,31 @@ abstract class _ComicReaderState extends State<_ComicReader>
     if (widget.chapter.images.length <= 1) return const SizedBox.shrink();
     return FlutterSlider(
       axis: axis,
+      handlerWidth: 14,
+      handlerHeight: 14,
+      touchSize: 17,
+      handler: FlutterSliderHandler(
+        decoration: const BoxDecoration(),
+        child: const DecoratedBox(
+          key: ValueKey('reader-progress-thumb'),
+          decoration:
+              BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+          child: SizedBox.expand(),
+        ),
+      ),
+      handlerAnimation: const FlutterSliderHandlerAnimation(scale: 1),
+      trackBar: FlutterSliderTrackBar(
+        activeTrackBarHeight: 3,
+        inactiveTrackBarHeight: 3,
+        inactiveTrackBar: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: Colors.grey.shade300,
+        ),
+        activeTrackBar: BoxDecoration(
+          borderRadius: BorderRadius.circular(4),
+          color: Theme.of(context).colorScheme.secondary,
+        ),
+      ),
       values: [_slider.toDouble()],
       min: 0,
       max: (widget.chapter.images.length - 1).toDouble(),
@@ -822,18 +853,24 @@ abstract class _ComicReaderState extends State<_ComicReader>
     }
   }
 
-  Widget _buildNextEp() => SizedBox(
-      height: 100,
-      child: Center(
-        child: TextButton(
-          onPressed: _nextChapterId != null
-              ? _onNextAction
-              : () => Navigator.maybePop(context),
-          child: Text(_nextChapterId != null
-              ? context.l10n.tr('下一章', en: 'Next chapter')
-              : context.l10n.tr('结束阅读', en: 'Finish reading')),
-        ),
-      ));
+  Widget _buildNextEp() => Padding(
+      padding: EdgeInsets.only(
+          bottom: !_fullScreen &&
+                  currentReaderSliderPosition == ReaderSliderPosition.bottom
+              ? 45 + MediaQuery.viewPaddingOf(context).bottom
+              : 0),
+      child: SizedBox(
+          height: 100,
+          child: Center(
+            child: TextButton(
+              onPressed: _nextChapterId != null
+                  ? _onNextAction
+                  : () => Navigator.maybePop(context),
+              child: Text(_nextChapterId != null
+                  ? context.l10n.tr('下一章', en: 'Next chapter')
+                  : context.l10n.tr('结束阅读', en: 'Finish reading')),
+            ),
+          )));
 
   List<Series> get _series => widget.chapter.series.isEmpty
       ? widget.fallbackSeries
