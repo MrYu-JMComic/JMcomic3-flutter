@@ -467,8 +467,13 @@ void main() {
       of: user,
       matching: find.byType(SingleChildScrollView),
     );
-    expect(
-        tester.getRect(find.text('Guest Mode')).right, lessThanOrEqualTo(284));
+    // The compact account card now uses its own inset. Validate against the
+    // actual card bounds rather than the previous card's fixed text offset.
+    final accountCard =
+        tester.getRect(find.byKey(const ValueKey('profile-account-card')));
+    final guestTitle = tester.getRect(find.text('Guest Mode'));
+    expect(guestTitle.left, greaterThan(accountCard.left));
+    expect(guestTitle.right, lessThan(accountCard.right));
     expect(tester.takeException(), isNull);
     await _capture(tester, 'library-compact-large-text');
     await tester.drag(scroll, const Offset(0, -600));

@@ -126,6 +126,10 @@ class _BrowserScreenState extends State<BrowserScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.browse),
+        titleTextStyle: Theme.of(context).appBarTheme.titleTextStyle?.copyWith(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+            ),
         actions: [
           IconButton(
             tooltip: l10n.weekMustSee,
