@@ -840,6 +840,9 @@ class JMPageImage extends StatefulWidget {
 
   /// Prevents a metadata-only offline page from falling back to the network.
   final bool localOnly;
+
+  /// Reader pages are scaled at paint time, not distorted into codec buckets.
+  final bool preserveSourceAspectRatio;
   final double? width;
   final double? height;
   final Function(Size size)? onTrueSize;
@@ -849,6 +852,7 @@ class JMPageImage extends StatefulWidget {
       this.pageIndex,
       this.localPath,
       this.localOnly = false,
+      this.preserveSourceAspectRatio = false,
       this.width,
       this.height,
       this.onTrueSize})
@@ -985,6 +989,7 @@ class _JMPageImageState extends State<JMPageImage> {
       widget.width,
       widget.height,
       offlineOnly: widget.localOnly,
+      preserveSourceAspectRatio: widget.preserveSourceAspectRatio,
       onReload: _reload,
       onDecodeError: _autoRetryOnDecodeError,
       onImageProvider: (provider) =>

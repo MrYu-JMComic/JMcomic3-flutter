@@ -176,4 +176,42 @@ void main() {
     expect(loaded, [10, 11]);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('next chapter uses entry series when chapter response omits it',
+      (tester) async {
+    final loaded = <int>[];
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('en'),
+      localizationsDelegates: const [AppLocalizations.delegate],
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: ComicReaderScreen(
+        comic: _comic(),
+        series: [
+          Series(id: 10, name: 'First', sort: '1'),
+          Series(id: 20, name: 'Second', sort: '2')
+        ],
+        chapterId: 10,
+        initRank: 0,
+        loadChapter: (id) async {
+          loaded.add(id);
+          return ChapterResponse(
+              id: id,
+              series: [],
+              tags: '',
+              name: 'Chapter $id',
+              images: const ['images/ic.png'],
+              seriesId: 1,
+              isFavorite: false,
+              liked: false);
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.skip_next_outlined));
+    await tester.pumpAndSettle();
+    expect(loaded, [10, 20]);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
 }
