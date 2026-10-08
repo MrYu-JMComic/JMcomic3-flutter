@@ -113,7 +113,7 @@ class _SelfCommentListState extends State<SelfCommentList> {
         children: [
           Text(
             context.l10n.tipLoginRequired,
-            style: TextStyle(fontSize: 20, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 10),
           TextButton(

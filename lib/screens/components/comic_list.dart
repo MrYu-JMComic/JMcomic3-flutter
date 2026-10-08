@@ -98,7 +98,7 @@ class _ComicListState extends State<ComicList> {
       final coverHeight = columnWidth / _coverAspectRatio;
       final titleStyle = Theme.of(context).textTheme.bodyMedium!.copyWith(
             height: 1.3,
-            fontWeight: compact ? FontWeight.normal : FontWeight.w500,
+            fontWeight: FontWeight.normal,
           );
       // Reserve two complete lines at the active text scale, including fonts
       // whose ascent/descent is larger than their nominal font size.

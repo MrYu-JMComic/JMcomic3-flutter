@@ -81,8 +81,8 @@ ThemeData _buildAppTheme(ColorScheme scheme, Brightness brightness) {
           systemStatusBarContrastEnforced: false,
         );
   final navLabelStyle = (textTheme.labelMedium ??
-          const TextStyle(fontSize: 11, fontWeight: FontWeight.w500))
-      .copyWith(fontSize: 11, fontWeight: FontWeight.w500);
+          const TextStyle(fontSize: 11, fontWeight: FontWeight.w400))
+      .copyWith(fontSize: 11, fontWeight: FontWeight.w400);
 
   return ThemeData(
     useMaterial3: true,
@@ -102,8 +102,7 @@ ThemeData _buildAppTheme(ColorScheme scheme, Brightness brightness) {
       systemOverlayStyle: overlayStyle,
       toolbarHeight: 48,
       centerTitle: false,
-      titleTextStyle:
-          textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+      titleTextStyle: textTheme.titleMedium,
     ),
     bottomAppBarTheme: BottomAppBarThemeData(
       color: scheme.surface,
@@ -128,9 +127,8 @@ ThemeData _buildAppTheme(ColorScheme scheme, Brightness brightness) {
     tabBarTheme: TabBarThemeData(
       labelColor: scheme.onSurface,
       unselectedLabelColor: scheme.onSurfaceVariant,
-      labelStyle: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-      unselectedLabelStyle:
-          textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w400),
+      labelStyle: textTheme.titleSmall,
+      unselectedLabelStyle: textTheme.titleSmall,
     ),
     splashFactory: InkRipple.splashFactory,
     splashColor: scheme.primary.withOpacity(.12),
@@ -185,10 +183,7 @@ ThemeData _buildAppTheme(ColorScheme scheme, Brightness brightness) {
         shape: MaterialStatePropertyAll<RoundedRectangleBorder>(
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
-        textStyle: MaterialStatePropertyAll(
-          (textTheme.labelLarge ?? const TextStyle(fontWeight: FontWeight.w500))
-              .copyWith(fontWeight: FontWeight.w500),
-        ),
+        textStyle: MaterialStatePropertyAll(textTheme.labelLarge),
       ),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
@@ -198,10 +193,7 @@ ThemeData _buildAppTheme(ColorScheme scheme, Brightness brightness) {
         shape: MaterialStatePropertyAll<RoundedRectangleBorder>(
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
-        textStyle: MaterialStatePropertyAll(
-          (textTheme.labelLarge ?? const TextStyle(fontWeight: FontWeight.w500))
-              .copyWith(fontWeight: FontWeight.w500),
-        ),
+        textStyle: MaterialStatePropertyAll(textTheme.labelLarge),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -216,9 +208,7 @@ ThemeData _buildAppTheme(ColorScheme scheme, Brightness brightness) {
     textButtonTheme: TextButtonThemeData(
       style: ButtonStyle(
         foregroundColor: MaterialStatePropertyAll(scheme.primary),
-        textStyle: MaterialStatePropertyAll(
-          textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w500),
-        ),
+        textStyle: MaterialStatePropertyAll(textTheme.labelLarge),
       ),
     ),
     chipTheme: ChipThemeData(
@@ -226,8 +216,7 @@ ThemeData _buildAppTheme(ColorScheme scheme, Brightness brightness) {
       selectedColor: scheme.secondaryContainer,
       secondarySelectedColor: scheme.primaryContainer,
       labelStyle: textTheme.bodyMedium,
-      secondaryLabelStyle:
-          textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+      secondaryLabelStyle: textTheme.bodyMedium,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
@@ -259,56 +248,56 @@ ThemeData _buildAppTheme(ColorScheme scheme, Brightness brightness) {
 TextTheme _buildTextTheme(TextTheme base, ColorScheme scheme) {
   return base.copyWith(
     titleLarge: (base.titleLarge ?? const TextStyle()).copyWith(
-      fontSize: 21,
-      fontWeight: FontWeight.w600,
+      fontSize: 19,
+      fontWeight: FontWeight.w500,
       height: 1.2,
       color: scheme.onSurface,
     ),
     titleMedium: (base.titleMedium ?? const TextStyle()).copyWith(
-      fontSize: 17,
-      fontWeight: FontWeight.w500,
+      fontSize: 16,
+      fontWeight: FontWeight.w400,
       height: 1.25,
       color: scheme.onSurface,
     ),
     titleSmall: (base.titleSmall ?? const TextStyle()).copyWith(
-      fontSize: 15,
-      fontWeight: FontWeight.w500,
+      fontSize: 14,
+      fontWeight: FontWeight.w400,
       height: 1.3,
       color: scheme.onSurface,
     ),
     bodyLarge: (base.bodyLarge ?? const TextStyle()).copyWith(
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: FontWeight.w400,
       height: 1.45,
       color: scheme.onSurface,
     ),
     bodyMedium: (base.bodyMedium ?? const TextStyle()).copyWith(
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: FontWeight.w400,
       height: 1.4,
       color: scheme.onSurface,
     ),
     bodySmall: (base.bodySmall ?? const TextStyle()).copyWith(
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: FontWeight.w400,
       height: 1.35,
       color: scheme.onSurfaceVariant,
     ),
     labelLarge: (base.labelLarge ?? const TextStyle()).copyWith(
-      fontSize: 14,
-      fontWeight: FontWeight.w500,
+      fontSize: 13,
+      fontWeight: FontWeight.w400,
       height: 1.2,
       color: scheme.onSurface,
     ),
     labelMedium: (base.labelMedium ?? const TextStyle()).copyWith(
-      fontSize: 12,
-      fontWeight: FontWeight.w500,
+      fontSize: 11,
+      fontWeight: FontWeight.w400,
       height: 1.2,
       color: scheme.onSurfaceVariant,
     ),
     labelSmall: (base.labelSmall ?? const TextStyle()).copyWith(
       fontSize: 11,
-      fontWeight: FontWeight.w500,
+      fontWeight: FontWeight.w400,
       height: 1.2,
       color: scheme.onSurfaceVariant,
     ),

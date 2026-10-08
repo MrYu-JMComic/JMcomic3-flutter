@@ -197,7 +197,7 @@ class _AppScreenState extends State<AppScreen> {
                 final selected = states.contains(WidgetState.selected);
                 return TextStyle(
                   fontSize: 11,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
                   color: selected ? selectedColor : unselectedColor,
                 );
               }),
