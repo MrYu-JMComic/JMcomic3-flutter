@@ -172,8 +172,10 @@ class SearchPage {
 
 class ComicsResponse extends SearchPage {
   late final List<ComicSimple> content;
+  late final int? pageSize;
 
   ComicsResponse.fromJson(Map<String, dynamic> json) : super.fromJson(json) {
+    pageSize = _toNullableInt(json['page_size']);
     content = List.from(json['content'] ?? [])
         .whereType<Map>()
         .map((e) => ComicSimple.fromJson(Map<String, dynamic>.from(e)))
@@ -184,6 +186,7 @@ class ComicsResponse extends SearchPage {
   Map<String, dynamic> toJson() {
     final _data = super.toJson();
     _data['content'] = content;
+    if (pageSize != null) _data['page_size'] = pageSize;
     return _data;
   }
 }

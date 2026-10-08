@@ -263,8 +263,12 @@ void main() {
       await readerCheckpoint?.call(
           'reader-progress-${dark ? 'dark' : 'light'}', tester);
       final slider = tester.getRect(find.byType(FlutterSlider));
-      await tester.timedDragFrom(tester.getCenter(thumbFinder),
-          Offset(slider.width * .5, 0), const Duration(milliseconds: 250));
+      // A finger can start outside the visible 14px dot but inside its
+      // invisible touch area; shrinking the dot must not shrink that target.
+      await tester.timedDragFrom(
+          tester.getCenter(thumbFinder) + const Offset(0, 12),
+          Offset(slider.width * .5, 0),
+          const Duration(milliseconds: 250));
       await tester.pumpAndSettle();
       expect(comicReaderProgressForTest(key).current, greaterThan(1));
       expect(tester.getSize(thumbFinder).width, lessThan(20));
