@@ -981,7 +981,7 @@ class InnerComicPage {
   final int total;
   final List<ComicSimple> list;
   final int? redirectAid;
-  // 收藏等接口显式提供单页容量，避免用不足一页的实际条数推算总页数。
+  // 接口明确提供的单页容量，不应传入当前页实际条数。
   final int? pageSize;
 
   InnerComicPage({
@@ -991,7 +991,7 @@ class InnerComicPage {
     this.pageSize,
   });
 
-  // 旧接口可能返回零或负容量，此时回退当前页条数，保证非空列表仍可继续翻页。
+  // 未提供有效容量时，分页器用首个非空批次的条数推算并保留容量。
   int get effectivePageSize =>
       pageSize != null && pageSize! > 0 ? pageSize! : list.length;
 }
