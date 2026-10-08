@@ -20,7 +20,7 @@ void main() {
       expect(calcMaxPageFromTotal(page.total, page.effectivePageSize), 3);
       expect(response.toJson()['page_size'], 80);
     });
-    test('uses the explicit page capacity for favorite pages', () {
+    test('rounds item totals up using the captured page capacity', () {
       expect(calcMaxPageFromTotal(87, 20), 5);
     });
 

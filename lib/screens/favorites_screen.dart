@@ -151,11 +151,10 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                       });
                   });
                 }
+                // count 会随尾页条数变化，分页器应保留首批条数作为容量。
                 return InnerComicPage(
                   total: response.total,
                   list: response.list,
-                  // 移动端收藏接口的 count 是单页容量，优先用它计算总页数。
-                  pageSize: response.count,
                 );
               },
             ),
