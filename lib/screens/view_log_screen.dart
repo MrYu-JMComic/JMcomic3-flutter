@@ -55,12 +55,12 @@ class _ViewLogScreenState extends State<ViewLogScreen> {
       ),
       body: ComicPager(
         key: Key(key),
-        probeForMore: true,
         onPage: (int page) async {
           final response = await methods.pageViewLog(page);
           return InnerComicPage(
             total: response.total,
             list: response.content,
+            pageSize: response.pageSize ?? 80,
           );
         },
         longPressMenuItems: [

@@ -249,7 +249,7 @@ class _ComicFloatingSearchBarScreenState
             Text(
               title,
               style: const TextStyle(
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w500,
               ),
             ),
             Expanded(child: Container()),
@@ -266,7 +266,7 @@ class _ComicFloatingSearchBarScreenState
       child: Text(
         title,
         style: const TextStyle(
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w500,
         ),
       ),
     );

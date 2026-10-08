@@ -14,7 +14,7 @@ class ComicDownloadCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const titleStyle = TextStyle(fontWeight: FontWeight.bold);
+    const titleStyle = TextStyle(fontWeight: FontWeight.w500);
     final authorStyle = TextStyle(
       fontSize: 13,
       color: Colors.pink.shade300,

@@ -19,7 +19,7 @@ class ComicInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final titleStyle = theme.textTheme.titleSmall!.copyWith(
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w500,
       height: 1.4,
     );
     final authorStyle = theme.textTheme.bodySmall!.copyWith(

@@ -48,15 +48,10 @@ class ComicPager extends StatefulWidget {
   final List<ComicLongPressMenuItem>? longPressMenuItems;
   final List<Widget>? appendList;
 
-  /// Some history responses report only the current batch size as `total`.
-  /// Probe subsequent pages on demand until an empty/repeated page is reached.
-  final bool probeForMore;
-
   const ComicPager(
       {required this.onPage,
       this.longPressMenuItems,
       this.appendList,
-      this.probeForMore = false,
       Key? key})
       : super(key: key);
 
@@ -95,13 +90,11 @@ class _ComicPagerState extends State<ComicPager> {
       case PagerControllerMode.stream:
         return _StreamPager(
             onPage: widget.onPage,
-            probeForMore: widget.probeForMore,
             longPressMenuItems: widget.longPressMenuItems,
             appendList: widget.appendList);
       case PagerControllerMode.pager:
         return _PagerPager(
             onPage: widget.onPage,
-            probeForMore: widget.probeForMore,
             longPressMenuItems: widget.longPressMenuItems,
             appendList: widget.appendList);
     }
@@ -112,12 +105,10 @@ class _StreamPager extends StatefulWidget {
   final Future<InnerComicPage> Function(int page) onPage;
   final List<ComicLongPressMenuItem>? longPressMenuItems;
   final List<Widget>? appendList;
-  final bool probeForMore;
 
   const _StreamPager(
       {Key? key,
       required this.onPage,
-      this.probeForMore = false,
       this.longPressMenuItems,
       this.appendList})
       : super(key: key);
@@ -130,7 +121,10 @@ class _StreamPagerState extends State<_StreamPager> {
   int _maxPage = 1;
   int _nextPage = 1;
   int _total = 0;
+  int _pageSize = 0;
+  int _loadedPages = 0;
   bool _reachedEnd = false;
+  bool _viewportCheckQueued = false;
 
   bool get _noPro => !hasProAccess && _nextPage > _noProMax;
 
@@ -144,7 +138,7 @@ class _StreamPagerState extends State<_StreamPager> {
         _nextPage > _maxPage ||
         _noPro ||
         _joinBlockedByPro ||
-        (widget.probeForMore && _reachedEnd)) {
+        _reachedEnd) {
       return;
     }
     try {
@@ -161,32 +155,27 @@ class _StreamPagerState extends State<_StreamPager> {
       if (_nextPage == 1) {
         if (_redirectAid(response.redirectAid, context)) {
           setState(() {
-            _joining = false;
-          });
-          return;
-        }
-        _maxPage = calcMaxPageFromTotal(
-          response.total,
-          response.effectivePageSize,
-        );
-        _total = response.total;
-      }
-      var incoming = response.list;
-      if (widget.probeForMore) {
-        final seen = _data.map((comic) => comic.id).toSet();
-        incoming = incoming.where((comic) => seen.add(comic.id)).toList();
-        if (incoming.isEmpty) {
-          setState(() {
             _reachedEnd = true;
-            _maxPage = _nextPage > 1 ? _nextPage - 1 : 1;
             _joining = false;
-            _joinSuccess = true;
           });
           return;
         }
-        if (_maxPage <= _nextPage) _maxPage = _nextPage + 1;
       }
+      if (response.pageSize != null && response.pageSize! > 0) {
+        _pageSize = response.pageSize!;
+      } else if (_pageSize == 0) {
+        _pageSize = response.effectivePageSize;
+      }
+      _total = response.total;
+      _maxPage = calcMaxPageFromTotal(_total, _pageSize);
+      final seen = _data.map((comic) => comic.id).toSet();
+      final incoming =
+          response.list.where((comic) => seen.add(comic.id)).toList();
+      // Empty batches can be sparse; a repeated nonempty batch is a broken
+      // endpoint and must not keep requesting the same comics indefinitely.
+      if (response.list.isNotEmpty && incoming.isEmpty) _reachedEnd = true;
       _nextPage++;
+      _loadedPages++;
       _data.addAll(incoming);
       if (!mounted) {
         return;
@@ -197,6 +186,7 @@ class _StreamPagerState extends State<_StreamPager> {
         _joinErrorMessage = '';
         _joining = false;
       });
+      _scheduleViewportCheck();
     } catch (e, st) {
       final message = _extractErrorMessage(e);
       final blockedByPro = _isProRequiredMessage(message);
@@ -227,7 +217,7 @@ class _StreamPagerState extends State<_StreamPager> {
   final TextEditingController _textEditController = TextEditingController();
 
   _jumpPage() {
-    if (_total == 0) {
+    if (_total == 0 || _joining) {
       return;
     }
     if (!hasProAccess) {
@@ -272,8 +262,10 @@ class _StreamPagerState extends State<_StreamPager> {
                 if (num == 0 || num > _maxPage) {
                   return;
                 }
+                if (_joining) return;
                 _data.clear();
                 _nextPage = num;
+                _loadedPages = 0;
                 _reachedEnd = false;
                 _join();
               },
@@ -307,12 +299,26 @@ class _StreamPagerState extends State<_StreamPager> {
     if (!_controller.hasClients) {
       return;
     }
-    if (_joining || _nextPage > _maxPage || _noPro || _joinBlockedByPro) {
+    if (_joining ||
+        !_joinSuccess ||
+        _reachedEnd ||
+        _nextPage > _maxPage ||
+        _noPro ||
+        _joinBlockedByPro) {
       return;
     }
     if (_controller.position.extentAfter < 300) {
       _join();
     }
+  }
+
+  void _scheduleViewportCheck() {
+    if (_viewportCheckQueued) return;
+    _viewportCheckQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _viewportCheckQueued = false;
+      if (mounted) _onScroll();
+    });
   }
 
   Widget? _buildLoadingCard() {
@@ -424,6 +430,7 @@ class _StreamPagerState extends State<_StreamPager> {
 
   @override
   Widget build(BuildContext context) {
+    _scheduleViewportCheck();
     final loadingCard = _buildLoadingCard();
     return Column(
       children: [
@@ -470,26 +477,20 @@ class _StreamPagerState extends State<_StreamPager> {
               children: [
                 Expanded(
                     child: Text(
-                  widget.probeForMore && !_reachedEnd
-                      ? context.l10n.tr('已加载 ${_nextPage - 1} 页',
-                          en: 'Loaded ${_nextPage - 1} pages')
-                      : context.l10n.tr(
-                          "已加载 ${_nextPage - 1} / $_maxPage 页",
-                          en: "Loaded ${_nextPage - 1} / $_maxPage pages",
-                        ),
+                  context.l10n.tr(
+                    "已加载 $_loadedPages / $_maxPage 页",
+                    en: "Loaded $_loadedPages / $_maxPage pages",
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 )),
                 const SizedBox(width: 12),
                 Expanded(
                     child: Text(
-                  widget.probeForMore
-                      ? context.l10n.tr('已加载 ${_data.length} 项',
-                          en: 'Loaded ${_data.length} items')
-                      : context.l10n.tr(
-                          "已加载 ${_data.length} / $_total 项",
-                          en: "Loaded ${_data.length} / $_total items",
-                        ),
+                  context.l10n.tr(
+                    "已加载 ${_data.length} / $_total 项",
+                    en: "Loaded ${_data.length} / $_total items",
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.end,
@@ -514,12 +515,10 @@ class _PagerPager extends StatefulWidget {
   final Future<InnerComicPage> Function(int page) onPage;
   final List<ComicLongPressMenuItem>? longPressMenuItems;
   final List<Widget>? appendList;
-  final bool probeForMore;
 
   const _PagerPager(
       {Key? key,
       required this.onPage,
-      this.probeForMore = false,
       this.longPressMenuItems,
       this.appendList})
       : super(key: key);
@@ -533,10 +532,9 @@ class _PagerPagerState extends State<_PagerPager> {
       TextEditingController(text: '');
   late int _currentPage = 1;
   late int _maxPage = 1;
+  int _pageSize = 0;
   late final List<ComicSimple> _data = [];
   final Map<int, List<ComicSimple>> _pageCache = <int, List<ComicSimple>>{};
-  final Map<int, Set<int>> _pageIds = <int, Set<int>>{};
-  bool _reachedEnd = false;
   late Future<void> _pageFuture = _load();
 
   void _cachePageData(int page, List<ComicSimple> list) {
@@ -570,44 +568,14 @@ class _PagerPagerState extends State<_PagerPager> {
       if (_redirectAid(response.redirectAid, context)) {
         return;
       }
-      if (!widget.probeForMore) {
-        _maxPage = calcMaxPageFromTotal(
-          response.total,
-          response.effectivePageSize,
-        );
-      } else if (!_reachedEnd && response.total > response.effectivePageSize) {
-        final reportedPages =
-            calcMaxPageFromTotal(response.total, response.effectivePageSize);
-        if (reportedPages > _maxPage) _maxPage = reportedPages;
-      }
     }
-    var incoming = response.list;
-    if (widget.probeForMore) {
-      final seen = <int>{
-        for (final entry in _pageIds.entries)
-          if (entry.key != requestedPage) ...entry.value,
-      };
-      incoming = incoming.where((comic) => seen.add(comic.id)).toList();
-      if (incoming.isEmpty) {
-        // Keep the last usable page visible instead of navigating to a blank
-        // trailing page. A server repeating its last page also terminates here.
-        _maxPage = requestedPage > 1 ? requestedPage - 1 : 1;
-        _reachedEnd =
-            requestedPage == 1 || _pageIds.containsKey(requestedPage - 1);
-        _currentPage = _pageCache.keys
-            .where((page) => page < requestedPage)
-            .fold<int>(1, (latest, page) => page > latest ? page : latest);
-        _data
-          ..clear()
-          ..addAll(_pageCache[_currentPage] ?? const <ComicSimple>[]);
-        if (requestedPage == 1) _cachePageData(1, const <ComicSimple>[]);
-        return;
-      }
-      _pageIds[requestedPage] = incoming.map((comic) => comic.id).toSet();
-      if (!_reachedEnd && _maxPage <= requestedPage) {
-        _maxPage = requestedPage + 1;
-      }
+    if (response.pageSize != null && response.pageSize! > 0) {
+      _pageSize = response.pageSize!;
+    } else if (_pageSize == 0) {
+      _pageSize = response.effectivePageSize;
     }
+    _maxPage = calcMaxPageFromTotal(response.total, _pageSize);
+    final incoming = response.list;
     _cachePageData(requestedPage, incoming);
     _data
       ..clear()
@@ -631,6 +599,9 @@ class _PagerPagerState extends State<_PagerPager> {
     setState(() {
       _currentPage = page;
       _pageFuture = _load(forceRefresh: forceRefresh);
+      // A synchronous bridge failure can arrive before the next build attaches
+      // FutureBuilder. Observe it now; FutureBuilder still renders the error.
+      _pageFuture.ignore();
     });
   }
 
@@ -646,9 +617,6 @@ class _PagerPagerState extends State<_PagerPager> {
       future: _pageFuture,
       onRefresh: () async {
         _pageCache.clear();
-        _pageIds.clear();
-        _reachedEnd = false;
-        if (widget.probeForMore) _maxPage = 1;
         _openPage(_currentPage, forceRefresh: true);
       },
       successBuilder: (BuildContext context, AsyncSnapshot<dynamic> snapshot) {
@@ -749,13 +717,10 @@ class _PagerPagerState extends State<_PagerPager> {
                     );
                   },
                   child: Text(
-                    widget.probeForMore && !_reachedEnd
-                        ? context.l10n
-                            .tr('第 $_currentPage 页', en: 'Page $_currentPage')
-                        : context.l10n.tr(
-                            "第 $_currentPage / $_maxPage 页",
-                            en: "Page $_currentPage / $_maxPage",
-                          ),
+                    context.l10n.tr(
+                      "第 $_currentPage / $_maxPage 页",
+                      en: "Page $_currentPage / $_maxPage",
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

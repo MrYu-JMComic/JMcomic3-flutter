@@ -54,37 +54,50 @@ class _UserScreenState extends State<UserScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.profile), actions: [
-        if (!normalPlatform)
-          IconButton(
-            tooltip: 'Pro',
-            onPressed: () {
-              Navigator.of(context)
-                  .push(MaterialPageRoute(builder: (BuildContext context) {
-                return const ProOhScreen();
-              }));
-            },
-            icon: Icon(
-              hasProAccess ? Icons.offline_bolt : Icons.offline_bolt_outlined,
-            ),
-          ),
-        if (normalPlatform)
-          IconButton(
-            tooltip: 'Pro',
-            onPressed: () {
-              Navigator.of(context)
-                  .push(MaterialPageRoute(builder: (BuildContext context) {
-                return const ProScreen();
-              }));
-            },
-            icon: Icon(
-              hasProAccess ? Icons.offline_bolt : Icons.offline_bolt_outlined,
-            ),
-          ),
-        _buildSettingsIcon(),
-        if (normalPlatform) _buildAboutIcon(),
-      ]),
+      backgroundColor: dark ? const Color(0xFF0F1319) : null,
+      appBar: AppBar(
+          title: Text(context.l10n.profile),
+          titleTextStyle:
+              Theme.of(context).appBarTheme.titleTextStyle?.copyWith(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
+          actions: [
+            if (!normalPlatform)
+              IconButton(
+                tooltip: 'Pro',
+                onPressed: () {
+                  Navigator.of(context)
+                      .push(MaterialPageRoute(builder: (BuildContext context) {
+                    return const ProOhScreen();
+                  }));
+                },
+                icon: Icon(
+                  hasProAccess
+                      ? Icons.offline_bolt
+                      : Icons.offline_bolt_outlined,
+                ),
+              ),
+            if (normalPlatform)
+              IconButton(
+                tooltip: 'Pro',
+                onPressed: () {
+                  Navigator.of(context)
+                      .push(MaterialPageRoute(builder: (BuildContext context) {
+                    return const ProScreen();
+                  }));
+                },
+                icon: Icon(
+                  hasProAccess
+                      ? Icons.offline_bolt
+                      : Icons.offline_bolt_outlined,
+                ),
+              ),
+            _buildSettingsIcon(),
+            if (normalPlatform) _buildAboutIcon(),
+          ]),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -135,7 +148,7 @@ class _UserScreenState extends State<UserScreen>
           child: Text(
             context.l10n.navLibrary,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                 ),
           ),
         ),
@@ -168,29 +181,46 @@ class _UserScreenState extends State<UserScreen>
   }
 
   Widget _buildMobileLibrary() {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildMobileLibraryAction(
-          icon: Icons.favorite_border,
-          title: context.l10n.favorites,
-          onTap: _openFavorites,
-        ),
-        _buildMobileLibraryAction(
-          icon: Icons.history,
-          title: context.l10n.viewHistory,
-          onTap: _openViewLog,
-        ),
-        _buildMobileLibraryAction(
-          icon: Icons.download_outlined,
-          title: context.l10n.downloadList,
-          onTap: _openDownloads,
-        ),
-        _buildMobileLibraryAction(
-          icon: Icons.chat_bubble_outline,
-          title: context.l10n.comments,
-          onTap: _openComments,
-          last: true,
+        Material(
+          key: const ValueKey('profile-library-card'),
+          color: _cardColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: _cardBorderColor),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              _buildMobileLibraryAction(
+                icon: Icons.favorite,
+                iconColor: theme.brightness == Brightness.dark
+                    ? const Color(0xFFF4A4B9)
+                    : Colors.pink.shade400,
+                title: context.l10n.favorites,
+                onTap: _openFavorites,
+              ),
+              _buildMobileLibraryAction(
+                icon: Icons.history,
+                title: context.l10n.viewHistory,
+                onTap: _openViewLog,
+              ),
+              _buildMobileLibraryAction(
+                icon: Icons.download_outlined,
+                title: context.l10n.downloadList,
+                onTap: _openDownloads,
+              ),
+              _buildMobileLibraryAction(
+                icon: Icons.chat_bubble_outline,
+                title: context.l10n.comments,
+                onTap: _openComments,
+                last: true,
+              ),
+            ],
+          ),
         ),
         const Padding(
           padding: EdgeInsets.only(top: 12),
@@ -206,44 +236,48 @@ class _UserScreenState extends State<UserScreen>
     required String title,
     required IconData icon,
     required VoidCallback onTap,
+    Color? iconColor,
     bool last = false,
   }) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final dividerColor = colors.outlineVariant.withValues(alpha: .7);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 72),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
-          decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(color: dividerColor),
-              bottom: last ? BorderSide(color: dividerColor) : BorderSide.none,
-            ),
+    final dividerColor = colors.outlineVariant.withValues(alpha: .2);
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 60),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: last ? BorderSide.none : BorderSide(color: dividerColor),
           ),
-          child: Row(
-            children: [
-              Icon(icon, color: colors.onSurfaceVariant, size: 23),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor ?? colors.onSurfaceVariant, size: 23),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w400,
                 ),
               ),
-              Icon(Icons.chevron_right,
-                  color: colors.onSurfaceVariant, size: 22),
-            ],
-          ),
+            ),
+            Icon(Icons.chevron_right, color: colors.onSurfaceVariant, size: 22),
+          ],
         ),
       ),
     );
   }
+
+  Color get _cardColor => Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFF17272E)
+      : Theme.of(context).colorScheme.surfaceContainerLow;
+
+  Color get _cardBorderColor => Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFF243940)
+      : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .6);
 
   Widget _buildAccountPrompt({
     required IconData icon,
@@ -268,7 +302,7 @@ class _UserScreenState extends State<UserScreen>
                   Text(
                     title,
                     style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   if (subtitle != null) ...[
@@ -325,20 +359,13 @@ class _UserScreenState extends State<UserScreen>
         );
         break;
     }
-    final colors = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.all(20),
+      key: const ValueKey('profile-account-card'),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            colors.primaryContainer.withValues(alpha: .45),
-            colors.surfaceContainerLow,
-          ],
-        ),
+        color: _cardColor,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colors.outlineVariant.withValues(alpha: .6)),
+        border: Border.all(color: _cardBorderColor),
       ),
       child: child,
     );
@@ -400,284 +427,388 @@ class _UserScreenState extends State<UserScreen>
   Widget _buildSelfInfoCard() {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final compact = MediaQuery.sizeOf(context).width < 600;
-    final isLight = theme.brightness == Brightness.light;
-    Color statusColor;
-    switch (dailySignStatus) {
-      case DailySignStatus.signed:
-        statusColor = isLight ? Colors.green.shade700 : Colors.green.shade200;
-        break;
-      case DailySignStatus.error:
-        statusColor = colors.error;
-        break;
-      case DailySignStatus.checking:
-        statusColor = colors.primary;
-        break;
-      case DailySignStatus.unchecked:
-        statusColor = colors.onSurfaceVariant;
-        break;
-    }
-    final statusStyle = theme.textTheme.bodySmall?.copyWith(
-      color: statusColor,
-      fontWeight: FontWeight.w600,
-    );
-    final detailStyle = theme.textTheme.bodySmall?.copyWith(
-      color: colors.onSurfaceVariant,
-    );
-    final uidText = "UID ${selfInfo.uid}";
-    final levelText = "${selfInfo.levelName} Lv.${selfInfo.level}";
-    final expPercentText = "${_formatExpPercent(selfInfo.expPercent)}%";
-    final genderText = _formatGender(selfInfo.gender);
-    final nickname =
-        selfInfo.fname.trim().isEmpty ? "-" : selfInfo.fname.trim();
+    final dark = theme.brightness == Brightness.dark;
+    final accent = dark ? const Color(0xFF28D1DC) : colors.primary;
     final message = selfInfo.message.trim();
-    final canSign = dailySignStatus != DailySignStatus.checking;
+    final nickname = selfInfo.fname.trim();
+    final email = selfInfo.email.trim();
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment:
-          compact ? CrossAxisAlignment.center : CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (compact)
-          Column(
-            children: [
-              Avatar(selfInfo.photo),
-              const SizedBox(height: 10),
-              Text(
-                selfInfo.username,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(uidText, textAlign: TextAlign.center, style: detailStyle),
-            ],
-          )
-        else
-          Row(
-            children: [
-              Avatar(selfInfo.photo),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+            final signAtRight = constraints.maxWidth / textScale >= 300;
+            final stackedIdentity = constraints.maxWidth / textScale < 200;
+            final accountName = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       selfInfo.username,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(uidText, style: detailStyle),
+                    _buildIdentityBadge(
+                      'Lv.${selfInfo.level}',
+                      foreground: accent,
+                      background: accent.withValues(alpha: .12),
+                    ),
                   ],
                 ),
+                const SizedBox(height: 7),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      'UID ${selfInfo.uid}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                    if (selfInfo.levelName.trim().isNotEmpty)
+                      _buildIdentityBadge(
+                        selfInfo.levelName,
+                        foreground: dark
+                            ? const Color(0xFFE1C668)
+                            : colors.onTertiaryContainer,
+                        background: dark
+                            ? const Color(0xFF3C392B)
+                            : colors.tertiaryContainer,
+                      ),
+                  ],
+                ),
+              ],
+            );
+            final identity = stackedIdentity
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Avatar(selfInfo.photo, size: 50),
+                      const SizedBox(height: 8),
+                      accountName,
+                    ],
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Avatar(selfInfo.photo, size: 50),
+                      const SizedBox(width: 10),
+                      Expanded(child: accountName),
+                    ],
+                  );
+            return signAtRight
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(child: identity),
+                      const SizedBox(width: 12),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 106),
+                        child: _buildDailySign(),
+                      ),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      identity,
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: _buildDailySign(),
+                      ),
+                    ],
+                  );
+          },
+        ),
+        _buildProfileDivider(),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // Keep large accessibility text readable instead of shrinking the
+            // account's numbers to fit three narrow columns.
+            final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+            final horizontal = constraints.maxWidth / textScale >= 260;
+            final stats = [
+              _buildProfileStat(
+                label: context.l10n.experience,
+                value: '${_formatExpPercent(selfInfo.expPercent)}%',
+                progress: _experienceProgress,
+                accent: accent,
               ),
-            ],
-          ),
-        const SizedBox(height: 16),
-        if (compact)
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final width = (constraints.maxWidth - 8) / 2;
-              return Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
+              _buildProfileStat(
+                label: context.l10n.coin,
+                value: '${selfInfo.coin}',
+              ),
+              _buildProfileStat(
+                label: context.l10n.badges,
+                value: '${selfInfo.badges.length}',
+              ),
+            ];
+            if (!horizontal) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildSelfInfoBadge(
-                    context,
-                    context.l10n.level,
-                    levelText,
-                    Icons.workspace_premium_outlined,
-                    width: width,
-                  ),
-                  _buildSelfInfoBadge(
-                    context,
-                    context.l10n.experience,
-                    expPercentText,
-                    Icons.trending_up,
-                    width: width,
-                  ),
-                  _buildSelfInfoBadge(
-                    context,
-                    context.l10n.coin,
-                    "${selfInfo.coin}",
-                    Icons.monetization_on_outlined,
-                    width: width,
-                  ),
-                  _buildSelfInfoBadge(
-                    context,
-                    context.l10n.badges,
-                    "${selfInfo.badges.length}",
-                    Icons.verified_outlined,
-                    width: width,
-                  ),
+                  for (var index = 0; index < stats.length; index++) ...[
+                    if (index != 0) const SizedBox(height: 14),
+                    stats[index],
+                  ],
                 ],
               );
-            },
-          )
-        else
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildSelfInfoBadge(
-                context,
-                context.l10n.level,
-                levelText,
-                Icons.workspace_premium_outlined,
-              ),
-              _buildSelfInfoBadge(
-                context,
-                context.l10n.experience,
-                expPercentText,
-                Icons.trending_up,
-              ),
-              _buildSelfInfoBadge(
-                context,
-                context.l10n.coin,
-                "${selfInfo.coin}",
-                Icons.monetization_on_outlined,
-              ),
-              _buildSelfInfoBadge(
-                context,
-                context.l10n.badges,
-                "${selfInfo.badges.length}",
-                Icons.verified_outlined,
-              ),
-            ],
-          ),
-        const SizedBox(height: 16),
-        if (selfInfo.email.trim().isNotEmpty) ...[
-          Text(
-            "${context.l10n.email}: ${selfInfo.email}",
-            textAlign: compact ? TextAlign.center : TextAlign.start,
-            style: detailStyle,
-          ),
-          const SizedBox(height: 4),
-        ],
-        Wrap(
-          alignment: compact ? WrapAlignment.center : WrapAlignment.start,
-          spacing: 12,
-          runSpacing: 4,
-          children: [
-            Text("${context.l10n.nickname}: $nickname",
-                textAlign: compact ? TextAlign.center : TextAlign.start,
-                style: detailStyle),
-            Text("${context.l10n.gender}: $genderText",
-                textAlign: compact ? TextAlign.center : TextAlign.start,
-                style: detailStyle),
-          ],
+            }
+            return Row(
+              key: const ValueKey('profile-statistics-row'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var index = 0; index < stats.length; index++) ...[
+                  if (index != 0)
+                    Container(
+                      width: 1,
+                      height: 36,
+                      margin: const EdgeInsets.symmetric(horizontal: 10),
+                      color: colors.outlineVariant.withValues(alpha: .22),
+                    ),
+                  Expanded(child: stats[index]),
+                ],
+              ],
+            );
+          },
         ),
-        if (message.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Text(
-            "${context.l10n.signature}: $message",
-            textAlign: compact ? TextAlign.center : TextAlign.start,
-            style: detailStyle,
-          ),
-        ],
-        const SizedBox(height: 16),
-        if (compact)
-          Column(
-            children: [
-              Text(dailySignStatusLabel(context), style: statusStyle),
-              const SizedBox(height: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minWidth: 160,
-                  maxWidth: 320,
-                ),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.tonalIcon(
-                    onPressed: canSign
-                        ? () async {
-                            await checkDailySignStatus(context, toast: true);
-                          }
-                        : null,
-                    icon: Icon(
-                      canSign ? Icons.check_circle_outline : Icons.sync,
-                      size: 18,
-                    ),
-                    label: Text(
-                      canSign ? context.l10n.manualSign : context.l10n.signing,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          )
-        else
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              FilledButton.tonalIcon(
-                onPressed: canSign
-                    ? () async {
-                        await checkDailySignStatus(context, toast: true);
-                      }
-                    : null,
-                icon: Icon(
-                  canSign ? Icons.check_circle_outline : Icons.sync,
-                  size: 18,
-                ),
-                label: Text(
-                  canSign ? context.l10n.manualSign : context.l10n.signing,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              Text(
-                dailySignStatusLabel(context),
-                style: statusStyle,
-              ),
-            ],
-          ),
+        _buildProfileDivider(),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+            final inline = constraints.maxWidth / textScale >= 315;
+            final emailDetail = _buildProfileDetail(context.l10n.email, email);
+            final genderDetail = _buildProfileDetail(
+                context.l10n.gender, _formatGender(selfInfo.gender));
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (inline)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (email.isNotEmpty) ...[
+                        Expanded(flex: 3, child: emailDetail),
+                        const SizedBox(width: 14),
+                      ],
+                      Expanded(flex: 2, child: genderDetail),
+                    ],
+                  )
+                else ...[
+                  if (email.isNotEmpty) ...[
+                    emailDetail,
+                    const SizedBox(height: 8),
+                  ],
+                  genderDetail,
+                ],
+                if (nickname.isNotEmpty && nickname != selfInfo.username) ...[
+                  const SizedBox(height: 8),
+                  _buildProfileDetail(context.l10n.nickname, nickname),
+                ],
+                if (message.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _buildProfileDetail(context.l10n.signature, message),
+                ],
+              ],
+            );
+          },
+        ),
       ],
     );
   }
 
-  Widget _buildSelfInfoBadge(
-    BuildContext context,
-    String label,
-    String value,
-    IconData icon, {
-    double? width,
+  Widget _buildIdentityBadge(
+    String value, {
+    required Color foreground,
+    required Color background,
   }) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final badge = Container(
-      width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: colors.surface.withValues(alpha: .7),
-        borderRadius: BorderRadius.circular(10),
+        color: background,
+        borderRadius: BorderRadius.circular(5),
       ),
-      child: Row(
-        mainAxisSize: width == null ? MainAxisSize.min : MainAxisSize.max,
-        children: [
-          Icon(icon, size: 14, color: colors.primary),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              "$label: $value",
-              maxLines: width == null ? null : 2,
-              overflow:
-                  width == null ? TextOverflow.visible : TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.onSurface,
-                fontWeight: FontWeight.w500,
-              ),
+      child: Text(
+        value,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: foreground,
+              fontWeight: FontWeight.w400,
             ),
-          ),
-        ],
       ),
     );
-    return width == null ? badge : SizedBox(width: width, child: badge);
+  }
+
+  Widget _buildDailySign() {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final signed = dailySignStatus == DailySignStatus.signed;
+    final checking = dailySignStatus == DailySignStatus.checking;
+    final error = dailySignStatus == DailySignStatus.error;
+    final statusColor = signed
+        ? (theme.brightness == Brightness.dark
+            ? const Color(0xFF5CD49A)
+            : Colors.green.shade700)
+        : error
+            ? colors.error
+            : colors.onSurfaceVariant;
+    final label = signed
+        ? dailySignStatusLabel(context)
+        : checking
+            ? context.l10n.signing
+            : context.l10n.manualSign;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FilledButton.tonal(
+          key: const ValueKey('profile-daily-sign'),
+          onPressed: checking || signed
+              ? null
+              : () async {
+                  await checkDailySignStatus(context, toast: true);
+                },
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 40),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            backgroundColor: colors.onSurface.withValues(alpha: .05),
+            disabledBackgroundColor: colors.onSurface.withValues(alpha: .05),
+            foregroundColor: statusColor,
+            disabledForegroundColor: statusColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                  signed
+                      ? Icons.check
+                      : checking
+                          ? Icons.sync
+                          : Icons.check_circle_outline,
+                  size: 17),
+              const SizedBox(width: 5),
+              Flexible(child: Text(label, textAlign: TextAlign.center)),
+            ],
+          ),
+        ),
+        if (!signed) ...[
+          const SizedBox(height: 4),
+          Text(
+            dailySignStatusLabel(context),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelSmall?.copyWith(color: statusColor),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildProfileDivider() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Divider(
+        height: 1,
+        color:
+            Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .22),
+      ),
+    );
+  }
+
+  double get _experienceProgress {
+    final raw = selfInfo.expPercent;
+    final normalized = raw <= 1 ? raw : raw / 100;
+    return normalized.isNaN ? 0 : normalized.clamp(0.0, 1.0).toDouble();
+  }
+
+  Widget _buildProfileStat({
+    required String label,
+    required String value,
+    double? progress,
+    Color? accent,
+  }) {
+    final theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label,
+            textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          textAlign: TextAlign.center,
+          style:
+              theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w500),
+        ),
+        if (progress != null) ...[
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: progress,
+            minHeight: 3,
+            borderRadius: BorderRadius.circular(2),
+            color: accent,
+            backgroundColor: theme.colorScheme.onSurface.withValues(alpha: .12),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildProfileDetail(String label, String value) {
+    final theme = Theme.of(context);
+    final style = theme.textTheme.bodySmall;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final labelPainter = TextPainter(
+          text: TextSpan(text: label, style: style),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: 1,
+        )..layout();
+        final labelWidth = labelPainter.width.ceilToDouble();
+        labelPainter.dispose();
+        if (labelWidth + 8 + MediaQuery.textScalerOf(context).scale(32) >
+            constraints.maxWidth) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: style?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 3),
+              Text(value,
+                  style: style?.copyWith(color: theme.colorScheme.onSurface)),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: labelWidth,
+              child: Text(label,
+                  style: style?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant)),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(value,
+                  style: style?.copyWith(color: theme.colorScheme.onSurface)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   String _formatGender(String raw) {
@@ -747,7 +878,7 @@ class _UserScreenState extends State<UserScreen>
                 child: Text(
                   title,
                   style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ),

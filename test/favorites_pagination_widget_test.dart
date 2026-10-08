@@ -11,6 +11,7 @@ import 'package:jmcomic3/configs/pager_cover_rate.dart';
 import 'package:jmcomic3/configs/pager_view_mode.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/favorites_screen.dart';
+import 'package:jmcomic3/screens/components/comic_list.dart';
 
 Map<String, dynamic> _comicFixture(int id) => {
       'id': id,
@@ -50,6 +51,9 @@ Future<List<int>> _mountFavorites(
   required PagerControllerMode mode,
   required int count,
   required int total,
+  List<List<int>>? items,
+  int? failOnceOnPage,
+  Completer<void>? secondPageGate,
 }) async {
   const channel = MethodChannel('methods');
   final messenger =
@@ -86,12 +90,22 @@ Future<List<int>> _mountFavorites(
         final params = jsonDecode(payload['params'] as String) as Map;
         final page = params['page'] as int;
         pages.add(page);
+        if (page == 2 && secondPageGate != null) await secondPageGate.future;
+        if (page == failOnceOnPage &&
+            pages.where((requested) => requested == page).length == 1) {
+          return jsonEncode(
+              {'error_message': 'fixture failure', 'response_data': ''});
+        }
+        final ids = items == null
+            ? List.generate(3, (index) => page * 100 + index)
+            : page <= items.length
+                ? items[page - 1]
+                : <int>[];
         response = {
           'total': total,
           'count': count,
           // 故意只返回三条，验证总页数来自接口容量而不是实际列表长度。
-          'list':
-              List.generate(3, (index) => _comicFixture(page * 100 + index)),
+          'list': ids.map(_comicFixture).toList(),
           'folder_list': <dynamic>[],
         };
         break;
@@ -105,6 +119,9 @@ Future<List<int>> _mountFavorites(
     });
   });
   addTearDown(() async {
+    if (secondPageGate != null && !secondPageGate.isCompleted) {
+      secondPageGate.complete();
+    }
     await tester.pumpWidget(const SizedBox.shrink());
     messenger.setMockMethodCallHandler(channel, null);
     login_config.favData = [];
@@ -131,7 +148,13 @@ Future<List<int>> _mountFavorites(
     supportedLocales: AppLocalizations.supportedLocales,
     home: FavoritesScreen(),
   ));
-  await tester.pumpAndSettle();
+  if (secondPageGate == null) {
+    await tester.pumpAndSettle();
+  } else {
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.pump();
+    }
+  }
   expect(tester.takeException(), isNull);
   return pages;
 }
@@ -163,14 +186,127 @@ void main() {
   testWidgets(
       'favorites stream uses API capacity instead of returned item count',
       (tester) async {
-    await _mountFavorites(
+    final pages = await _mountFavorites(
       tester,
       mode: PagerControllerMode.stream,
       count: 20,
       total: 87,
     );
-    expect(find.text('Loaded 1 / 5 pages'), findsOneWidget);
-    expect(find.text('Loaded 3 / 87 items'), findsOneWidget);
+    // A sparse batch cannot fill the viewport; continue after layout without
+    // depending on a scroll notification that may never occur.
+    expect(pages.length, greaterThan(1));
+    expect(find.text('Loaded ${pages.length} / 5 pages'), findsOneWidget);
+    for (var attempt = 0; attempt < 5; attempt++) {
+      await tester.drag(find.byType(GridView), const Offset(0, -2000));
+      await tester.pumpAndSettle();
+    }
+    expect(pages, [1, 2, 3, 4, 5]);
+    expect(tester.widget<ComicList>(find.byType(ComicList)).data.length, 15);
+    expect(find.text('Loaded 5 / 5 pages'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('favorites stream passes sparse pages and deduplicates batches',
+      (tester) async {
+    final pages = await _mountFavorites(tester,
+        mode: PagerControllerMode.stream,
+        count: 20,
+        total: 81,
+        items: [
+          [1, 2, 3],
+          [],
+          [3, 4],
+          [4, 5],
+          [6],
+        ]);
+    for (var attempt = 0; attempt < 4; attempt++) {
+      await tester.drag(find.byType(GridView), const Offset(0, -2000));
+      await tester.pumpAndSettle();
+    }
+    expect(pages, [1, 2, 3, 4, 5]);
+    expect(
+        tester.widget<ComicList>(find.byType(ComicList)).data.map((c) => c.id),
+        [1, 2, 3, 4, 5, 6]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('favorites stream stops repeated batches without request loops',
+      (tester) async {
+    final pages = await _mountFavorites(tester,
+        mode: PagerControllerMode.stream,
+        count: 20,
+        total: 200,
+        items: [
+          [1, 2, 3],
+          [1, 2, 3],
+        ]);
+    await tester.drag(find.byType(GridView), const Offset(0, -2000));
+    await tester.pumpAndSettle();
+    expect(pages, [1, 2]);
+    expect(tester.widget<ComicList>(find.byType(ComicList)).data.length, 3);
+  });
+
+  testWidgets('favorites stream waits for explicit retry after a failed batch',
+      (tester) async {
+    final pages = await _mountFavorites(tester,
+        mode: PagerControllerMode.stream,
+        count: 20,
+        total: 41,
+        failOnceOnPage: 2);
+    expect(pages, [1, 2]);
+    await tester.drag(find.byType(GridView), const Offset(0, -2000));
+    await tester.pump(const Duration(seconds: 1));
+    expect(pages, [1, 2]);
+    await tester.tap(find.byIcon(Icons.sync_problem_rounded));
+    await tester.pumpAndSettle();
+    expect(pages, [1, 2, 2, 3]);
+    expect(tester.widget<ComicList>(find.byType(ComicList)).data.length, 9);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('favorites stream does not duplicate an in-flight page request',
+      (tester) async {
+    final gate = Completer<void>();
+    final pages = await _mountFavorites(tester,
+        mode: PagerControllerMode.stream,
+        count: 20,
+        total: 41,
+        secondPageGate: gate);
+    expect(pages, [1, 2]);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      await tester.drag(find.byType(GridView), const Offset(0, -1000));
+      await tester.pump();
+    }
+    expect(pages, [1, 2]);
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(pages, [1, 2, 3]);
+    expect(tester.widget<ComicList>(find.byType(ComicList)).data.length, 9);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('favorites stream scrolls through complete batches in order',
+      (tester) async {
+    final pages = await _mountFavorites(tester,
+        mode: PagerControllerMode.stream,
+        count: 20,
+        total: 47,
+        items: [
+          List.generate(20, (index) => index + 1),
+          List.generate(20, (index) => index + 21),
+          List.generate(7, (index) => index + 41),
+        ]);
+    expect(pages, [1]);
+    for (var attempt = 0; attempt < 4; attempt++) {
+      await tester.drag(find.byType(GridView), const Offset(0, -4000));
+      await tester.pumpAndSettle();
+    }
+    expect(pages, [1, 2, 3]);
+    expect(
+        tester.widget<ComicList>(find.byType(ComicList)).data.map((c) => c.id),
+        List.generate(47, (index) => index + 1));
+    expect(find.text('Loaded 47 / 47 items'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   for (final count in [0, -20]) {
@@ -181,7 +317,7 @@ void main() {
         // 无效容量回退为实际三条，保留后续两页的访问能力。
         final label = mode == PagerControllerMode.pager
             ? 'Page 1 / 3'
-            : 'Loaded 1 / 3 pages';
+            : 'Loaded 3 / 3 pages';
         expect(find.text(label), findsOneWidget);
       });
     }

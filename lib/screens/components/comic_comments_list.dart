@@ -263,7 +263,7 @@ class _ComicCommentItemState extends State<_ComicCommentItem> {
 
     var comment = widget.comment;
     var theme = Theme.of(context);
-    var nameStyle = const TextStyle(fontWeight: FontWeight.bold);
+    var nameStyle = const TextStyle(fontWeight: FontWeight.w500);
     var levelStyle = TextStyle(
       fontSize: 12,
       color: theme.colorScheme.secondary.withOpacity(.8),

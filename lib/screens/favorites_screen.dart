@@ -87,6 +87,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Future<void> _loadSort() async {
     try {
       final sort = await methods.loadProperty("favorites_sort");
+      if (!mounted) return;
       if (sort.isNotEmpty && _sortNameMap(context).containsKey(sort)) {
         setState(() {
           _sort = sort;
@@ -98,6 +99,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         });
       }
     } catch (e) {
+      if (!mounted) return;
       // 使用默认值
       setState(() {
         _isLoading = false;
@@ -137,9 +139,18 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
               onPage: (int page) async {
                 final response =
                     await methods.favorites(_folderId, page, _sort);
-                setState(() {
-                  favData = response.folderList;
-                });
+                if (mounted) {
+                  setState(() {
+                    favData = response.folderList;
+                    _folderMap
+                      ..clear()
+                      ..addAll({
+                        0: context.l10n.all,
+                        for (final folder in response.folderList)
+                          folder.fid: folder.name,
+                      });
+                  });
+                }
                 return InnerComicPage(
                   total: response.total,
                   list: response.list,

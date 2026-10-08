@@ -24,6 +24,7 @@ import 'package:jmcomic3/screens/browser_screen.dart';
 import 'package:jmcomic3/screens/comic_search_screen.dart';
 import 'package:jmcomic3/screens/components/comic_floating_search_bar.dart';
 import 'package:jmcomic3/screens/components/comic_pager.dart';
+import 'package:jmcomic3/screens/components/comic_list.dart';
 import 'package:jmcomic3/screens/components/images.dart';
 import 'package:jmcomic3/screens/user_screen.dart';
 
@@ -34,6 +35,8 @@ final _saveScreenshots = Platform.environment['LAYOUT_SCREENSHOTS'] == '1';
 var _versionInitialized = false;
 
 class _Fixture {
+  int? browseTotal;
+  int browseBatchSize = 2;
   final requests = <Map<String, dynamic>>[];
   final properties = <String, String>{
     'guest_mode': 'true',
@@ -109,6 +112,28 @@ class _Fixture {
         break;
       case 'comics':
       case 'comic_search':
+        if (method == 'comics' && browseTotal != null) {
+          final page = (jsonDecode(params as String) as Map)['page'] as int;
+          final start = (page - 1) * browseBatchSize;
+          response = {
+            'total': browseTotal,
+            'content': [
+              for (var index = start;
+                  index < start + browseBatchSize && index < browseTotal!;
+                  index++)
+                {
+                  'id': 8000 + index,
+                  'name': 'Browse result $index',
+                  'author': '',
+                  'description': '',
+                  'image': '',
+                  'category': {'title': 'Adventure'},
+                  'category_sub': {'title': 'Illustration'},
+                },
+            ],
+          };
+          break;
+        }
         response = {
           'total': 6,
           'content': [
@@ -215,9 +240,11 @@ Future<_Fixture> _prepare(
   WidgetTester tester, {
   Size size = const Size(1280, 800),
   bool guest = true,
+  PagerControllerMode mode = PagerControllerMode.pager,
 }) async {
   final fixture = _Fixture();
   fixture.properties['guest_mode'] = '$guest';
+  fixture.properties['pager_controller_mode'] = mode.toString();
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   messenger.setMockMethodCallHandler(_channel, fixture.handle);
@@ -303,6 +330,24 @@ Future<void> _capture(WidgetTester tester, String name) async {
 }
 
 void main() {
+  testWidgets('browse stream fills an initially unscrollable wide viewport',
+      (tester) async {
+    final fixture = await _prepare(tester,
+        size: const Size(1600, 1800), mode: PagerControllerMode.stream);
+    fixture.browseTotal = 8;
+    await tester.pumpWidget(_host(const AppScreen()));
+    await tester.pumpAndSettle();
+    // No drag is performed: the first two covers fit within one visible row.
+    // Layout completion must fetch the remaining batches in order by itself.
+    final pages = fixture.calls('comics').map(
+        (request) => (jsonDecode(request['params'] as String) as Map)['page']);
+    expect(pages, [1, 2, 3, 4]);
+    final comics = tester.widget<ComicList>(find.byType(ComicList)).data;
+    expect(comics, hasLength(8));
+    expect(comics.map((comic) => comic.id).toSet(), hasLength(8));
+    expect(find.text('Loaded 4 / 4 pages'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('rail breakpoint preserves active page and category state',
       (tester) async {
     final fixture = await _prepare(tester, size: const Size(839, 700));
@@ -467,8 +512,13 @@ void main() {
       of: user,
       matching: find.byType(SingleChildScrollView),
     );
-    expect(
-        tester.getRect(find.text('Guest Mode')).right, lessThanOrEqualTo(284));
+    // The compact account card now uses its own inset. Validate against the
+    // actual card bounds rather than the previous card's fixed text offset.
+    final accountCard =
+        tester.getRect(find.byKey(const ValueKey('profile-account-card')));
+    final guestTitle = tester.getRect(find.text('Guest Mode'));
+    expect(guestTitle.left, greaterThan(accountCard.left));
+    expect(guestTitle.right, lessThan(accountCard.right));
     expect(tester.takeException(), isNull);
     await _capture(tester, 'library-compact-large-text');
     await tester.drag(scroll, const Offset(0, -600));
