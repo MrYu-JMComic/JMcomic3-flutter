@@ -82,8 +82,8 @@ void main() {
     // 使用真实文件解码；异步 I/O 在真实时钟中完成，避免只测试缓存键的字符串匹配。
     await tester.runAsync(() async {
       final expectedProvider = ResizeImage.resizeIfNeeded(
-        width.round(),
-        height.round(),
+        decodeTargetExtentForTest(width, 1),
+        decodeTargetExtentForTest(height, 1),
         FileImage(file),
       );
       final expectedKey =
@@ -110,7 +110,8 @@ void main() {
   testWidgets('page eviction removes actual resized file cache variants',
       (tester) async {
     final largeKey = await mountPage(tester);
-    final smallKey = await mountPage(tester, width: 60, height: 90);
+    // Use distinct codec buckets rather than two sizes that both map to 256.
+    final smallKey = await mountPage(tester, width: 300, height: 450);
     expect(largeKey, isNot(smallKey));
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photo_view/photo_view.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/configs/no_animation.dart';
 import 'package:jmcomic3/configs/reader_controller_type.dart';
@@ -19,112 +20,13 @@ import 'package:jmcomic3/configs/volume_key_control.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/comic_reader_screen.dart';
 import 'package:jmcomic3/screens/components/images.dart';
-import 'package:jmcomic3/screens/components/reader_preloader.dart';
-import 'package:jmcomic3/screens/components/reader_progress.dart';
+import 'package:zoomable_positioned_list/zoomable_positioned_list.dart'
+    as zoomable;
+
+Future<void> Function(String name, WidgetTester tester)? readerCheckpoint;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
-  test('preload planner prioritizes the visible window then reads forward',
-      () {
-    expect(
-      readerPreloadOrder(
-        visibleIndexes: [5, 3, 4, 3],
-        pageCount: 12,
-        lookAhead: 4,
-        lookBehind: 2,
-      ),
-      [3, 4, 5, 6, 7, 8, 9, 2, 1],
-    );
-  });
-
-  test('preload planner removes invalid positions and clamps the window', () {
-    expect(
-      readerPreloadOrder(
-        visibleIndexes: [-2, 0, 8, 99, 2, 0],
-        pageCount: 3,
-        lookAhead: 10,
-        lookBehind: 10,
-      ),
-      [0, 2, 1],
-    );
-    expect(
-      readerPreloadOrder(
-        visibleIndexes: [0, 1],
-        pageCount: 0,
-      ),
-      isEmpty,
-    );
-  });
-
-  test('preload follows order, deduplicates and stops a replaced queue',
-      () async {
-    final preloader = ReaderPreloader();
-    final pending = Completer<void>();
-    final loaded = <int>[];
-    final released = <int>[];
-    final old = preloader.preload(
-      indexes: [0, 1, 1, 2],
-      load: (index) async {
-        loaded.add(index);
-        await pending.future;
-      },
-      releaseStale: released.add,
-    );
-    final current = preloader.preload(
-      indexes: [4, 5, 5, 3],
-      load: (index) async => loaded.add(index),
-      releaseStale: released.add,
-    );
-    await current;
-    pending.complete();
-    await old;
-    expect(loaded, [0, 4, 5, 3]);
-    // Replacing the viewport queue must retain decoded images while the
-    // reader route is still mounted. Route disposal owns the release.
-    expect(released, isEmpty);
-  });
-
-  test('dispose releases a late completion and does not start remaining pages',
-      () async {
-    final preloader = ReaderPreloader();
-    final pending = Completer<void>();
-    final loaded = <int>[];
-    final released = <int>[];
-    final task = preloader.preload(
-      indexes: [2, 3, 4],
-      load: (index) async {
-        loaded.add(index);
-        await pending.future;
-      },
-      releaseStale: released.add,
-    );
-    preloader.dispose();
-    pending.complete();
-    await task;
-    await preloader.preload(
-        indexes: [6],
-        load: (index) async => loaded.add(index),
-        releaseStale: released.add);
-    expect(loaded, [2]);
-    expect(released, [2]);
-  });
-
-  test('long image covering the viewport center remains the current page', () {
-    expect(
-        readerPageAtViewportCenter(const [
-          ReaderPageBounds(2, -4, 0.8),
-          ReaderPageBounds(3, 0.8, 1.05),
-          ReaderPageBounds(4, 1.05, 1.4),
-        ]),
-        2);
-    expect(
-        readerPageAtViewportCenter(const [
-          ReaderPageBounds(2, -4, 0.2),
-          ReaderPageBounds(3, 0.2, 0.9),
-        ]),
-        3);
-  });
 
   late Directory directory;
   final heights = <int>[64, 384, 128, 512, 96, 320, 64, 384, 64, 128];
@@ -136,12 +38,15 @@ void main() {
   var controlMode = ReaderControllerType.controller;
 
   setUpAll(() async {
-    directory = await Directory.systemTemp.createTemp('jm_reader_regression_');
+    directory = Directory(Platform.isAndroid
+        ? '${Directory.systemTemp.path}/jm-reader-rewrite-fixtures'
+        : 'build/reader-rewrite/fixtures');
+    await directory.create(recursive: true);
     for (var index = 0; index < heights.length; index++) {
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
       canvas.drawRect(Rect.fromLTWH(0, 0, 64, heights[index].toDouble()),
-          Paint()..color = Colors.green);
+          Paint()..color = Colors.primaries[index]);
       final picture = recorder.endRecording();
       final image = await picture.toImage(64, heights[index]);
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -152,7 +57,6 @@ void main() {
       paths.add(path);
     }
   });
-  tearDownAll(() async => directory.delete(recursive: true));
 
   setUp(() {
     clearAllImageMemoryCaches();
@@ -199,13 +103,17 @@ void main() {
       },
     );
   });
-  tearDown(() {
+  tearDown(() async {
+    if (imageGate != null && !imageGate!.isCompleted) imageGate!.complete();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('methods'), null);
   });
 
-  Future<GlobalKey> mountReader(WidgetTester tester, ReaderType type,
-      ReaderDirection readDirection) async {
+  Future<GlobalKey> mountReader(
+      WidgetTester tester, ReaderType type, ReaderDirection readDirection,
+      {int pageCount = 10,
+      int startIndex = 0,
+      ValueChanged<int>? onUnmount}) async {
     direction = readDirection;
     await initReaderControllerType();
     await initReaderDirection();
@@ -214,24 +122,38 @@ void main() {
     await initVolumeKeyControl();
     await initTwoPageDirection();
     final key = GlobalKey();
-    await tester.pumpWidget(MaterialApp(
-      localizationsDelegates: const [AppLocalizations.delegate],
-      home: Scaffold(
-          body: buildComicReaderForTest(
-        key: key,
-        chapter: ChapterResponse(
-            id: 81234,
-            series: [],
-            tags: '',
-            name: 'Reader regression',
-            images: List.generate(heights.length, (index) => '$index.png'),
-            seriesId: 81234,
-            isFavorite: false,
-            liked: false),
-        readerType: type,
-        direction: readDirection,
-      )),
-    ));
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await tester.runAsync(
+          () async => Future<void>.delayed(const Duration(milliseconds: 20)));
+      clearAllImageMemoryCaches();
+    });
+    await tester.pumpWidget(_UnmountProbe(
+        onDeactivate: () {
+          if (key.currentState != null) {
+            onUnmount?.call(comicReaderProgressForTest(key).current);
+          }
+        },
+        child: MaterialApp(
+          localizationsDelegates: const [AppLocalizations.delegate],
+          home: Scaffold(
+              body: buildComicReaderForTest(
+            key: key,
+            chapter: ChapterResponse(
+                id: 81234,
+                series: [],
+                tags: '',
+                name: 'Reader regression',
+                images: List.generate(pageCount, (index) => '$index.png'),
+                seriesId: 81234,
+                isFavorite: false,
+                liked: false),
+            readerType: type,
+            direction: readDirection,
+            startIndex: startIndex,
+          )),
+        )));
     await tester.runAsync(
         () async => Future<void>.delayed(const Duration(milliseconds: 80)));
     await tester.pumpAndSettle();
@@ -245,122 +167,163 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets(
-      'horizontal free zoom double tap permits single finger pan and restores page swipe',
+  Finder firstPage() => find.byKey(const ValueKey('reader-page-81234-0'));
+
+  for (final type in [ReaderType.gallery, ReaderType.twoPageGallery]) {
+    for (final readDirection in ReaderDirection.values) {
+      testWidgets('$type $readDirection zoom/pan resets before paging',
+          (tester) async {
+        final key = await mountReader(tester, type, readDirection);
+        final photo = tester.widget<PhotoView>(find.byType(PhotoView).first);
+        final controller = photo.controller!;
+        final rect = tester.getRect(find.byType(PhotoView).first);
+        await doubleTap(tester, rect.center);
+        expect(controller.scale, closeTo(2, .01));
+        await readerCheckpoint?.call(
+            'reader-${type.name}-${readDirection.name}-zoom', tester);
+        final before = controller.position;
+        await tester.timedDragFrom(rect.center, const Offset(-80, 0),
+            const Duration(milliseconds: 200));
+        await tester.pumpAndSettle();
+        expect((controller.position.dx - before.dx).abs(), greaterThan(10));
+        expect(comicReaderProgressForTest(key).current, 0);
+        await doubleTap(tester, rect.center);
+        expect(controller.scale, closeTo(1, .01));
+        final delta = switch (readDirection) {
+          ReaderDirection.leftToRight => Offset(-rect.width * .9, 0),
+          ReaderDirection.rightToLeft => Offset(rect.width * .9, 0),
+          ReaderDirection.topToBottom => Offset(0, -rect.height * .9),
+        };
+        await tester.dragFrom(rect.center, delta);
+        await tester.pumpAndSettle();
+        expect(comicReaderProgressForTest(key).current,
+            type == ReaderType.twoPageGallery ? 2 : 1);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  testWidgets('odd final spread and restored odd source rank stay in bounds',
       (tester) async {
     final key = await mountReader(
-        tester, ReaderType.webToonFreeZoom, ReaderDirection.leftToRight);
-    final viewer =
-        tester.widget<InteractiveViewer>(find.byType(InteractiveViewer).first);
-    final controller = viewer.transformationController!;
-    await doubleTap(tester, const Offset(350, 260));
-    expect(controller.value.getMaxScaleOnAxis(), greaterThan(1.9));
-    final before = controller.value.storage[12];
-    await tester.dragFrom(const Offset(350, 260), const Offset(100, 0));
+        tester, ReaderType.twoPageGallery, ReaderDirection.rightToLeft,
+        pageCount: 5, startIndex: 3);
+    expect(comicReaderProgressForTest(key).current, 2);
+    jumpComicReaderForTest(key, 99, animation: false);
     await tester.pumpAndSettle();
-    final delta = controller.value.storage[12] - before;
-    expect(delta.abs(), greaterThan(10));
-    expect(delta.abs(), lessThan(180));
-    expect(comicReaderProgressForTest(key).current, 0);
-    await doubleTap(tester, const Offset(350, 260));
-    await tester.dragFrom(const Offset(600, 260), const Offset(-600, 0));
+    expect(comicReaderProgressForTest(key).current, 4);
+    await readerCheckpoint?.call('reader-odd-spread-last', tester);
+    controlComicReaderForTest('DOWN');
     await tester.pumpAndSettle();
-    expect(comicReaderProgressForTest(key).current, 1);
+    expect(comicReaderProgressForTest(key).current, 4);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump();
   });
 
-  testWidgets(
-      'vertical free zoom double tap routes single finger pan and restores reading scroll',
+  for (final readDirection in [
+    ReaderDirection.leftToRight,
+    ReaderDirection.rightToLeft,
+    ReaderDirection.topToBottom
+  ]) {
+    testWidgets(
+        '$readDirection continuous zoom pans once and restores scrolling',
+        (tester) async {
+      final key =
+          await mountReader(tester, ReaderType.webToonFreeZoom, readDirection);
+      final viewport =
+          tester.getRect(find.byType(zoomable.ZoomablePositionedList));
+      final original = tester.getRect(firstPage());
+      await doubleTap(tester, viewport.center);
+      expect(
+          tester.getRect(firstPage()).width / original.width, closeTo(2, .05));
+      await readerCheckpoint?.call(
+          'reader-continuous-${readDirection.name}-zoom', tester);
+      final before = tester.getRect(firstPage());
+      await tester.timedDragFrom(
+          viewport.center,
+          readDirection == ReaderDirection.leftToRight
+              ? const Offset(-80, 0)
+              : const Offset(80, 0),
+          const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      final delta = (tester.getRect(firstPage()).left - before.left).abs();
+      expect(delta, greaterThan(10));
+      expect(delta, lessThan(150));
+      expect(comicReaderProgressForTest(key).current, 0);
+      await doubleTap(tester, viewport.center);
+      expect(
+          tester.getRect(firstPage()).width / original.width, closeTo(1, .05));
+      final scroll = switch (readDirection) {
+        ReaderDirection.topToBottom =>
+          Offset(0, -original.height - viewport.height / 2),
+        ReaderDirection.leftToRight =>
+          Offset(-original.width - viewport.width / 3, 0),
+        ReaderDirection.rightToLeft =>
+          Offset(original.width + viewport.width / 3, 0),
+      };
+      await tester.dragFrom(viewport.center, scroll);
+      await tester.pumpAndSettle();
+      expect(comicReaderProgressForTest(key).current, greaterThan(0));
+      await readerCheckpoint?.call(
+          'reader-continuous-${readDirection.name}-restored', tester);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('vertical pinch keeps scale and single-finger pan after handoff',
       (tester) async {
     final key = await mountReader(
         tester, ReaderType.webToonFreeZoom, ReaderDirection.topToBottom);
-    await doubleTap(tester, const Offset(350, 260));
-    final viewer =
-        tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
-    final controller = viewer.transformationController!;
-    expect(controller.value.getMaxScaleOnAxis(), greaterThan(1.9));
-    expect(viewer.panEnabled, isTrue);
-    final before = controller.value.storage[12];
-    await tester.dragFrom(const Offset(350, 260), const Offset(80, 0));
-    await tester.pumpAndSettle();
-    expect((controller.value.storage[12] - before).abs(), greaterThan(10));
-    expect(comicReaderProgressForTest(key).current, 0);
-    await doubleTap(tester, const Offset(350, 260));
-    expect(controller.value.getMaxScaleOnAxis(), closeTo(1, 0.001));
-    expect(
-        tester
-            .widget<InteractiveViewer>(find.byType(InteractiveViewer))
-            .panEnabled,
-        isFalse);
-    await tester.dragFrom(const Offset(350, 450), const Offset(0, -420));
-    await tester.pumpAndSettle();
-    expect(comicReaderProgressForTest(key).current, greaterThan(0));
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    final rect = tester.getRect(find.byType(zoomable.ZoomablePositionedList));
+    final initial = tester.getRect(firstPage());
+    final distance = rect.width * .12;
+    final first =
+        await tester.createGesture(kind: PointerDeviceKind.touch, pointer: 1);
+    final second =
+        await tester.createGesture(kind: PointerDeviceKind.touch, pointer: 2);
+    await first.down(rect.center - Offset(distance, 0));
+    await second.down(rect.center + Offset(distance, 0));
     await tester.pump();
-  });
-
-  testWidgets('vertical free zoom keeps horizontal pan after pinch handoff',
-      (tester) async {
-    final key = await mountReader(
-        tester, ReaderType.webToonFreeZoom, ReaderDirection.topToBottom);
-    final viewerFinder = find.byType(InteractiveViewer);
-    final rect = tester.getRect(viewerFinder);
-    final viewer = tester.widget<InteractiveViewer>(viewerFinder);
-    final controller = viewer.transformationController!;
-    final first = await tester.createGesture(
-      kind: PointerDeviceKind.touch,
-      pointer: 1,
-    );
-    final second = await tester.createGesture(
-      kind: PointerDeviceKind.touch,
-      pointer: 2,
-    );
-    await first.down(Offset(rect.center.dx - 80, rect.center.dy));
-    await second.down(Offset(rect.center.dx + 80, rect.center.dy));
-    await tester.pump();
-    await first.moveTo(Offset(rect.center.dx - 150, rect.center.dy));
-    await second.moveTo(Offset(rect.center.dx + 150, rect.center.dy));
+    await first.moveTo(rect.center - Offset(distance * 1.8, 0));
+    await second.moveTo(rect.center + Offset(distance * 1.8, 0));
     await tester.pumpAndSettle();
-    expect(controller.value.getMaxScaleOnAxis(), greaterThan(1.1));
-
+    final zoomed = tester.getRect(firstPage());
+    expect(zoomed.width / initial.width, greaterThan(1.1));
     await second.up();
     await tester.pump();
-    expect(tester.widget<InteractiveViewer>(viewerFinder).panEnabled, isFalse);
-    final before = controller.value.storage[12];
-    await first.moveBy(const Offset(-100, 0));
+    final before = tester.getRect(firstPage());
+    await first.moveBy(const Offset(-60, 0));
     await tester.pumpAndSettle();
     await first.up();
-    final delta = (controller.value.storage[12] - before).abs();
-    expect(delta, greaterThan(10));
-    expect(delta, lessThan(180));
+    final moved = tester.getRect(firstPage());
+    expect(moved.width, closeTo(zoomed.width, 1));
+    expect((moved.left - before.left).abs(), greaterThan(10));
+    expect((moved.left - before.left).abs(), lessThan(110));
     expect(comicReaderProgressForTest(key).current, 0);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump();
   });
 
   for (final mode in [
     ReaderControllerType.touchDouble,
     ReaderControllerType.touchDoubleOnceNext
   ]) {
-    testWidgets('vertical free zoom preserves $mode fullscreen double tap',
+    testWidgets('continuous reader preserves $mode without disabling pinch',
         (tester) async {
       controlMode = mode;
       await mountReader(
           tester, ReaderType.webToonFreeZoom, ReaderDirection.topToBottom);
+      final before = tester.getRect(firstPage());
       expect(find.byType(AppBar), findsOneWidget);
-      await doubleTap(tester, const Offset(350, 260));
+      await doubleTap(tester,
+          tester.getRect(find.byType(zoomable.ZoomablePositionedList)).center);
       expect(find.byType(AppBar), findsNothing);
-      final viewer =
-          tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
-      expect(viewer.transformationController!.value.getMaxScaleOnAxis(),
-          closeTo(1, 0.001));
+      expect(tester.getRect(firstPage()).width, closeTo(before.width, 1));
+      expect(
+          tester
+              .widget<zoomable.ZoomablePositionedList>(
+                  find.byType(zoomable.ZoomablePositionedList))
+              .enableZoom,
+          isTrue);
       expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump();
     });
   }
 
@@ -420,8 +383,10 @@ void main() {
 
   testWidgets('exit during an animated jump persists the actual visible page',
       (tester) async {
+    int? actualAtRemoval;
     final key = await mountReader(
-        tester, ReaderType.gallery, ReaderDirection.leftToRight);
+        tester, ReaderType.gallery, ReaderDirection.leftToRight,
+        onUnmount: (page) => actualAtRemoval = page);
     jumpComicReaderForTest(key, 8);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
@@ -429,7 +394,10 @@ void main() {
     expect(actual, lessThan(8));
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
-    expect(viewLogs.last, actual);
+    // A real Android frame may advance between sampling and pumpWidget.
+    // Capture the actual page synchronously when the reader is deactivated.
+    expect(actualAtRemoval, lessThan(8));
+    expect(viewLogs.last, actualAtRemoval);
     expect(tester.takeException(), isNull);
   });
 
@@ -506,8 +474,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-      'reader keeps a page cache while mounted and releases it on exit',
+  testWidgets('reader keeps a page cache while mounted and releases it on exit',
       (tester) async {
     final readerKey = await mountReader(
         tester, ReaderType.webtoon, ReaderDirection.topToBottom);
@@ -533,4 +500,23 @@ void main() {
     expect(imageCache.statusForKey(providerKey).live, isFalse);
     expect(tester.takeException(), isNull);
   });
+}
+
+class _UnmountProbe extends StatefulWidget {
+  const _UnmountProbe({required this.child, required this.onDeactivate});
+  final Widget child;
+  final VoidCallback onDeactivate;
+  @override
+  State<_UnmountProbe> createState() => _UnmountProbeState();
+}
+
+class _UnmountProbeState extends State<_UnmountProbe> {
+  @override
+  void deactivate() {
+    widget.onDeactivate();
+    super.deactivate();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

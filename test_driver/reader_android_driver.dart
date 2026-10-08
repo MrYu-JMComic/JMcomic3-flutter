@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:integration_test/integration_test_driver_extended.dart';
 
 Future<void> main() async {
-  final output = Directory('dist/device-test');
+  final output = Directory(
+      Platform.environment['READER_TEST_OUTPUT'] ?? 'dist/device-test');
   await output.create(recursive: true);
   await integrationDriver(
     onScreenshot: (name, bytes, [arguments]) async {

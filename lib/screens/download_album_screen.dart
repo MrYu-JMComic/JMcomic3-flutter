@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:jmcomic3/basic/methods.dart';
 import 'package:jmcomic3/basic/reader_pages.dart';
-import 'package:jmcomic3/configs/reader_feature_flags.dart';
 import 'package:jmcomic3/l10n/app_localizations.dart';
 import 'package:jmcomic3/screens/components/comic_download_card.dart';
 import 'package:jmcomic3/screens/components/item_builder.dart';
@@ -343,29 +342,16 @@ class _DownloadAlbumScreenState extends State<DownloadAlbumScreen> {
     if (chapter == null) {
       throw StateError('download chapter metadata is missing');
     }
-    var resolvedImages = images;
-    if (readerOfflineOwnerV1) {
-      // Availability is an explicit backend contract.  An empty/error
-      // response is treated as metadata-only; no path is guessed from the
-      // persisted image name or dl_status.
-      final available = await methods.dlImageLocalAvailability(seriesId);
-      if (available.isNotEmpty) {
-        resolvedImages = ReaderPageRepository.mergeLocalAvailability(
-          images,
-          available.where((item) => item.chapterId == seriesId).toList(),
-        );
-      }
-    }
     return ChapterResponse(
       id: seriesId,
       series: create.readerSeries,
       tags: create.album.tags.join(" / "),
       name: chapter.name,
-      images: resolvedImages.map((e) => e.name).toList(growable: false),
+      images: images.map((e) => e.name).toList(growable: false),
       seriesId: create.album.id,
       isFavorite: false,
       liked: false,
-      offlineImages: resolvedImages,
+      offlineImages: images,
     );
   }
 }
