@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:another_xlider/another_xlider.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -111,6 +112,49 @@ void main() {
       await _settle(tester);
       expect(comicReaderProgressForTest(key).current, greaterThan(current));
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('vertical pinch handoff keeps single finger horizontal pan',
+        (tester) async {
+      final key = await fixture.mount(
+          tester, ReaderType.webToonFreeZoom, ReaderDirection.topToBottom);
+      final viewerFinder = find.byType(InteractiveViewer);
+      final rect = tester.getRect(viewerFinder);
+      final controller = tester
+          .widget<InteractiveViewer>(viewerFinder)
+          .transformationController!;
+      final first = await tester.createGesture(
+        kind: PointerDeviceKind.touch,
+        pointer: 1,
+      );
+      final second = await tester.createGesture(
+        kind: PointerDeviceKind.touch,
+        pointer: 2,
+      );
+      await first.down(Offset(rect.center.dx - 80, rect.center.dy));
+      await second.down(Offset(rect.center.dx + 80, rect.center.dy));
+      await _settle(tester);
+      await first.moveTo(Offset(rect.center.dx - 150, rect.center.dy));
+      await second.moveTo(Offset(rect.center.dx + 150, rect.center.dy));
+      await _settle(tester);
+      expect(controller.value.getMaxScaleOnAxis(), greaterThan(1.1));
+
+      await second.up();
+      await tester.pump();
+      expect(
+          tester.widget<InteractiveViewer>(viewerFinder).panEnabled, isFalse);
+      final before = controller.value.storage[12];
+      await first.moveBy(const Offset(-100, 0));
+      await _settle(tester);
+      await first.up();
+      final delta = (controller.value.storage[12] - before).abs();
+      expect(delta, greaterThan(10));
+      expect(delta, lessThan(180));
+      expect(comicReaderProgressForTest(key).current, 0);
+      expect(tester.takeException(), isNull);
+      fixture.record('vertical_pinch_handoff', key, {
+        'translation_delta': controller.value.storage[12] - before,
+      });
     });
 
     for (final type in [

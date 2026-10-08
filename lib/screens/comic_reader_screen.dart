@@ -2498,6 +2498,9 @@ class _PagedZoomImageState extends State<_PagedZoomImage> {
 class _ListViewReaderState extends _ComicReaderState {
   var _isZoomed = false;
   var _activePointers = 0;
+  final Set<int> _activePointerIds = <int>{};
+  final Map<int, Offset> _pointerPositions = <int, Offset>{};
+  int? _handoffPanPointer;
   final List<Size?> _trueSizes = [];
   final List<GlobalKey> _pageKeys = [];
   final GlobalKey _viewportKey = GlobalKey();
@@ -2637,19 +2640,61 @@ class _ListViewReaderState extends _ComicReaderState {
 
   void _onPointerDown(PointerDownEvent event) {
     _manualJumpPage = null;
-    final hadMultiTouch = _activePointers > 1;
+    final wasViewerOwner = _isZoomed || _activePointers > 1;
+    _activePointerIds.add(event.pointer);
+    _pointerPositions[event.pointer] = event.position;
     _activePointers++;
-    final hasMultiTouch = _activePointers > 1;
-    if (hadMultiTouch != hasMultiTouch && mounted) {
+    final viewerOwnsGesture = _isZoomed || _activePointers > 1;
+    if (wasViewerOwner != viewerOwnsGesture && mounted) {
       setState(() {});
     }
   }
 
+  void _onPointerMove(PointerMoveEvent event) {
+    final previous = _pointerPositions[event.pointer];
+    _pointerPositions[event.pointer] = event.position;
+    if (previous == null ||
+        _handoffPanPointer != event.pointer ||
+        _activePointerIds.length != 1 ||
+        !_isZoomed) {
+      return;
+    }
+    _panZoomHandoff(event.position - previous);
+  }
+
+  void _panZoomHandoff(Offset delta) {
+    final constraints = _lastLayoutConstraints;
+    if (constraints == null) {
+      return;
+    }
+    final matrix = _transformationController.value.clone();
+    final scale = matrix.getMaxScaleOnAxis();
+    if (!scale.isFinite || scale <= 1.001) {
+      return;
+    }
+    final minX = constraints.maxWidth * (1 - scale);
+    final minY = constraints.maxHeight * (1 - scale);
+    final nextX = (matrix.storage[12] + delta.dx).clamp(minX, 0.0).toDouble();
+    final nextY = (matrix.storage[13] + delta.dy).clamp(minY, 0.0).toDouble();
+    matrix.setTranslationRaw(nextX, nextY, matrix.storage[14]);
+    _transformationController.value = matrix;
+  }
+
   void _onPointerEnd(PointerEvent event) {
-    final hadMultiTouch = _activePointers > 1;
+    final wasHandoff = _handoffPanPointer;
+    final hadMultiTouch = _activePointerIds.length > 1;
+    final wasViewerOwner = _isZoomed || hadMultiTouch;
+    _activePointerIds.remove(event.pointer);
+    _pointerPositions.remove(event.pointer);
+    if (hadMultiTouch && _activePointerIds.length == 1 && _isZoomed) {
+      _handoffPanPointer = _activePointerIds.single;
+    } else if (_activePointerIds.isEmpty) {
+      _handoffPanPointer = null;
+    }
     _activePointers = max(0, _activePointers - 1);
-    final hasMultiTouch = _activePointers > 1;
-    if (hadMultiTouch != hasMultiTouch && mounted) {
+    final viewerOwnsGesture = _isZoomed || _activePointers > 1;
+    final handoffChanged = wasHandoff != _handoffPanPointer;
+    if ((wasViewerOwner != viewerOwnsGesture || handoffChanged) && mounted) {
       setState(() {});
     }
   }
@@ -2849,7 +2894,7 @@ class _ListViewReaderState extends _ComicReaderState {
         var viewer = ReaderZoomSurface(
           controller: _transformationController,
           maxScale: 2,
-          panEnabled: giveTouchToViewer,
+          panEnabled: giveTouchToViewer && _handoffPanPointer == null,
           // 双击全屏控制模式保留外层双击入口，缩放仍可使用双指捏合。
           allowDoubleTap:
               currentReaderControllerType != ReaderControllerType.touchDouble &&
@@ -2863,6 +2908,7 @@ class _ListViewReaderState extends _ComicReaderState {
         return SizedBox.expand(
           child: Listener(
             onPointerDown: _onPointerDown,
+            onPointerMove: _onPointerMove,
             onPointerUp: _onPointerEnd,
             onPointerCancel: _onPointerEnd,
             child: viewer,
