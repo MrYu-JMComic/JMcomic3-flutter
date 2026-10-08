@@ -659,6 +659,7 @@ class _JM3x4CoverState extends State<JM3x4Cover> {
       widget.height,
       fit: widget.fit,
       longPressMenuItems: widget.longPressMenuItems,
+      preserveSourceAspectRatio: true,
       onReload: _reload,
       onDecodeError: _autoRetryOnDecodeError,
     );
@@ -740,6 +741,7 @@ class _JMSquareCoverState extends State<JMSquareCover> {
       widget.height,
       fit: widget.fit,
       longPressMenuItems: widget.longPressMenuItems,
+      preserveSourceAspectRatio: true,
       onReload: _reload,
       onDecodeError: _autoRetryOnDecodeError,
     );
@@ -1011,7 +1013,8 @@ Widget pathFutureImage(
     VoidCallback? onReload,
     VoidCallback? onDecodeError,
     ValueChanged<ImageProvider>? onImageProvider,
-    bool offlineOnly = false}) {
+    bool offlineOnly = false,
+    bool preserveSourceAspectRatio = false}) {
   // 使用 FutureBuilder 渲染加载/错误/成功状态
   return FutureBuilder<String>(
       future: future,
@@ -1049,6 +1052,7 @@ Widget pathFutureImage(
             onReload: onReload,
             onDecodeError: onDecodeError,
             onImageProvider: onImageProvider,
+            preserveSourceAspectRatio: preserveSourceAspectRatio,
           );
         }
         if (snapshot.connectionState == ConnectionState.done) {
@@ -1331,15 +1335,18 @@ Widget buildFile(
     List<LongPressMenuItem>? longPressMenuItems,
     VoidCallback? onReload,
     VoidCallback? onDecodeError,
-    ValueChanged<ImageProvider>? onImageProvider}) {
+    ValueChanged<ImageProvider>? onImageProvider,
+    bool preserveSourceAspectRatio = false}) {
   final devicePixelRatio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
   final cacheWidth = _cacheExtent(width, devicePixelRatio);
   final cacheHeight = _cacheExtent(height, devicePixelRatio);
-  final provider = ResizeImage.resizeIfNeeded(
-    cacheWidth,
-    cacheHeight,
-    FileImage(File(file)),
-  );
+  // Cover frames and padding are independent of the source image ratio.
+  // Preserve the decoded cover pixels, then let BoxFit scale and crop them.
+  // Exact width/height decode targets would distort the image before painting.
+  final source = FileImage(File(file));
+  final provider = preserveSourceAspectRatio
+      ? source
+      : ResizeImage.resizeIfNeeded(cacheWidth, cacheHeight, source);
   onImageProvider?.call(provider);
   final image = Image(
     image: provider,
