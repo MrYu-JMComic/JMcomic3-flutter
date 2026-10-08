@@ -10,6 +10,7 @@ import 'package:jmcomic3/screens/components/floating_search_bar.dart';
 
 import '../configs/categories_sort.dart';
 import '../configs/login.dart';
+import 'components/actions.dart';
 import 'components/browser_bottom_sheet.dart';
 import 'components/comic_floating_search_bar.dart';
 import 'components/content_error.dart';
@@ -121,6 +122,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   Widget build(BuildContext context) {
     super.build(context);
     final l10n = context.l10n;
+    final compact = MediaQuery.sizeOf(context).width < 840;
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.browse),
@@ -133,6 +135,12 @@ class _BrowserScreenState extends State<BrowserScreen>
             },
             icon: const Icon(Icons.calendar_month),
           ),
+          if (compact)
+            IconButton(
+              tooltip: l10n.tr('搜索', en: 'Search'),
+              onPressed: _openSearch,
+              icon: const Icon(Icons.search),
+            ),
           const BrowserBottomSheetAction(),
         ],
       ),
@@ -146,10 +154,11 @@ class _BrowserScreenState extends State<BrowserScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                  child: _buildSearchEntry(context),
-                ),
+                if (!compact)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                    child: _buildSearchEntry(context),
+                  ),
                 Expanded(
                     child: ContentBuilder(
                   key: _key,
@@ -204,6 +213,12 @@ class _BrowserScreenState extends State<BrowserScreen>
     );
   }
 
+  Future<void> _openSearch() async {
+    searchHistories = await methods.lastSearchHistories(20);
+    if (!mounted) return;
+    widget.searchBarController.display(modifyInput: '');
+  }
+
   Widget _buildSearchEntry(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
@@ -211,11 +226,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       borderRadius: BorderRadius.circular(18),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () async {
-          searchHistories = await methods.lastSearchHistories(20);
-          if (!mounted) return;
-          widget.searchBarController.display(modifyInput: '');
-        },
+        onTap: _openSearch,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Row(
@@ -242,6 +253,42 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   Widget _buildCategoryFilters(
       BuildContext context, List<Categories> categories) {
+    if (MediaQuery.sizeOf(context).width < 840) {
+      // Restore the pre-PR #5 phone toolbar instead of a second search row
+      // and padded category chips. Keep selection tied to the category slug.
+      return Container(
+        height: 56,
+        padding: const EdgeInsets.only(top: 8),
+        color: Theme.of(context).appBarTheme.backgroundColor,
+        child: Row(
+          children: [
+            Expanded(
+              child: _CompactCategoryTabs(
+                categories: categories,
+                selectedSlug: _slug,
+                onTab: (index) =>
+                    setState(() => _slug = categories[index].slug),
+              ),
+            ),
+            if (MediaQuery.textScalerOf(context).scale(14) > 20)
+              IconButton(
+                tooltip:
+                    '${context.l10n.chooseSort}: ${sortByName(context, _sortBy)}',
+                onPressed: () async {
+                  final value = await chooseSortBy(context);
+                  if (!mounted || value == null) return;
+                  setState(() => _sortBy = value);
+                },
+                icon: const Icon(Icons.sort),
+              )
+            else
+              buildOrderSwitch(context, _sortBy, (value) {
+                if (mounted) setState(() => _sortBy = value);
+              }),
+          ],
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -290,4 +337,80 @@ class _BrowserScreenState extends State<BrowserScreen>
       ),
     );
   }
+}
+
+class _CompactCategoryTabs extends StatefulWidget {
+  final List<Categories> categories;
+  final String selectedSlug;
+  final ValueChanged<int> onTab;
+
+  const _CompactCategoryTabs({
+    required this.categories,
+    required this.selectedSlug,
+    required this.onTab,
+  });
+
+  @override
+  State<_CompactCategoryTabs> createState() => _CompactCategoryTabsState();
+}
+
+class _CompactCategoryTabsState extends State<_CompactCategoryTabs>
+    with TickerProviderStateMixin {
+  late TabController _controller;
+
+  int get _selectedIndex {
+    final index = widget.categories
+        .indexWhere((category) => category.slug == widget.selectedSlug);
+    return index < 0 ? 0 : index;
+  }
+
+  TabController _createController() => TabController(
+        length: widget.categories.length,
+        initialIndex: _selectedIndex,
+        vsync: this,
+      );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = _createController();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CompactCategoryTabs oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.categories.length != widget.categories.length) {
+      _controller.dispose();
+      _controller = _createController();
+    } else if (_controller.index != _selectedIndex) {
+      _controller.index = _selectedIndex;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TabBar(
+        controller: _controller,
+        onTap: widget.onTab,
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
+        indicatorSize: TabBarIndicatorSize.tab,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+        indicator: BoxDecoration(
+          color: Colors.grey.shade500.withValues(alpha: 0.3),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(5),
+            topRight: Radius.circular(5),
+          ),
+        ),
+        tabs: widget.categories
+            .map((category) => Tab(text: category.name))
+            .toList(),
+      );
 }
