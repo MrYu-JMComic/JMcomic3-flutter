@@ -24,11 +24,10 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $buildRoot = if ($env:JM3_BUILD_ROOT) { $env:JM3_BUILD_ROOT } else { $repoRoot }
 $outputRoot = Join-Path $buildRoot (Join-Path 'build' $OutputName)
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
-$env:FLUTTER_BUILD_DIR = $outputRoot
 if (-not [string]::IsNullOrWhiteSpace($SplitDebugInfoDir) -and -not [System.IO.Path]::IsPathRooted($SplitDebugInfoDir)) {
     $SplitDebugInfoDir = Join-Path $outputRoot $SplitDebugInfoDir
 }
-Write-Host "Flutter output: $env:FLUTTER_BUILD_DIR"
+Write-Host "Release staging: $outputRoot"
 $jniRoot = Join-Path $repoRoot "android/app/src/main/jniLibs"
 
 $normalizedAbi = @()
@@ -145,17 +144,20 @@ function Sign-AndVerifyDebugApks {
 Push-Location $repoRoot
 try {
     if (-not $NoPubGet) {
-        flutter pub get
+        & flutter pub get --enforce-lockfile
+        if ($LASTEXITCODE -ne 0) { throw "flutter pub get failed with exit code $LASTEXITCODE" }
     }
 
     # Split APK per ABI to reduce single-package size.
     if (-not $AabOnly) {
-        flutter build apk --release --target-platform $targetPlatforms --split-per-abi @sizeArgs
+        & flutter build apk --release --target-platform $targetPlatforms --split-per-abi @sizeArgs
+        if ($LASTEXITCODE -ne 0) { throw "APK build failed with exit code $LASTEXITCODE" }
     }
 
     # AAB for app store distribution.
     if (-not $ApkOnly) {
-        flutter build appbundle --release --target-platform $targetPlatforms @sizeArgs
+        & flutter build appbundle --release --target-platform $targetPlatforms @sizeArgs
+        if ($LASTEXITCODE -ne 0) { throw "AAB build failed with exit code $LASTEXITCODE" }
     }
 }
 finally {
@@ -163,7 +165,9 @@ finally {
 }
 
 if (-not $AabOnly) {
-    $apkOutputRoot = Join-Path $outputRoot 'app/outputs/flutter-apk'
+    # Flutter 3.41 uses its configured build directory, not FLUTTER_BUILD_DIR.
+    # This project and its Gradle runner use the default repo-local build/.
+    $apkOutputRoot = Join-Path $repoRoot 'build/app/outputs/flutter-apk'
     if ($DebugSign) {
         Sign-AndVerifyDebugApks -Root $repoRoot -ApkRoot $apkOutputRoot
         Write-Host 'APK signing: Android debug keystore (test install only)' -ForegroundColor Yellow

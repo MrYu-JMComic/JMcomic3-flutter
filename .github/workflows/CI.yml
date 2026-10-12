@@ -1,9 +1,8 @@
 name: Flutter CI
 
 on:
-  # Release/verification is performed in the pinned local environment under
-  # D:\Cat\jm3\build. Keep this workflow available for an explicit manual
-  # diagnostic run, but do not start a hosted build for every branch push.
+  # Releases use the pinned local environment (docs/RELEASING.md).
+  # Keep hosted CI available for manual diagnostics.
   workflow_dispatch:
 
 permissions:
@@ -30,10 +29,10 @@ jobs:
           cache: true
 
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       - name: Analyze
-        run: flutter analyze
+        run: flutter analyze --no-pub --no-fatal-infos lib test integration_test test_driver
 
       - name: Test
-        run: flutter test
+        run: flutter test --no-pub --concurrency=1

@@ -1,5 +1,24 @@
-v1.7.25+54
-- [x] 下载列表与下载详情页改为按需自动刷新，减少重复全量加载
-- [x] 下载卡片补充进度条与状态判断封装，下载 / 删除状态展示更稳定
-- [x] 修复本地版本更新后 Android 打包仍读取旧 local.properties 版本的问题
-- [x] Android Rust JNI 校验与同步链路优化，避免 ABI 库名或架构不一致
+v1.7.26+55
+
+## 更新内容
+
+- 重写阅读器缩放、连续阅读、快速跳页和实际可见页进度保存。
+- 修复收藏尾页导致总页数膨胀，改善浏览历史和短列表自动补页。
+- 重写漫画详情页，增加适配明暗主题的彩色标签与流式章节目录。
+- 整理个人中心、导航、字体和阅读进度条，保留紧凑的手机布局。
+- 重写中英文文档，清理退役计划与失效构建流程，补充上游引用。
+
+## 下载
+
+- Android：ARM64 APK、ARM32 APK 与 AAB，均为本地 release 构建。
+- Windows：x64 portable ZIP，完整解压后运行 jmcomic3.exe。
+- SHA256SUMS.txt 用于校验附件；build-info.json 记录源码、工具链和验证结果。
+
+Android 沿用已发布 v1.7.25+54 的签名密钥。请使用相同架构的 APK 覆盖更新；更早使用
+旧密钥的安装需要先备份数据，再卸载并重新安装。Windows 可执行文件未做代码签名。
+
+## 引用与致谢
+
+- [ComicSparks/jasmine](https://github.com/ComicSparks/jasmine)：Flutter 阅读器结构和阅读交互参考。
+- [hect0x7/JMComic-Crawler-Python](https://github.com/hect0x7/JMComic-Crawler-Python)：Rust 后端 API 协议、签名、请求头及登录参考。
+- 详细范围与第三方声明见 [REFERENCES.md](https://github.com/MrYu-JMComic/JMcomic3-flutter/blob/main/REFERENCES.md)。

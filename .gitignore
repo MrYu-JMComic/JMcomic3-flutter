@@ -65,16 +65,21 @@ app.*.map.json
 /rust-android-jni-*/
 /jni-review-backup/
 
-# Build outputs generated inside linked worktrees
-/worktrees/**/build/
+# Local checkouts, retired worktrees, and release staging
+/rust-backend/
+/worktrees/
+/_desktop_build_*/
 /dist/
+/secrets/
+/INVOKE_REFACTOR_PLAN_ZH.md
+/invoke_checks.txt
 
 cmake-build-*/
 windows/rust.lib
 windows/rust1.h
 /data/
 
-pubspec.lock
+# The app pubspec.lock is tracked for reproducible releases.
 Cargo.lock
 target/
 

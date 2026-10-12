@@ -1,41 +1,37 @@
-# Android 设备回归
+# Android 阅读器设备回归
 
-`reader_android_test.dart` 在真实 Android Flutter 引擎上执行 19 项确定性测试：
+`reader_android_test.dart` 在真实 Android Flutter 引擎上复用
+`test/reader_regression_test.dart` 的控件回归。测试覆盖缩放后单指拖动、缩放复原、
+正反向连续阅读、图库与奇数双页、快速跳页、可见页进度保存、切章和图片资源释放。
+实际数量以本次测试日志为准。
 
-- 6 项收藏分页：接口容量、末页限制和无效容量回退。
-- 1 项每周必看：刷新缓存和切换期刊的请求参数。
-- 12 项阅读器：双击缩放后的单指移动、缩放复原后的翻页/滚动、动画跳页目标、异高图片定位、双页边界、退出进度、预加载顺序和图片内存释放。
-
-阅读器使用应用缓存目录中生成的 PNG，并模拟 `methods` 通道响应。手势、布局、帧调度、文件解码和缓存都由设备实际执行，接口测试无需账号或网络。此回归验证不包含在线登录和服务器可用性。
+图片与后端响应由确定性夹具提供；设备实际执行手势、布局、帧调度、文件解码和缓存。
+此回归无需个人账号，也不代替在线登录、服务器可用性或不同机型验收。
+截图直接捕获设备引擎渲染的阅读器 RepaintBoundary，避免调整测试视口后 Android
+ImageView 截图等待下一 native 帧而阻塞；截图不包含系统状态栏。
 
 ## 前置条件
 
-1. 已运行 `flutter pub get`。
-2. Android 设备已经启动，并可通过 `adb devices` 看到。
-3. 模拟器使用 x86_64，`android/app/src/main/jniLibs/x86_64/librust.so` 已从本次后端源码构建。`scripts/build_android_emulator.ps1` 可生成该 JNI 库和普通应用 APK。
-4. 同一项目没有其他 Gradle 构建或设备安装任务正在运行。
-
-项目使用独立回归 AVD `jmcomic3-api35-regression`，默认设备 ID 为 `emulator-5556`。在项目根目录执行：
-
-```powershell
-.\scripts\test_reader_android.ps1
-```
-
-使用其他设备 ID：
+1. 从仓库根目录加载 `scripts/enter_build_env.ps1` 并运行 `flutter pub get`。
+2. 使用 `adb devices` 确认设备在线。默认设备为 `emulator-5556`，本机回归 AVD 为
+   `jmcomic3-api35-regression`（Android API 35 / x86_64）。
+3. 如需普通模拟器应用，运行 `scripts/build_android_emulator.ps1`，该脚本重建
+   x86_64 JNI。集成回归使用自己的测试入口。
+4. 同一项目没有其他 Gradle 构建或设备安装任务运行。
 
 ```powershell
+. .\scripts\enter_build_env.ps1 -SkipVisualStudio
 .\scripts\test_reader_android.ps1 -DeviceId emulator-5556
 ```
 
-测试会构建并安装集成测试 APK，结束后保留 `Reader closed` 画面及应用进程。继续在线体验时需重新安装普通应用 APK。
+脚本构建并安装测试 APK。结束后保留退出阅读器后的进程；继续使用普通应用前应重新
+安装普通应用 APK。发布版本在对应 ABI 设备上另行验证安装和签名更新兼容性。
 
-## 输出文件
+## 输出
 
-结果持久保存到 `dist/device-test`：
+脚本的 transcript 和驱动截图保存在 `dist/device-test/`，包括
+`reader_android.log`、`reader_exit_memory.txt` 和截图。日志中的 `All tests passed`
+及命令退出码是本次结果；同目录历史报告不作为当前测试通过的依据。
 
-- `reader_android.log`：完整设备运行日志和成功/失败明细。
-- `reader_android_report.json`：设备尺寸、测试结果、动画中间采样、图片缓存计数和预加载顺序。
-- `reader_*.png`：设备截图。
-- `reader_exit_memory.txt`：退出阅读器后 Android 进程的 `dumpsys meminfo`，作为 Flutter 缓存断言的辅助证据。
-
-脚本还启用 Flutter Driver 超时截图。进程内存包含引擎、JNI 和运行时分配，其数值不能直接等同于图片缓存容量。
+退出后的 `dumpsys meminfo` 包含引擎、JNI 和运行时分配，其数值不等于图片缓存容量。
+报告、截图及日志按版本归档，避免下次回归覆盖发布证据。
