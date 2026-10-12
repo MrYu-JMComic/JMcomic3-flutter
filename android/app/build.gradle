@@ -89,6 +89,16 @@ android {
 
     buildTypes {
         release {
+            // Flutter's default bundle filters include x86_64 even when only
+            // ARM targets were requested. Keep emulator JNI out of ARM releases.
+            // ABI split APKs already filter their libraries and conflict with
+            // ndk.abiFilters, so apply this only to bundles/universal APKs.
+            if (!project.findProperty('split-per-abi')?.toString()?.toBoolean()) {
+                ndk {
+                    abiFilters.clear()
+                    abiFilters.addAll(rustAndroidTrackedAbis)
+                }
+            }
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
             }
