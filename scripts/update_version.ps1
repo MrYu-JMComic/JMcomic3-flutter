@@ -3,23 +3,28 @@ param(
   [string]$Version
 )
 
+$ErrorActionPreference = 'Stop'
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+
 $raw = $Version.Trim()
 if ($raw.StartsWith('v')) {
   $raw = $raw.Substring(1)
 }
-if ($raw -notmatch '^\d+\.\d+\.\d+(\+\d+)?$') {
-  throw "Invalid version format. Expected like 1.7.17+45 or v1.7.17+45"
+if ($raw -notmatch '^\d+\.\d+\.\d+\+[1-9]\d*$') {
+  throw "Invalid version format. Expected like 1.7.26+55 or v1.7.26+55"
 }
 
 $pubVersion = $raw
 $txtVersion = "v$raw"
 
 function Replace-Line($path, $pattern, $replacement) {
+  $path = Join-Path $repoRoot $path
   if (-not (Test-Path $path)) { return $false }
   $content = Get-Content $path -Raw
   $updated = [regex]::Replace($content, $pattern, $replacement, 'Multiline')
   if ($updated -ne $content) {
-    Set-Content -Path $path -Value $updated
+    [System.IO.File]::WriteAllText($path, $updated, $utf8)
     return $true
   }
   return $false
@@ -29,25 +34,21 @@ function Replace-Line($path, $pattern, $replacement) {
 Replace-Line "pubspec.yaml" '^version:\s*.*$' "version: $pubVersion" | Out-Null
 
 # assets version
-Set-Content -Path "lib\assets\version.txt" -Value $txtVersion
+[System.IO.File]::WriteAllText((Join-Path $repoRoot 'lib/assets/version.txt'), "$txtVersion`n", $utf8)
 
 # ci version.code.txt
-if (Test-Path "ci\version.code.txt") {
-  Set-Content -Path "ci\version.code.txt" -Value $txtVersion
+if (Test-Path (Join-Path $repoRoot 'ci/version.code.txt')) {
+  [System.IO.File]::WriteAllText((Join-Path $repoRoot 'ci/version.code.txt'), "$txtVersion`n", $utf8)
 }
 
 # ci version.info.txt (update first line only)
-if (Test-Path "ci\version.info.txt") {
-  $lines = Get-Content "ci\version.info.txt"
-  if ($lines.Length -gt 0) {
-    $lines[0] = $txtVersion
-    Set-Content -Path "ci\version.info.txt" -Value $lines
-  }
+if (Test-Path (Join-Path $repoRoot 'ci/version.info.txt')) {
+  Replace-Line 'ci/version.info.txt' '\A[^\r\n]*' $txtVersion | Out-Null
 }
 
 # Android local builds read versionName/versionCode from android/local.properties.
 # Keep it in sync when the local file exists.
-if (Test-Path "android\local.properties") {
+if (Test-Path (Join-Path $repoRoot 'android/local.properties')) {
   $versionName = $raw.Split('+')[0]
   $versionCode = if ($raw.Contains('+')) { $raw.Split('+')[1] } else { $null }
   Replace-Line "android\local.properties" '^flutter\.versionName\s*=.*$' "flutter.versionName=$versionName" | Out-Null
